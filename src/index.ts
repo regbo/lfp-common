@@ -176,44 +176,50 @@ async function prepareLock(
   options: ResolvedLockOptionsData,
   fileBase: string,
 ): Promise<PreparedLock> {
-  switch (options.scope) {
-    case "memory":
-      return singleBackend(prepareMemoryBackend(info, options));
-    case "worker":
-      return singleBackend(prepareWorkerBackend(info, options));
-    case "file":
-      return singleBackend(await prepareFileBackend(info, options, fileBase));
-    case "all": {
-      const controller = new AbortController();
-      const layeredOptions = { ...options, signal: controller.signal };
-      const backends = [
-        prepareMemoryBackend(info, layeredOptions),
-        prepareWorkerBackend(info, layeredOptions, true),
-        await prepareFileBackend(info, layeredOptions, fileBase),
-      ];
-      return layeredBackends(info, options, controller, backends);
+  const controller = new AbortController();
+  const isLayered = options.scope.length > 1;
+  const effectiveOptions = isLayered
+    ? { ...options, signal: controller.signal }
+    : options;
+  const fileLayerSelected = options.scope.includes("file");
+  const backends: PreparedBackend[] = [];
+
+  for (const scope of options.scope) {
+    switch (scope) {
+      case "memory":
+        backends.push(prepareMemoryBackend(info, effectiveOptions));
+        break;
+      case "worker":
+        backends.push(
+          prepareWorkerBackend(info, effectiveOptions, fileLayerSelected),
+        );
+        break;
+      case "file":
+        backends.push(
+          await prepareFileBackend(info, effectiveOptions, fileBase),
+        );
+        break;
     }
   }
+
+  if (backends.length === 1) return singleBackend(backends[0]!);
+  return layeredBackends(info, options, controller, backends);
 }
 
 function provisionalBackends(
   options: ResolvedLockOptionsData,
 ): readonly LockBackendInfo[] {
   const fileType = options.fileStrategy === "poll" ? "poll" : "flock";
-  switch (options.scope) {
-    case "memory":
-      return [{ scope: "memory", type: "memory" }];
-    case "worker":
-      return [{ scope: "worker", type: "worker" }];
-    case "file":
-      return [{ scope: "file", type: fileType }];
-    case "all":
-      return [
-        { scope: "memory", type: "memory" },
-        { scope: "worker", type: "worker" },
-        { scope: "file", type: fileType },
-      ];
-  }
+  return options.scope.map((scope) => {
+    switch (scope) {
+      case "memory":
+        return { scope, type: "memory" } as const;
+      case "worker":
+        return { scope, type: "worker" } as const;
+      case "file":
+        return { scope, type: fileType } as const;
+    }
+  });
 }
 
 const withLockImplementation = async <TContext extends object, TResult>(
@@ -247,7 +253,7 @@ const withLockImplementation = async <TContext extends object, TResult>(
     name: identity.name,
     namespace: identity.namespace,
     scope: options.scope,
-    ...(options.scope === "all" || options.scope === "file"
+    ...(options.scope.includes("file")
       ? { strategy: options.fileStrategy }
       : {}),
   } satisfies BaseLockInfo;
@@ -349,6 +355,7 @@ export { LockAbortedError, LockTimeoutError, LockUnavailableError } from "./erro
 export { memoize } from "./memoize.js";
 export {
   fileLockStrategySchema,
+  lockBackendScopeSchema,
   lockOptionsSchema,
   lockScopeSchema,
   lockTimeoutSchema,
@@ -357,6 +364,7 @@ export type {
   FileLockStrategy,
   LockTimeout,
   LockScope,
+  ResolvedLockScope,
   ResolvedLockTimeout,
 } from "./schemas.js";
 export type {

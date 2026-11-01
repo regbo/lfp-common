@@ -48,9 +48,10 @@ Use a narrower scope only when you deliberately need one boundary:
 
 ```ts
 await withLock(context, action, { scope: "memory" });
-await withLock(context, action, { scope: "worker" });
-await withLock(context, action, { scope: "file" });
+await withLock(context, action, { scope: ["memory", "file"] });
 ```
+
+`scope` accepts one backend or a non-empty array. Omit it to acquire all three. Selected layers always run in `memory`, `worker`, `file` order regardless of the array's input order.
 
 ## Memoization
 
@@ -89,7 +90,7 @@ flowchart TD
 
 `withLock` is a key-scoped lock. Calls with the same namespace and key run one at a time; calls with different keys can run concurrently. If no key is supplied, loqkit hashes the context into a stable key.
 
-The default `scope: "all"` acquires these layers in order and releases them in reverse:
+When `scope` is omitted, loqkit acquires these layers in order and releases them in reverse:
 
 1. An in-memory [`async-mutex`](https://github.com/DirtyHairy/async-mutex) lock serializes callers in the current JavaScript isolate.
 2. Node's worker lock manager coordinates worker threads when the runtime provides it. In the default layered mode, the file layer still preserves coordination when that API is unavailable; an explicit worker-only lock reports `LockUnavailableError` instead.

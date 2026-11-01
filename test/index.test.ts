@@ -69,7 +69,24 @@ describe("memoize", () => {
 });
 
 describe("withLock", () => {
-  test("normalizes optional timeout shorthand", () => {
+  test("normalizes scope and optional timeout shorthand", () => {
+    expect(lockOptionsSchema.parse({}).scope).toEqual([
+      "memory",
+      "worker",
+      "file",
+    ]);
+    expect(lockOptionsSchema.parse({ scope: "memory" }).scope).toEqual([
+      "memory",
+    ]);
+    expect(
+      lockOptionsSchema.parse({ scope: ["file", "memory"] }).scope,
+    ).toEqual(["memory", "file"]);
+    expect(() => lockOptionsSchema.parse({ scope: [] })).toThrow();
+    expect(() =>
+      lockOptionsSchema.parse({ scope: ["memory", "memory"] }),
+    ).toThrow();
+    expect(() => lockOptionsSchema.parse({ scope: "all" })).toThrow();
+
     expect(lockOptionsSchema.parse({}).timeout).toBeUndefined();
     expect(lockOptionsSchema.parse({ timeout: 25 }).timeout).toEqual({
       ms: 25,
@@ -95,7 +112,7 @@ describe("withLock", () => {
           { resource: "layered" },
           async ({ acquired, lock }) => {
             expect(acquired).toBe(true);
-            expect(lock.scope).toBe("all");
+            expect(lock.scope).toEqual(["memory", "worker", "file"]);
             expect(lock.type).toBe("composite");
             expect(lock.backends.map(({ scope }) => scope)).toEqual([
               "memory",
@@ -149,6 +166,27 @@ describe("withLock", () => {
       timedOut: false,
     });
     expect(checks).toBe(2);
+  });
+
+  test("supports multiple selected scopes in canonical order", async () => {
+    const lockDirectory = await mkdtemp(join(tmpdir(), "loqkit-scope-test-"));
+
+    try {
+      const result = await withLock(
+        { resource: "selected-scopes" },
+        ({ lock }) => lock.backends.map(({ scope }) => scope),
+        {
+          fileStrategy: "poll",
+          lockDirectory,
+          scope: ["file", "memory"],
+        },
+      );
+
+      expect(result.value).toEqual(["memory", "file"]);
+      expect(result.stats.scope).toEqual(["memory", "file"]);
+    } finally {
+      await rm(lockDirectory, { force: true, recursive: true });
+    }
   });
 
   test("accepts the predicate as an options field", async () => {
@@ -363,13 +401,13 @@ describe("withLock", () => {
     const options = lockOptionsSchema.parse({
       fileStrategy: "auto",
       lockDirectory: root,
-      scope: "file",
+      scope: ["file"],
     });
     const info = {
       id: "native-fallback",
       name: "native-fallback",
       namespace: "loqkit-test",
-      scope: "file",
+      scope: ["file"],
       type: "flock",
       backends: [{ scope: "file", type: "flock" }],
       state: "checking",
@@ -417,7 +455,7 @@ describe("withLock", () => {
       id: "required-native",
       name: "required-native",
       namespace: "loqkit-test",
-      scope: "file",
+      scope: ["file"],
       type: "flock",
       backends: [{ scope: "file", type: "flock" }],
       state: "checking",

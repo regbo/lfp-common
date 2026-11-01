@@ -44,16 +44,16 @@ function passThroughBackend(
 export function prepareWorkerBackend(
   info: Readonly<LockInfo>,
   options: ResolvedLockOptionsData,
-  memoryAlreadyHeld = false,
+  fileLayerSelected = false,
 ): PreparedBackend {
   const locks = getWorkerLocks();
   if (!locks) {
     const fallback = {
       scope: "worker",
-      type: "memory",
-      fallback: "worker-locks-unavailable",
+      type: "skipped",
+      fallback: "worker-locks-unavailable-file-layer-selected",
     } as const satisfies LockBackendInfo;
-    if (memoryAlreadyHeld) return passThroughBackend(fallback);
+    if (fileLayerSelected) return passThroughBackend(fallback);
     throw new LockUnavailableError(
       info,
       "the runtime does not provide worker_threads.locks",

@@ -1,12 +1,19 @@
 import type {
   FileLockStrategy,
+  LockBackendScope as SchemaLockBackendScope,
   LockOptionsInput,
   LockScope,
+  ResolvedLockScope,
   ResolvedLockOptionsData,
 } from "./schemas.js";
 
-export type LockBackendScope = Exclude<LockScope, "all">;
-export type ResolvedLockType = "memory" | "worker" | "flock" | "poll";
+export type LockBackendScope = SchemaLockBackendScope;
+export type ResolvedLockType =
+  | "memory"
+  | "worker"
+  | "flock"
+  | "poll"
+  | "skipped";
 export type LockType = ResolvedLockType | "composite";
 export type LockState = "checking" | "waiting" | "acquired";
 
@@ -23,7 +30,7 @@ export interface LockInfo {
   readonly id: string;
   readonly name: string;
   readonly namespace: string;
-  readonly scope: LockScope;
+  readonly scope: ResolvedLockScope;
   readonly type: LockType;
   readonly backends: readonly Readonly<LockBackendInfo>[];
   readonly state: LockState;
@@ -64,15 +71,19 @@ interface LockCallbacks<TContext extends object> {
 /** Lock configuration with callbacks typed to the supplied context. */
 export type LockOptions<TContext extends object = object> = Omit<
   LockOptionsInput,
-  "onCheckFailed" | "predicate"
-> &
+  "onCheckFailed" | "predicate" | "scope"
+> & {
+  readonly scope?: LockScope;
+} &
   LockCallbacks<TContext>;
 
 /** Runtime-resolved lock configuration with context-aware callbacks. */
 export type ResolvedLockOptions<TContext extends object = object> = Omit<
   ResolvedLockOptionsData,
-  "onCheckFailed" | "predicate"
-> &
+  "onCheckFailed" | "predicate" | "scope"
+> & {
+  readonly scope: ResolvedLockScope;
+} &
   LockCallbacks<TContext>;
 
 export type LockOutcome =
