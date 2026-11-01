@@ -4,7 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { prepareFileBackend } from "../src/backends/file.js";
-import { LockUnavailableError, memoize, withLock } from "../src/index.js";
+import {
+  LockTimeoutError,
+  LockUnavailableError,
+  memoize,
+  withLock,
+} from "../src/index.js";
 import { lockOptionsSchema } from "../src/schemas.js";
 import type { LockInfo } from "../src/types.js";
 
@@ -96,8 +101,11 @@ describe("withLock", () => {
           },
         );
 
-      await Promise.all([run(), run(), run()]);
+      const results = await Promise.all([run(), run(), run()]);
       expect(peak).toBe(1);
+      expect(results.every(({ stats }) => stats.outcome === "executed")).toBe(
+        true,
+      );
     } finally {
       await rm(lockDirectory, { force: true, recursive: true });
     }
@@ -118,7 +126,13 @@ describe("withLock", () => {
       { scope: "memory" },
     );
 
-    expect(result).toBe("done");
+    expect(result.value).toBe("done");
+    expect(result.stats).toMatchObject({
+      acquired: true,
+      executed: true,
+      outcome: "executed",
+      timedOut: false,
+    });
     expect(checks).toBe(2);
   });
 
@@ -143,7 +157,8 @@ describe("withLock", () => {
       },
     );
 
-    expect(result).toBe("done");
+    expect(result.value).toBe("done");
+    expect(result.stats.outcome).toBe("executed");
     expect(checks).toBe(2);
     expect(actions).toBe(1);
     expect(acquiredPhases).toEqual([false, true]);
@@ -180,7 +195,13 @@ describe("withLock", () => {
       },
     );
 
-    expect(result).toBeUndefined();
+    expect(result.value).toBeUndefined();
+    expect(result.stats).toMatchObject({
+      acquired: true,
+      executed: false,
+      outcome: "predicate-after",
+      timedOut: false,
+    });
     expect(observedAcquired).toBe(true);
     expect(actions).toBe(0);
     expect(nestedActions).toBe(1);
@@ -205,7 +226,13 @@ describe("withLock", () => {
       },
     );
 
-    expect(result).toBeUndefined();
+    expect(result.value).toBeUndefined();
+    expect(result.stats).toMatchObject({
+      acquired: false,
+      executed: false,
+      outcome: "predicate-before",
+      timedOut: false,
+    });
     expect(observedAcquired).toBe(false);
     expect(observedState).toBe("checking");
   });
@@ -228,10 +255,63 @@ describe("withLock", () => {
         },
       );
 
-      expect(result).toBe("finished");
+      expect(result.value).toBe("finished");
+      expect(result.stats.outcome).toBe("executed");
     } finally {
       await rm(lockDirectory, { force: true, recursive: true });
     }
+  });
+
+  test("returns timeout stats when configured and throws by default", async () => {
+    const key = "immediate-timeout";
+    let signalEntered!: () => void;
+    let releaseHolder!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      signalEntered = resolve;
+    });
+    const release = new Promise<void>((resolve) => {
+      releaseHolder = resolve;
+    });
+    const holder = withLock(
+      { resource: key },
+      async () => {
+        signalEntered();
+        await release;
+        return "holder";
+      },
+      { key, scope: "memory" },
+    );
+    await entered;
+
+    const attempt = await withLock(
+      { resource: key },
+      () => "contender",
+      {
+        errorOnTimeout: false,
+        key,
+        scope: "memory",
+        timeoutMs: 0,
+      },
+    );
+    expect(attempt.value).toBeUndefined();
+    expect(attempt.stats).toMatchObject({
+      acquired: false,
+      executed: false,
+      outcome: "timeout",
+      state: "waiting",
+      timedOut: true,
+    });
+
+    await expect(
+      withLock(
+        { resource: key },
+        () => "contender",
+        { key, scope: "memory", timeoutMs: 0 },
+      ),
+    ).rejects.toBeInstanceOf(LockTimeoutError);
+
+    releaseHolder();
+    expect((await holder).value).toBe("holder");
   });
 
   test("serializes file-scoped work across processes", async () => {
@@ -362,6 +442,33 @@ describe("withLock", () => {
         }),
       ).rejects.toMatchObject({ code: "LOQKIT_UNAVAILABLE" });
       expect(actionRan).toBe(false);
+
+      let attempts = 0;
+      const immediateOptions = lockOptionsSchema.parse({
+        fileStrategy: "flock",
+        lockDirectory: root,
+        scope: "file",
+        timeoutMs: 0,
+      });
+      const busyBackend = await prepareFileBackend(
+        info,
+        immediateOptions,
+        join(root, "busy"),
+        {
+          loadFsExt: async () => ({
+            flock(_fileDescriptor, _flags, callback) {
+              attempts += 1;
+              callback(
+                Object.assign(new Error("flock busy"), { code: "EAGAIN" }),
+              );
+            },
+          }),
+        },
+      );
+      await expect(busyBackend.run(async () => undefined)).rejects.toBeInstanceOf(
+        LockTimeoutError,
+      );
+      expect(attempts).toBe(1);
     } finally {
       await rm(root, { force: true, recursive: true });
     }

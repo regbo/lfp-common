@@ -28,6 +28,8 @@ export const lockOptionsSchema = z
     fileStrategy: fileLockStrategySchema.default("auto"),
     /** Maximum total time spent waiting. Zero performs one immediate attempt. */
     timeoutMs: z.number().int().min(0).max(2_147_483_647).default(30_000),
+    /** Throws on timeout by default; false returns timeout statistics instead. */
+    errorOnTimeout: z.boolean().default(true),
     /** Delay between polling-file lock attempts. */
     pollIntervalMs: z.number().int().min(1).max(60_000).default(100),
     /** Age after which an abandoned polling lock can be reclaimed. */

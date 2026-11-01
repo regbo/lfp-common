@@ -16,7 +16,10 @@ import type {
   LockContext,
   LockInfo,
   LockOptions,
+  LockOutcome,
   LockPredicate,
+  LockResult,
+  LockStats,
   WithLock,
 } from "./types.js";
 
@@ -69,6 +72,23 @@ function createInfo(
     waitedMs,
     ...(state === "acquired" ? { acquiredAt: new Date().toISOString() } : {}),
   });
+}
+
+function createResult<TResult>(
+  value: TResult | undefined,
+  lock: Readonly<LockInfo>,
+  outcome: LockOutcome,
+): Readonly<LockResult<TResult>> {
+  const executed = outcome === "executed";
+  const acquired = executed || outcome === "predicate-after";
+  const stats: Readonly<LockStats> = Object.freeze({
+    ...lock,
+    outcome,
+    acquired,
+    executed,
+    timedOut: outcome === "timeout",
+  });
+  return Object.freeze({ value, stats });
 }
 
 function singleBackend(backend: PreparedBackend): PreparedLock {
@@ -201,7 +221,7 @@ const withLockImplementation = async <TContext extends object, TResult>(
   action: LockAction<TContext, TResult>,
   predicateOrOptions?: LockPredicate<TContext> | LockOptions<TContext>,
   suppliedOptions?: LockOptions<TContext>,
-): Promise<TResult | undefined> => {
+): Promise<LockResult<TResult>> => {
   const options = lockOptionsSchema.parse(
     typeof predicateOrOptions === "function"
       ? suppliedOptions
@@ -245,37 +265,74 @@ const withLockImplementation = async <TContext extends object, TResult>(
     !(await predicate(createContext(context, checkingInfo, false)))
   ) {
     await onCheckFailed?.(createContext(context, checkingInfo, false));
-    return undefined;
+    return createResult(undefined, checkingInfo, "predicate-before");
   }
 
   const startedAt = performance.now();
   let acquiredInfo: Readonly<LockInfo> | undefined;
+  let fullyAcquired = false;
 
-  const result = await prepared.run(async (details) => {
-    acquiredInfo = createInfo(
-      baseInfo,
-      details,
-      "acquired",
-      Math.max(0, performance.now() - startedAt),
-    );
-    const acquiredContext = createContext(context, acquiredInfo, true);
+  let result:
+    | {
+        readonly outcome: "predicate-after";
+        readonly context: LockContext<TContext, true>;
+      }
+    | {
+        readonly outcome: "executed";
+        readonly value: TResult;
+        readonly lock: Readonly<LockInfo>;
+      };
+  try {
+    result = await prepared.run(async (details) => {
+      fullyAcquired = true;
+      acquiredInfo = createInfo(
+        baseInfo,
+        details,
+        "acquired",
+        Math.max(0, performance.now() - startedAt),
+      );
+      const acquiredContext = createContext(context, acquiredInfo, true);
 
-    if (predicate && !(await predicate(acquiredContext))) {
+      if (predicate && !(await predicate(acquiredContext))) {
+        return {
+          outcome: "predicate-after",
+          context: acquiredContext,
+        } as const;
+      }
+
+      const value = await action(acquiredContext);
       return {
-        executed: false,
-        context: acquiredContext,
+        outcome: "executed",
+        value,
+        lock: acquiredInfo,
       } as const;
+    });
+  } catch (error) {
+    if (
+      error instanceof LockTimeoutError &&
+      !fullyAcquired &&
+      !options.errorOnTimeout
+    ) {
+      const waitingInfo = createInfo(
+        baseInfo,
+        prepared.initial,
+        "waiting",
+        Math.max(0, performance.now() - startedAt),
+      );
+      return createResult(undefined, waitingInfo, "timeout");
     }
-
-    const value = await action(acquiredContext);
-    return { executed: true, value } as const;
-  });
-
-  if (!result.executed) {
-    await onCheckFailed?.(result.context);
-    return undefined;
+    throw error;
   }
-  return result.value;
+
+  if (result.outcome === "predicate-after") {
+    await onCheckFailed?.(result.context);
+    return createResult(
+      undefined,
+      result.context.lock,
+      "predicate-after",
+    );
+  }
+  return createResult(result.value, result.lock, "executed");
 };
 
 /**
@@ -306,8 +363,11 @@ export type {
   LockCheckFailedHandler,
   LockContext,
   LockInfo,
+  LockOutcome,
   LockOptions,
   LockPredicate,
+  LockResult,
+  LockStats,
   ResolvedLockOptions,
   LockState,
   LockType,

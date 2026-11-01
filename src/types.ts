@@ -75,39 +75,37 @@ export type ResolvedLockOptions<TContext extends object = object> = Omit<
 > &
   LockCallbacks<TContext>;
 
-type LockOptionsWithoutPredicate<TContext extends object> = Omit<
-  LockOptions<TContext>,
-  "predicate"
-> & { readonly predicate?: never };
+export type LockOutcome =
+  | "executed"
+  | "predicate-before"
+  | "predicate-after"
+  | "timeout";
 
-type LockOptionsWithPredicate<TContext extends object> = Omit<
-  LockOptions<TContext>,
-  "predicate"
-> & { readonly predicate: LockPredicate<TContext> };
+/** Lock metadata plus the outcome of one withLock attempt. */
+export interface LockStats extends LockInfo {
+  readonly outcome: LockOutcome;
+  readonly acquired: boolean;
+  readonly executed: boolean;
+  readonly timedOut: boolean;
+}
+
+/** The action value and statistics for one withLock attempt. */
+export interface LockResult<TResult> {
+  readonly value: TResult | undefined;
+  readonly stats: Readonly<LockStats>;
+}
 
 export interface WithLock {
   <TContext extends object, TResult>(
     context: TContext,
     action: LockAction<TContext, TResult>,
-    options?: LockOptionsWithoutPredicate<TContext>,
-  ): Promise<TResult>;
-
-  <TContext extends object, TResult>(
-    context: TContext,
-    action: LockAction<TContext, TResult>,
-    options: LockOptionsWithPredicate<TContext>,
-  ): Promise<TResult | undefined>;
-
-  <TContext extends object, TResult>(
-    context: TContext,
-    action: LockAction<TContext, TResult>,
-    options: LockOptions<TContext>,
-  ): Promise<TResult | undefined>;
+    options?: LockOptions<TContext>,
+  ): Promise<LockResult<TResult>>;
 
   <TContext extends object, TResult>(
     context: TContext,
     action: LockAction<TContext, TResult>,
     predicate: LockPredicate<TContext>,
     options?: LockOptions<TContext>,
-  ): Promise<TResult | undefined>;
+  ): Promise<LockResult<TResult>>;
 }
