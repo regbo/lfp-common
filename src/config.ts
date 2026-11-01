@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import path from 'node:path';
 import * as envPaths from 'env-paths';
 import semver from 'semver';
@@ -15,7 +14,6 @@ export const DEFAULT_UV_RANGE = '>=0.10.0 <1.0.0';
 const DEFAULT_PROBE_TIMEOUT_MS = 10_000;
 const DEFAULT_INSTALL_TIMEOUT_MS = 10 * 60_000;
 const DEFAULT_DOWNLOAD_TIMEOUT_MS = 5 * 60_000;
-const DEFAULT_CACHE_TTL_MS = 30_000;
 
 // Bun's CommonJS bundler wraps an external ESM default one level deeper than
 // Node.js. Normalize that boundary once instead of leaking runtime checks into
@@ -66,8 +64,6 @@ export interface PyfigOptions {
   downloadTimeoutMs?: number;
   /** Maximum wait for another worker or process provisioning the same resource. */
   coordinationTimeoutMs?: number;
-  /** Lifetime of validated realm-local resolution results; zero disables completed caching. */
-  cacheTtlMs?: number;
   /** Complete child environment and configuration source for this invocation. */
   env?: NodeJS.ProcessEnv;
 }
@@ -91,7 +87,6 @@ export interface ResolvedPyfigOptions {
   installTimeoutMs: number;
   downloadTimeoutMs: number;
   coordinationTimeoutMs: number;
-  cacheTtlMs: number;
   env: NodeJS.ProcessEnv;
 }
 
@@ -136,14 +131,6 @@ export function resolveOptions(options: PyfigOptions = {}): ResolvedPyfigOptions
     env['PYFIG_COORDINATION_TIMEOUT_MS'],
     installTimeoutMs + downloadTimeoutMs + 60_000,
   );
-  const cacheTtlMs = resolveDuration(
-    'cacheTtlMs',
-    options.cacheTtlMs,
-    env['PYFIG_CACHE_TTL_MS'],
-    DEFAULT_CACHE_TTL_MS,
-    true,
-  );
-
   const configuredHome = options.cacheDir ?? env['PYFIG_HOME'];
   const cacheDir = configuredHome
     ? path.resolve(configuredHome)
@@ -174,36 +161,8 @@ export function resolveOptions(options: PyfigOptions = {}): ResolvedPyfigOptions
     installTimeoutMs,
     downloadTimeoutMs,
     coordinationTimeoutMs,
-    cacheTtlMs,
     env,
   };
-}
-
-/** Opaque identity shared by every async and sync resolution cache. */
-export function configurationFingerprint(options: ResolvedPyfigOptions): string {
-  const policy = [
-    normalizedPath(options.projectRoot),
-    normalizedPath(options.cacheDir),
-    options.python,
-    options.pythonRange,
-    options.pipRange,
-    options.managedPython,
-    options.uvVersion,
-    options.uvRange,
-    options.requireEmbedding,
-    options.requireGil,
-    options.autoInstall,
-    options.installPython,
-    options.installUv,
-    options.createVirtualEnvironment,
-    options.probeTimeoutMs,
-    options.installTimeoutMs,
-    options.downloadTimeoutMs,
-    options.coordinationTimeoutMs,
-    options.cacheTtlMs,
-    environmentFingerprint(options.env),
-  ];
-  return createHash('sha256').update(JSON.stringify(policy)).digest('hex');
 }
 
 /** Keep uv-managed Python and cache data inside pyfig's configured cache root. */
@@ -264,20 +223,4 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
   if (/^(1|true|yes|on)$/iu.test(value)) return true;
   if (/^(0|false|no|off)$/iu.test(value)) return false;
   throw new TypeError(`Invalid boolean value: ${value}`);
-}
-
-function environmentFingerprint(env: NodeJS.ProcessEnv): string {
-  const entries = Object.entries(env)
-    .filter((entry): entry is [string, string] => entry[1] !== undefined)
-    .map(([key, value]): [string, string] => [
-      process.platform === 'win32' ? key.toUpperCase() : key,
-      value,
-    ])
-    .sort(([left], [right]) => left.localeCompare(right));
-  return createHash('sha256').update(JSON.stringify(entries)).digest('hex');
-}
-
-function normalizedPath(value: string): string {
-  const resolved = path.resolve(value);
-  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
 }

@@ -9,7 +9,6 @@ import {
   DEFAULT_PYTHON_RANGE,
   DEFAULT_UV_RANGE,
   DEFAULT_UV_VERSION,
-  clearPyfigCaches,
   createPyfig,
   ensureEnvironment,
   ensureUv,
@@ -30,7 +29,6 @@ import {
 } from '../src/probes.ts';
 import { ensurePip, ensurePython } from '../src/provision.ts';
 import { buildPipCommand, buildUvCommand } from '../src/runners.ts';
-import { memoizeAsync } from '../src/state.ts';
 
 let projectRoot = '';
 let noUvCacheDir = '';
@@ -380,7 +378,6 @@ describe('pyfig', () => {
       'DEFAULT_PYTHON_RANGE',
       'DEFAULT_UV_RANGE',
       'DEFAULT_UV_VERSION',
-      'clearPyfigCaches',
       'createPyfig',
       'ensureEnvironment',
       'ensureUv',
@@ -395,12 +392,12 @@ describe('pyfig', () => {
     ]);
   });
 
-  test('memoizes validated environment resolutions for a scoped client', async () => {
-    clearPyfigCaches();
+  test('memoizes scoped client resolutions with Loqkit', async () => {
     const client = createPyfig({ autoInstall: false, projectRoot });
-    const first = await client.prepare();
-    const second = await client.prepare();
+    const first = client.prepare();
+    const second = client.prepare();
     expect(second).toBe(first);
+    expect(await second).toBe(await first);
   });
 
   test('runs Python without requiring pip or uv resolution', async () => {
@@ -422,7 +419,6 @@ describe('pyfig', () => {
   test('reuses the repo environment when PATH exposes no Python or uv', async () => {
     const emptyPath = await mkdtemp(path.join(os.tmpdir(), 'pyfig-empty-path-'));
     try {
-      clearPyfigCaches();
       const result = await capture(await pythonSpawn(
         ['-c', 'import sys; print(sys.executable)'],
         { stdio: ['ignore', 'pipe', 'pipe'] },
@@ -514,37 +510,6 @@ describe('pyfig', () => {
     }
   }, 30_000);
 
-  test('does not let cleared in-flight work repopulate completed caches', async () => {
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => { release = resolve; });
-    let loads = 0;
-    const first = memoizeAsync(
-      'cache-race-test',
-      'resource',
-      60_000,
-      () => true,
-      async () => {
-        loads += 1;
-        await gate;
-        return 'stale';
-      },
-    );
-    clearPyfigCaches();
-    release();
-    expect(await first).toBe('stale');
-    const second = await memoizeAsync(
-      'cache-race-test',
-      'resource',
-      60_000,
-      () => true,
-      async () => {
-        loads += 1;
-        return 'fresh';
-      },
-    );
-    expect(second).toBe('fresh');
-    expect(loads).toBe(2);
-  });
 });
 
 function capture(child: ChildProcess): Promise<{ stdout: string; stderr: string }> {

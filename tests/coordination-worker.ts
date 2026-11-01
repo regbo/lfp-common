@@ -1,6 +1,6 @@
 import { appendFile, mkdir, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { withProvisioningLock } from '../src/coordination.ts';
+import { withProvisioningLock } from '../src/provision-lock.ts';
 
 const root = process.argv[2];
 if (!root) throw new Error('Expected a coordination test directory.');
@@ -11,9 +11,7 @@ await mkdir(target, { recursive: true });
 
 const result = await withProvisioningLock({
   key: `test:${target}`,
-  target,
   timeoutMs: 10_000,
-  env: process.env,
   check: async () => {
     try {
       await stat(completed);

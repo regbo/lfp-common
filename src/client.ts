@@ -4,6 +4,7 @@ import type {
   SpawnSyncOptions,
   spawnSync,
 } from 'node:child_process';
+import { memoize } from 'loqkit';
 import type { PyfigOptions } from './config.js';
 import type { PythonInfo, UvInfo } from './probes.js';
 import {
@@ -20,7 +21,6 @@ import {
   uvSpawn,
   uvSpawnSync,
 } from './runners.js';
-import { clearPyfigCaches } from './state.js';
 
 /** A scoped Pyfig API that keeps one policy object consistent across every operation. */
 export interface PyfigClient {
@@ -42,7 +42,6 @@ export interface PyfigClient {
     args?: readonly string[],
     options?: SpawnSyncOptions,
   ): ReturnType<typeof spawnSync>;
-  clearCache(): void;
 }
 
 /** Bind configuration once so consumers cannot accidentally diverge between calls. */
@@ -51,16 +50,18 @@ export function createPyfig(options: PyfigOptions = {}): PyfigClient {
     ...options,
     env: options.env ? { ...options.env } : undefined,
   };
+  const prepare = memoize(() => ensureEnvironment(scopedOptions));
+  const pythonInfo = memoize(() => ensureVirtualEnvironment(scopedOptions));
+  const uvInfo = memoize(() => ensureUv(scopedOptions));
   return {
-    prepare: () => ensureEnvironment(scopedOptions),
-    pythonInfo: () => ensureVirtualEnvironment(scopedOptions),
-    uvInfo: () => ensureUv(scopedOptions),
+    prepare,
+    pythonInfo,
+    uvInfo,
     python: (args = [], spawnOptions = {}) => pythonSpawn(args, spawnOptions, scopedOptions),
     pythonSync: (args = [], spawnOptions = {}) => pythonSpawnSync(args, spawnOptions, scopedOptions),
     pip: (args = [], spawnOptions = {}) => pipSpawn(args, spawnOptions, scopedOptions),
     pipSync: (args = [], spawnOptions = {}) => pipSpawnSync(args, spawnOptions, scopedOptions),
     uv: (args = [], spawnOptions = {}) => uvSpawn(args, spawnOptions, scopedOptions),
     uvSync: (args = [], spawnOptions = {}) => uvSpawnSync(args, spawnOptions, scopedOptions),
-    clearCache: clearPyfigCaches,
   };
 }

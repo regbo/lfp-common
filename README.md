@@ -51,7 +51,7 @@ The asynchronous helpers return `Promise<ChildProcess>` because discovery or ins
 
 Pass any `PyfigOptions` as the third argument when a helper needs a custom Python range, pip range, project root, cache directory, or installation policy.
 
-Pyfig publishes matching ESM and CommonJS entry points. The root API intentionally contains only configuration constants, the scoped client, preparation helpers, spawn helpers, project-root discovery, public result types, and cache invalidation. Probe and lock internals are not package exports.
+Pyfig publishes matching ESM and CommonJS entry points. The root API intentionally contains only configuration constants, the scoped client, preparation helpers, spawn helpers, project-root discovery, and public result types. Probe and lock internals are not package exports.
 
 Defaults are Python `>=3.10.0 <4.0.0`, pip `>=20.3.0`, managed Python `3.12`, pinned uv `0.13.6`, and external uv `>=0.10.0 <1.0.0`. A compatible configured or PATH uv is preferred even when Pyfig's cached managed version is newer.
 
@@ -137,9 +137,8 @@ bunx --bun pyfig --json
 | `pipSpawn[Sync]()` | Run package commands against the root venv; mutations require uv. |
 | `uvSpawn[Sync]()` | Run uv; direct `uv pip` calls receive the same strict target policy. |
 | `resolveProjectRoot()` | Resolve workspace, package-manager, Python, or Git ownership. |
-| `clearPyfigCaches()` | Invalidate realm-local validated resolution caches. |
 
-The standalone functions remain convenient for scripts. Long-lived consumers such as Pynect should prefer `createPyfig()` so every call shares one policy and the validated memoization path.
+The standalone functions remain convenient for scripts and resolve current filesystem state on every call. Long-lived consumers such as Pynect should prefer `createPyfig()`: Loqkit memoizes each client's first successful preparation, Python, and uv resolution. Create a new client after intentionally changing its external toolchain.
 
 ## Configuration
 
@@ -165,7 +164,6 @@ Precedence is API/CLI option, environment variable, then default.
 | `installTimeoutMs` | `PYFIG_INSTALL_TIMEOUT_MS` | `600000` |
 | `downloadTimeoutMs` | `PYFIG_DOWNLOAD_TIMEOUT_MS` | `300000` |
 | `coordinationTimeoutMs` | `PYFIG_COORDINATION_TIMEOUT_MS` | install + download + 60 seconds |
-| `cacheTtlMs` | `PYFIG_CACHE_TTL_MS` | `30000` (`0` disables completed-result caching) |
 
 Set `PYFIG_UV` to select an existing uv executable.
 
@@ -179,16 +177,15 @@ Node.js 22 through 26 and Bun 1.2+ are supported. Bun-only hosts do not need a `
 
 Pyfig downloads the platform's version-pinned uv archive from Astral's GitHub release, streams it through a bounded request with environment-proxy support, verifies the adjacent SHA-256 checksum, validates the staged executable's exact version, and atomically publishes it into Pyfig's cache. It does not execute an installer script or modify shell profiles.
 
-Virtual-environment creation, uv installation, and managed Python installation share one coordination utility with this order:
+Virtual-environment creation, uv installation, and managed Python installation use Loqkit's default layered lock in this order:
 
 1. Check for a usable tool.
-2. Queue behind the current JavaScript realm's mutex.
-3. Use Node's cross-worker `LockManager` when the runtime provides it.
-4. Use the system `flock` command when it is available and functional.
-5. Acquire the portable heartbeat-based filesystem lease used by every runtime.
-6. Check again and install only when the resource is still absent.
+2. Acquire Loqkit's in-memory lock.
+3. Acquire its worker-thread lock when the runtime provides one.
+4. Acquire its file lock, preferring native flock and falling back to portable polling.
+5. Check again and install only when the resource is still absent.
 
-Long child operations are asynchronous so the filesystem lease heartbeat remains live. uv supplies the separate target-venv lock for package mutations. Resolution results are memoized for a short, configurable interval and revalidated against executable paths before reuse.
+Loqkit owns lock ordering, timeouts, flock fallback, and cross-process lease maintenance. uv supplies the separate target-venv lock for package mutations. Pyfig contains no lock backend or global memoization implementation.
 
 ## Publishing
 

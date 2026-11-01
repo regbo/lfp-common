@@ -2,10 +2,10 @@
 
 | Utility | Location | Responsibility | Main consumers |
 | --- | --- | --- | --- |
-| `resolveOptions`, `configurationFingerprint` | `src/config.ts` | Snapshot and validate configuration, then derive the shared opaque identity used by every resolution cache. | Provisioning, runners, CLI |
+| `resolveOptions` | `src/config.ts` | Snapshot and validate centralized API and environment configuration. | Provisioning, runners, CLI |
 | `resolveProjectRoot` | `src/project-root.ts` | Resolve workspace, package-manager, Python, or Git project ownership. | Configuration, public API |
-| `memoizeAsync`, `memoizeSync`, `clearPyfigCaches` | `src/state.ts` | Single-flight expensive lookups and retain only short-lived, validated results. | Provisioning, sync runners, public API |
-| `withProvisioningLock`, `withResourceLock` | `src/coordination.ts` | Apply realm, worker, optional flock, portable lease, and post-lock-check coordination in one order. | uv, Python, and venv provisioning |
+| `withProvisioningLock` | `src/provision-lock.ts` | Bind Pyfig's idempotent provisioning checks to Loqkit's memory, worker, and file lock. | uv, Python, and venv provisioning |
+| Loqkit `memoize` | `src/client.ts` | Share the first successful resolution within one immutable scoped client. | Long-lived library consumers |
 | `resolveExecutable`, `run`, `runAsync` | `src/process.ts` | Resolve safe executables and run bounded argument-array child processes. | Probes, provisioning, coordination |
 | Python and tool probes | `src/probes.ts` | Discover Python, pip, and uv and report interpreter/embedding ABI metadata. | Provisioning |
 | Package target policy | `src/package-target.ts` | Reject target escapes and construct sanitized pip/uv environments. | Spawn runners |
@@ -22,4 +22,4 @@
 | Prepack gate | `scripts/prepack.ts` | Verify and build local packages while honoring the tag workflow's explicit global bypass. | Bun/npm package lifecycle |
 | Release validation | `scripts/check-release.ts`, `scripts/audit-package.ts` | Match tags to versions, reject existing registry versions, and audit the exact npm archive. | Trusted npm publishing workflow |
 
-Keep discovery side-effect free in `probes.ts`, mutations in `provision.ts`, and all lock ordering in `coordination.ts`.
+Keep discovery side-effect free in `probes.ts`, mutations in `provision.ts`, and lock implementation details in Loqkit.

@@ -29,4 +29,3 @@ export {
   uvSpawn,
   uvSpawnSync,
 } from './runners.js';
-export { clearPyfigCaches } from './state.js';

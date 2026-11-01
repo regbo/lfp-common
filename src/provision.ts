@@ -18,13 +18,12 @@ import extractZip from 'extract-zip';
 import * as tar from 'tar';
 import { EnvHttpProxyAgent, fetch } from 'undici';
 import {
-  configurationFingerprint,
   resolveOptions,
   uvEnvironment,
   type PyfigOptions,
   type ResolvedPyfigOptions,
 } from './config.js';
-import { cacheLockTarget, withProvisioningLock } from './coordination.js';
+import { withProvisioningLock } from './provision-lock.js';
 import {
   findPip,
   findPython,
@@ -37,7 +36,6 @@ import {
   type UvInfo,
 } from './probes.js';
 import { runAsync } from './process.js';
-import { memoizeAsync } from './state.js';
 import {
   canonicalPath,
   pathsEqual,
@@ -52,13 +50,7 @@ export interface PythonEnvironment {
 
 export async function ensurePython(options: PyfigOptions = {}): Promise<PythonInfo> {
   const resolved = resolveOptions(options);
-  return memoizeAsync(
-    'python',
-    configurationFingerprint(resolved),
-    resolved.cacheTtlMs,
-    pythonIsPresent,
-    () => ensurePythonResolved(resolved),
-  );
+  return ensurePythonResolved(resolved);
 }
 
 export async function ensurePip(
@@ -74,41 +66,19 @@ export async function ensurePip(
 
 export async function ensureVirtualEnvironment(options: PyfigOptions = {}): Promise<PythonInfo> {
   const resolved = resolveOptions(options);
-  return memoizeAsync(
-    'venv',
-    configurationFingerprint(resolved),
-    resolved.cacheTtlMs,
-    (python) => pythonIsPresent(python) &&
-      Boolean(python.virtualEnvironment) &&
-      pathsEqual(python.virtualEnvironment!, virtualEnvironmentDirectory(resolved.projectRoot)),
-    () => ensureVirtualEnvironmentResolved(resolved),
-  );
+  return ensureVirtualEnvironmentResolved(resolved);
 }
 
 export async function ensureUv(options: PyfigOptions = {}): Promise<UvInfo> {
   const resolved = resolveOptions(options);
-  return memoizeAsync(
-    'uv',
-    configurationFingerprint(resolved),
-    resolved.cacheTtlMs,
-    (uv) => fs.existsSync(uv.executable),
-    () => ensureUvResolved(resolved),
-  );
+  return ensureUvResolved(resolved);
 }
 
 export async function ensureEnvironment(options: PyfigOptions = {}): Promise<PythonEnvironment> {
   const resolved = resolveOptions(options);
-  return memoizeAsync(
-    'environment',
-    configurationFingerprint(resolved),
-    resolved.cacheTtlMs,
-    environmentIsPresent,
-    async () => {
-      const python = await ensureVirtualEnvironmentResolved(resolved);
-      const packageManager = await ensurePipResolved(python, resolved);
-      return { python, packageManager };
-    },
-  );
+  const python = await ensureVirtualEnvironmentResolved(resolved);
+  const packageManager = await ensurePipResolved(python, resolved);
+  return { python, packageManager };
 }
 
 async function ensureVirtualEnvironmentResolved(
@@ -141,18 +111,17 @@ async function ensureVirtualEnvironmentResolved(
     (options.installUv ? await ensureUvResolved(options) : null);
   return withProvisioningLock({
     key: `venv:${canonicalPath(directory)}`,
-    target: directory,
     timeoutMs: options.coordinationTimeoutMs,
-    env: options.env,
     check,
-    mutate: async (signal) => {
+    mutate: async () => {
+      await mkdir(directory, { recursive: true });
       const entries = await readdir(directory);
       const hasVenvConfiguration = fs.existsSync(path.join(directory, 'pyvenv.cfg'));
       if (entries.length > 0 && !hasVenvConfiguration) {
         throw new Error(`Refusing to replace non-virtual-environment contents at ${directory}.`);
       }
 
-      await createVirtualEnvironment(directory, basePython, preferredUv, options, signal);
+      await createVirtualEnvironment(directory, basePython, preferredUv, options);
       const installed = await inspectVirtualEnvironment(directory, options);
       if (!installed || !pythonSatisfiesRequirements(installed, options)) {
         throw new Error(
@@ -169,11 +138,10 @@ async function createVirtualEnvironment(
   basePython: PythonInfo,
   preferredUv: UvInfo | null,
   options: ResolvedPyfigOptions,
-  signal: AbortSignal,
 ): Promise<void> {
   if (preferredUv) {
     try {
-      await createVirtualEnvironmentWithUv(preferredUv, directory, basePython, options, signal);
+      await createVirtualEnvironmentWithUv(preferredUv, directory, basePython, options);
       return;
     } catch {
       // A usable Python may still provide its standard-library venv module.
@@ -186,7 +154,6 @@ async function createVirtualEnvironment(
       ['-m', 'venv', directory],
       withoutActiveVirtualEnvironment(options.env),
       options.installTimeoutMs,
-      signal,
     );
     return;
   } catch (systemVenvError) {
@@ -200,7 +167,6 @@ async function createVirtualEnvironmentWithUv(
   directory: string,
   basePython: PythonInfo,
   options: ResolvedPyfigOptions,
-  signal: AbortSignal,
 ): Promise<void> {
   await runAsync(
     uv.executable,
@@ -216,7 +182,6 @@ async function createVirtualEnvironmentWithUv(
     ],
     uvEnvironment(options),
     options.installTimeoutMs,
-    signal,
   );
 }
 
@@ -242,14 +207,11 @@ async function ensurePythonResolved(options: ResolvedPyfigOptions): Promise<Pyth
     );
   }
 
-  const lockTarget = cacheLockTarget(options.cacheDir, 'python');
   return withProvisioningLock({
-    key: `python:${canonicalPath(lockTarget)}`,
-    target: lockTarget,
+    key: `python:${canonicalPath(path.join(options.cacheDir, 'python'))}`,
     timeoutMs: options.coordinationTimeoutMs,
-    env: options.env,
     check: () => discoverPython(options),
-    mutate: async (signal) => {
+    mutate: async () => {
       const uv = await ensureUvResolved(options);
       const uvEnv = uvEnvironment(options);
       await runAsync(
@@ -257,9 +219,8 @@ async function ensurePythonResolved(options: ResolvedPyfigOptions): Promise<Pyth
         ['python', 'install', '--no-config', options.managedPython],
         uvEnv,
         options.installTimeoutMs,
-        signal,
       );
-      const installed = await findPythonWithUv(uv, options, signal);
+      const installed = await findPythonWithUv(uv, options);
       if (!installed) {
         throw new Error(
           `uv installed Python ${options.managedPython}, but it does not satisfy the requested ` +
@@ -291,7 +252,6 @@ async function discoverPython(options: ResolvedPyfigOptions): Promise<PythonInfo
 async function findPythonWithUv(
   uv: UvInfo,
   options: ResolvedPyfigOptions,
-  signal?: AbortSignal,
 ): Promise<PythonInfo | null> {
   const requests = [undefined, options.managedPython] as const;
   for (const requestedPython of requests) {
@@ -310,12 +270,10 @@ async function findPythonWithUv(
         args,
         uvEnvironment(options),
         options.probeTimeoutMs,
-        signal,
       );
       const info = await probePython({ executable: stdout.trim(), args: [] }, options);
       if (info && pythonSatisfiesRequirements(info, options)) return info;
-    } catch (error) {
-      if (signal?.aborted) throw signal.reason ?? error;
+    } catch {
       // Continue through the configured request and then normal system discovery.
     }
   }
@@ -352,15 +310,12 @@ async function ensureUvResolved(options: ResolvedPyfigOptions): Promise<UvInfo> 
 
   const installDir = uvInstallDirectory(options);
   const executable = uvExecutable(options);
-  const lockTarget = cacheLockTarget(options.cacheDir, 'uv');
   return withProvisioningLock({
-    key: `uv:${canonicalPath(lockTarget)}`,
-    target: lockTarget,
+    key: `uv:${canonicalPath(installDir)}`,
     timeoutMs: options.coordinationTimeoutMs,
-    env: options.env,
     check: () => findAvailableUv(options),
-    mutate: async (signal) => {
-      await installUv(installDir, options, signal);
+    mutate: async () => {
+      await installUv(installDir, options);
       const result = probeUv(executable, options);
       if (!result || result.version !== options.uvVersion) {
         throw new Error(
@@ -421,7 +376,6 @@ function withoutActiveVirtualEnvironment(env: NodeJS.ProcessEnv): NodeJS.Process
 async function installUv(
   installDir: string,
   options: ResolvedPyfigOptions,
-  signal: AbortSignal,
 ): Promise<void> {
   const asset = uvAsset();
   const baseUrl = `https://github.com/astral-sh/uv/releases/download/${options.uvVersion}`;
@@ -433,13 +387,11 @@ async function installUv(
       `${baseUrl}/${asset}`,
       archive,
       options.downloadTimeoutMs,
-      signal,
       dispatcher,
     );
     const expected = (await downloadText(
       `${baseUrl}/${asset}.sha256`,
       options.downloadTimeoutMs,
-      signal,
       dispatcher,
     )).trim().split(/\s+/u)[0];
     const actual = await sha256File(archive);
@@ -449,10 +401,8 @@ async function installUv(
 
     const extracted = path.join(temporary, 'extracted');
     await mkdir(extracted, { recursive: true });
-    signal.throwIfAborted();
     if (asset.endsWith('.zip')) await extractZip(archive, { dir: extracted });
     else await tar.x({ file: archive, cwd: extracted, strict: true });
-    signal.throwIfAborted();
 
     const source = await findFile(extracted, process.platform === 'win32' ? 'uv.exe' : 'uv');
     if (!source) throw new Error(`uv archive did not contain the expected executable: ${asset}`);
@@ -506,13 +456,12 @@ async function download(
   url: string,
   destination: string,
   timeoutMs: number,
-  externalSignal: AbortSignal,
   dispatcher: EnvHttpProxyAgent | undefined,
 ): Promise<void> {
   const response = await fetch(url, {
     dispatcher,
     redirect: 'follow',
-    signal: combinedSignal(timeoutMs, externalSignal),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!response.ok || !response.body) {
     await response.body?.cancel();
@@ -527,13 +476,12 @@ async function download(
 async function downloadText(
   url: string,
   timeoutMs: number,
-  externalSignal: AbortSignal,
   dispatcher: EnvHttpProxyAgent | undefined,
 ): Promise<string> {
   const response = await fetch(url, {
     dispatcher,
     redirect: 'follow',
-    signal: combinedSignal(timeoutMs, externalSignal),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!response.ok) {
     await response.body?.cancel();
@@ -559,10 +507,6 @@ function environmentValue(
   uppercase: string,
 ): string | undefined {
   return env[lowercase] ?? env[uppercase];
-}
-
-function combinedSignal(timeoutMs: number, externalSignal: AbortSignal): AbortSignal {
-  return AbortSignal.any([externalSignal, AbortSignal.timeout(timeoutMs)]);
 }
 
 async function sha256File(file: string): Promise<string> {
@@ -611,12 +555,4 @@ async function virtualEnvironmentMatchesConfiguredPython(
     ? configured.baseExecutable
     : configured.executable;
   return pathsEqual(configuredBase, virtualEnvironment.baseExecutable);
-}
-
-function pythonIsPresent(python: PythonInfo): boolean {
-  return fs.existsSync(python.executable);
-}
-
-function environmentIsPresent(environment: PythonEnvironment): boolean {
-  return pythonIsPresent(environment.python) && fs.existsSync(environment.packageManager.executable);
 }

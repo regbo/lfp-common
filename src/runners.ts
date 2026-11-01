@@ -5,9 +5,7 @@ import {
   type SpawnOptions,
   type SpawnSyncOptions,
 } from 'node:child_process';
-import fs from 'node:fs';
 import {
-  configurationFingerprint,
   resolveOptions,
   uvEnvironment,
   type PyfigOptions,
@@ -28,7 +26,6 @@ import {
   type PythonEnvironment,
 } from './provision.js';
 import { runtimeFile } from './runtime-files.js';
-import { memoizeSync } from './state.js';
 import { activateVirtualEnvironment } from './virtual-environment.js';
 
 export interface ResolvedCommand {
@@ -231,50 +228,28 @@ function resolveSynchronously(
   options: PyfigOptions,
 ): PythonInfo | PythonEnvironment | UvInfo | UvPipResolution {
   const resolved = resolveOptions(options);
-  const cacheKey = `${target}:${configurationFingerprint(resolved)}`;
-  return memoizeSync(
-    'sync-resolution',
-    cacheKey,
-    resolved.cacheTtlMs,
-    synchronousResolutionIsPresent,
-    () => {
-      const request: SyncResolutionRequest = { target, options: resolved };
-      const result = spawnSync(process.execPath, [runtimeFile('sync-resolver')], {
-        input: JSON.stringify(request),
-        encoding: 'utf8',
-        env: resolved.env,
-        timeout: synchronousResolutionTimeout(resolved),
-        maxBuffer: 4 * 1024 * 1024,
-        windowsHide: true,
-      });
-      if (result.status !== 0 || result.error) {
-        const detail = result.stderr.trim() || result.error?.message || `exit ${result.status}`;
-        throw new Error(`Could not resolve ${target} synchronously: ${detail}`);
-      }
-      try {
-        return JSON.parse(result.stdout) as PythonInfo | PythonEnvironment | UvInfo | UvPipResolution;
-      } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error);
-        throw new Error(`Could not parse synchronous ${target} resolution: ${detail}`);
-      }
-    },
-  );
+  const request: SyncResolutionRequest = { target, options: resolved };
+  const result = spawnSync(process.execPath, [runtimeFile('sync-resolver')], {
+    input: JSON.stringify(request),
+    encoding: 'utf8',
+    env: resolved.env,
+    timeout: synchronousResolutionTimeout(resolved),
+    maxBuffer: 4 * 1024 * 1024,
+    windowsHide: true,
+  });
+  if (result.status !== 0 || result.error) {
+    const detail = result.stderr.trim() || result.error?.message || `exit ${result.status}`;
+    throw new Error(`Could not resolve ${target} synchronously: ${detail}`);
+  }
+  try {
+    return JSON.parse(result.stdout) as PythonInfo | PythonEnvironment | UvInfo | UvPipResolution;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`Could not parse synchronous ${target} resolution: ${detail}`);
+  }
 }
 
 function synchronousResolutionTimeout(options: ResolvedPyfigOptions): number {
   return options.coordinationTimeoutMs + options.downloadTimeoutMs +
     (2 * options.installTimeoutMs) + (4 * options.probeTimeoutMs) + 60_000;
-}
-
-function synchronousResolutionIsPresent(
-  resolution: PythonInfo | PythonEnvironment | UvInfo | UvPipResolution,
-): boolean {
-  if ('packageManager' in resolution) {
-    return fs.existsSync(resolution.python.executable) &&
-      fs.existsSync(resolution.packageManager.executable);
-  }
-  if ('uv' in resolution) {
-    return fs.existsSync(resolution.uv.executable) && fs.existsSync(resolution.python.executable);
-  }
-  return fs.existsSync(resolution.executable);
 }
