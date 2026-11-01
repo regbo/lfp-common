@@ -69,6 +69,21 @@ describe("memoize", () => {
 });
 
 describe("withLock", () => {
+  test("normalizes optional timeout shorthand", () => {
+    expect(lockOptionsSchema.parse({}).timeout).toBeUndefined();
+    expect(lockOptionsSchema.parse({ timeout: 25 }).timeout).toEqual({
+      ms: 25,
+      error: true,
+    });
+    expect(lockOptionsSchema.parse({ timeout: { ms: 25 } }).timeout).toEqual({
+      ms: 25,
+      error: true,
+    });
+    expect(
+      lockOptionsSchema.parse({ timeout: { ms: 0, error: false } }).timeout,
+    ).toEqual({ ms: 0, error: false });
+  });
+
   test("acquires memory, worker, and file layers by default", async () => {
     const lockDirectory = await mkdtemp(join(tmpdir(), "loqkit-test-"));
     let active = 0;
@@ -189,7 +204,7 @@ describe("withLock", () => {
             () => {
               nestedActions += 1;
             },
-            { key, scope: "memory", timeoutMs: 0 },
+            { key, scope: "memory", timeout: 0 },
           );
         },
       },
@@ -251,7 +266,7 @@ describe("withLock", () => {
           key: "long-action",
           fileStrategy: "poll",
           lockDirectory,
-          timeoutMs: 100,
+          timeout: 100,
         },
       );
 
@@ -287,10 +302,9 @@ describe("withLock", () => {
       { resource: key },
       () => "contender",
       {
-        errorOnTimeout: false,
         key,
         scope: "memory",
-        timeoutMs: 0,
+        timeout: { ms: 0, error: false },
       },
     );
     expect(attempt.value).toBeUndefined();
@@ -306,7 +320,7 @@ describe("withLock", () => {
       withLock(
         { resource: key },
         () => "contender",
-        { key, scope: "memory", timeoutMs: 0 },
+        { key, scope: "memory", timeout: 0 },
       ),
     ).rejects.toBeInstanceOf(LockTimeoutError);
 
@@ -448,7 +462,7 @@ describe("withLock", () => {
         fileStrategy: "flock",
         lockDirectory: root,
         scope: "file",
-        timeoutMs: 0,
+        timeout: 0,
       });
       const busyBackend = await prepareFileBackend(
         info,

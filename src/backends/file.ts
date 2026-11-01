@@ -98,7 +98,7 @@ function preparePollingBackend(
           if (!isPollingContention(error)) throw error;
           await waitForRetry(
             startedAt,
-            options.timeoutMs,
+            options.timeout?.ms,
             options.pollIntervalMs,
             options.signal,
             info,
@@ -148,7 +148,7 @@ function prepareFlockBackend(
             if (isBusy(error)) {
               await waitForRetry(
                 startedAt,
-                options.timeoutMs,
+                options.timeout?.ms,
                 options.pollIntervalMs,
                 options.signal,
                 info,

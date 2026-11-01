@@ -26,6 +26,6 @@ await withLock(
     fileStrategy: "poll",
     pollIntervalMs: 5,
     scope: "file",
-    timeoutMs: 5_000,
+    timeout: 5_000,
   },
 );

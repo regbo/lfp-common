@@ -134,11 +134,11 @@ function layeredBackends(
       }
       options.signal?.addEventListener("abort", abortFromCaller, { once: true });
 
-      if (options.timeoutMs > 0) {
+      if (options.timeout && options.timeout.ms > 0) {
         timer = setTimeout(() => {
           timedOut = true;
           controller.abort();
-        }, options.timeoutMs);
+        }, options.timeout.ms);
         timer.unref?.();
       }
 
@@ -147,7 +147,7 @@ function layeredBackends(
         const backend = backends[index];
         if (!backend) {
           stopWaiting();
-          if (timedOut) throw new LockTimeoutError(info, options.timeoutMs);
+          if (timedOut) throw new LockTimeoutError(info, options.timeout!.ms);
           if (options.signal?.aborted) {
             throw new LockAbortedError(info, options.signal.reason);
           }
@@ -162,7 +162,7 @@ function layeredBackends(
       try {
         return await acquireAt(0);
       } catch (error) {
-        if (timedOut) throw new LockTimeoutError(info, options.timeoutMs);
+        if (timedOut) throw new LockTimeoutError(info, options.timeout!.ms);
         throw error;
       } finally {
         stopWaiting();
@@ -311,7 +311,7 @@ const withLockImplementation = async <TContext extends object, TResult>(
     if (
       error instanceof LockTimeoutError &&
       !fullyAcquired &&
-      !options.errorOnTimeout
+      options.timeout?.error === false
     ) {
       const waitingInfo = createInfo(
         baseInfo,
@@ -351,10 +351,13 @@ export {
   fileLockStrategySchema,
   lockOptionsSchema,
   lockScopeSchema,
+  lockTimeoutSchema,
 } from "./schemas.js";
 export type {
   FileLockStrategy,
+  LockTimeout,
   LockScope,
+  ResolvedLockTimeout,
 } from "./schemas.js";
 export type {
   LockAction,

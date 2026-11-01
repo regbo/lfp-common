@@ -52,7 +52,7 @@ export function prepareMemoryBackend(
       try {
         release = await acquireWithLimits(
           acquisition,
-          options.timeoutMs,
+          options.timeout?.ms,
           options.signal,
           info,
           (lateRelease) => {

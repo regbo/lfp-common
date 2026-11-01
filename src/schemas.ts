@@ -3,6 +3,21 @@ import { z } from "zod";
 export const lockScopeSchema = z.enum(["all", "memory", "worker", "file"]);
 export const fileLockStrategySchema = z.enum(["auto", "flock", "poll"]);
 
+const timeoutMsSchema = z.number().int().min(0).max(2_147_483_647);
+export const lockTimeoutSchema = z
+  .union([
+    timeoutMsSchema,
+    z
+      .object({
+        ms: timeoutMsSchema,
+        error: z.boolean().default(true),
+      })
+      .strict(),
+  ])
+  .transform((timeout) =>
+    typeof timeout === "number" ? { ms: timeout, error: true } : timeout,
+  );
+
 const abortSignalSchema = z.custom<AbortSignal>(
   (value) => typeof AbortSignal !== "undefined" && value instanceof AbortSignal,
   "Expected an AbortSignal",
@@ -26,10 +41,8 @@ export const lockOptionsSchema = z
     scope: lockScopeSchema.default("all"),
     /** Auto falls back to polling; flock requires native support; poll skips it. */
     fileStrategy: fileLockStrategySchema.default("auto"),
-    /** Maximum total time spent waiting. Zero performs one immediate attempt. */
-    timeoutMs: z.number().int().min(0).max(2_147_483_647).default(30_000),
-    /** Throws on timeout by default; false returns timeout statistics instead. */
-    errorOnTimeout: z.boolean().default(true),
+    /** Optional wait limit. A number throws; object form can return stats. */
+    timeout: lockTimeoutSchema.optional(),
     /** Delay between polling-file lock attempts. */
     pollIntervalMs: z.number().int().min(1).max(60_000).default(100),
     /** Age after which an abandoned polling lock can be reclaimed. */
@@ -53,5 +66,7 @@ export const lockOptionsSchema = z
 
 export type LockScope = z.infer<typeof lockScopeSchema>;
 export type FileLockStrategy = z.infer<typeof fileLockStrategySchema>;
+export type LockTimeout = z.input<typeof lockTimeoutSchema>;
+export type ResolvedLockTimeout = z.output<typeof lockTimeoutSchema>;
 export type LockOptionsInput = z.input<typeof lockOptionsSchema>;
 export type ResolvedLockOptionsData = z.output<typeof lockOptionsSchema>;

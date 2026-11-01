@@ -32,12 +32,11 @@ Every callback receives `ctx.acquired`: it is `false` for the check before locki
 
 `withLock` returns `{ value, stats }`. `value` is the action's result, or `undefined` when the action did not run. `stats` contains the lock metadata plus `outcome`, `acquired`, `executed`, and `timedOut`. The outcome is `"executed"`, `"predicate-before"`, `"predicate-after"`, or `"timeout"`.
 
-Use a zero timeout for a single non-blocking acquisition attempt. It never sleeps or polls a second time. Timeouts throw `LockTimeoutError` by default; set `errorOnTimeout: false` to receive timeout statistics instead:
+Omitting `timeout` waits indefinitely. A numeric timeout throws `LockTimeoutError` when it expires. Use the object form to return timeout statistics instead. A zero timeout makes one non-blocking acquisition attempt and never sleeps or polls a second time:
 
 ```ts
 const attempt = await withLock(context, action, {
-  timeoutMs: 0,
-  errorOnTimeout: false,
+  timeout: { ms: 0, error: false },
 });
 
 if (attempt.stats.outcome === "timeout") {
@@ -108,7 +107,7 @@ flowchart TD
     before -- "Yes or absent" --> memory["Acquire memory lock"]
     memory --> worker["Acquire worker-thread lock"]
     worker --> file["Acquire native flock or polling file lock"]
-    memory -. "Timeout" .-> timeout{"errorOnTimeout?"}
+    memory -. "Timeout" .-> timeout{"timeout.error?"}
     worker -. "Timeout" .-> timeout
     file -. "Timeout" .-> timeout
     timeout -- "Yes" --> timeoutError["Throw LockTimeoutError"]

@@ -89,11 +89,11 @@ export function prepareWorkerBackend(
         options.signal?.removeEventListener("abort", abortFromCaller);
       };
 
-      if (options.timeoutMs > 0) {
+      if (options.timeout && options.timeout.ms > 0) {
         timer = setTimeout(() => {
           timedOut = true;
           controller.abort();
-        }, options.timeoutMs);
+        }, options.timeout.ms);
         timer.unref?.();
       }
 
@@ -102,11 +102,11 @@ export function prepareWorkerBackend(
           info.id,
           {
             mode: "exclusive",
-            ifAvailable: options.timeoutMs === 0,
+            ifAvailable: options.timeout?.ms === 0,
             signal: controller.signal,
           },
           async (lock) => {
-            if (!lock) throw new LockTimeoutError(info, options.timeoutMs);
+            if (!lock) throw new LockTimeoutError(info, options.timeout!.ms);
             acquired = true;
             stopWaiting();
             return callback(details);
@@ -114,7 +114,7 @@ export function prepareWorkerBackend(
         );
       } catch (error) {
         if (!acquired && timedOut) {
-          throw new LockTimeoutError(info, options.timeoutMs);
+          throw new LockTimeoutError(info, options.timeout!.ms);
         }
         if (!acquired && options.signal?.aborted) {
           throw new LockAbortedError(info, options.signal.reason);
