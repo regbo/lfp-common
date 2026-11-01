@@ -1,6 +1,6 @@
 {
   "name": "pyfig",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Provision a repo-local Python venv with uv-first tooling and locked fallbacks.",
   "type": "module",
   "main": "./dist/cjs/index.js",
