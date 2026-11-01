@@ -63,4 +63,4 @@ jobs:
         run: bun run release:audit -- ${{ steps.pack.outputs.archive }}
 
       - name: Publish through npm trusted publishing
-        run: npm publish "${{ steps.pack.outputs.archive }}" --tag "${{ steps.release.outputs.dist-tag }}"
+        run: npm publish "./${{ steps.pack.outputs.archive }}" --tag "${{ steps.release.outputs.dist-tag }}"
