@@ -22,6 +22,7 @@ import {
 import { pythonSatisfiesPolicy, type PythonInfo } from '../src/probes.ts';
 import { githubApiHeaders } from '../src/provision.ts';
 import { buildUvCommand } from '../src/runners.ts';
+import { pathsEqual } from '../src/virtual-environment.ts';
 
 let temporaryRoot = '';
 let projectRoot = '';
@@ -115,9 +116,10 @@ describe('pyfig', () => {
     await mkdir(root, { recursive: true });
     const environment = await ensureEnvironment({ projectRoot: root });
     expect(environment.managed).toBe(true);
-    expect(path.resolve(environment.python.virtualEnvironment ?? '')).toBe(
+    expect(pathsEqual(
+      environment.python.virtualEnvironment ?? '',
       path.join(root, 'node_modules', '.pyfig', 'venv'),
-    );
+    )).toBe(true);
     expect(pep440VersionSatisfies(environment.python.version, DEFAULT_REQUIRES_PYTHON)).toBe(true);
   }, 60_000);
 
@@ -132,12 +134,12 @@ describe('pyfig', () => {
     expect(created.status).toBe(0);
     const environment = await ensureEnvironment({ projectRoot: root });
     expect(environment.managed).toBe(false);
-    expect(path.resolve(environment.python.virtualEnvironment ?? '')).toBe(existing);
+    expect(pathsEqual(environment.python.virtualEnvironment ?? '', existing)).toBe(true);
     expect(await fileExists(path.join(root, 'node_modules', '.pyfig', 'venv'))).toBe(false);
 
     const prepared = await createPyfig({ projectRoot: root }).prepare(['idna==3.10']);
     expect(prepared.managed).toBe(false);
-    expect(path.resolve(prepared.python.virtualEnvironment ?? '')).toBe(existing);
+    expect(pathsEqual(prepared.python.virtualEnvironment ?? '', existing)).toBe(true);
     expect(await fileExists(path.join(root, 'node_modules', '.pyfig', 'venv'))).toBe(false);
   }, 60_000);
 
@@ -150,9 +152,10 @@ describe('pyfig', () => {
     const environment = await ensureEnvironment({ projectRoot: root });
     expect(environment.managed).toBe(true);
     expect(await readFile(sentinel, 'utf8')).toBe('external data\n');
-    expect(path.resolve(environment.python.virtualEnvironment ?? '')).toBe(
+    expect(pathsEqual(
+      environment.python.virtualEnvironment ?? '',
       path.join(root, 'node_modules', '.pyfig', 'venv'),
-    );
+    )).toBe(true);
   }, 60_000);
 
   test('pins uv pip and run commands to the selected environment', () => {
