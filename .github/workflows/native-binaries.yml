@@ -1,0 +1,148 @@
+name: Native binaries
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/native-binaries.yml
+      - binding.gyp
+      - scripts/build-native.js
+      - scripts/docker-zero-python.sh
+      - scripts/pyfig.js
+      - scripts/smoke-python-boundary.js
+      - package.json
+      - bun.lock
+      - src/cli/**
+      - src/core/IsolatedWorker.ts
+      - src/core/PyRuntime.ts
+      - src/env/**
+      - src/native/**
+      - src/types/config.ts
+  pull_request:
+    paths:
+      - .github/workflows/native-binaries.yml
+      - binding.gyp
+      - scripts/build-native.js
+      - scripts/docker-zero-python.sh
+      - scripts/pyfig.js
+      - scripts/smoke-python-boundary.js
+      - package.json
+      - bun.lock
+      - src/cli/**
+      - src/core/IsolatedWorker.ts
+      - src/core/PyRuntime.ts
+      - src/env/**
+      - src/native/**
+      - src/types/config.ts
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-binaries-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.artifact }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux
+            arch: x64
+            artifact: pynect-linux-x64-python312
+          - runner: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+            artifact: pynect-linux-arm64-python312
+          - runner: macos-15-intel
+            platform: darwin
+            arch: x64
+            artifact: pynect-darwin-x64-python312
+          - runner: macos-15
+            platform: darwin
+            arch: arm64
+            artifact: pynect-darwin-arm64-python312
+          - runner: windows-2022
+            platform: win32
+            arch: x64
+            artifact: pynect-win32-x64-python312
+          - runner: windows-11-arm
+            platform: win32
+            arch: arm64
+            artifact: pynect-win32-arm64-python312
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          architecture: ${{ matrix.arch }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          architecture: ${{ matrix.arch }}
+
+      # npm is used only in this host-native matrix because it supports every
+      # GitHub runner architecture, including Windows ARM64.
+      - name: Install build dependencies
+        run: npm install --ignore-scripts --package-lock=false --no-audit --no-fund
+
+      # The Windows ARM64 image uses Visual Studio 2026, which requires
+      # node-gyp 12.1 or newer for toolchain discovery.
+      - name: Enable Visual Studio 2026 builds
+        if: matrix.platform == 'win32' && matrix.arch == 'arm64'
+        run: npm install --no-save --ignore-scripts --package-lock=false --no-audit --no-fund node-gyp@13.1.0
+
+      - name: Build native addon
+        run: node scripts/build-native.js
+        env:
+          PYNECT_AUTO_INSTALL: '0'
+
+      - name: Verify shared Python boundary
+        run: node scripts/smoke-python-boundary.js
+
+      - name: Stage prebuild
+        run: node -e "const fs=require('fs');const path=require('path');const out=path.join('prebuilds','${{ matrix.platform }}-${{ matrix.arch }}');fs.mkdirSync(out,{recursive:true});fs.copyFileSync(path.join('build','Release','pynect_addon.node'),path.join(out,'pynect_addon.node'))"
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: prebuilds/${{ matrix.platform }}-${{ matrix.arch }}/pynect_addon.node
+          if-no-files-found: error
+          retention-days: 14
+
+  zero-python:
+    name: Bun-only zero-Python boundary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out Pynect
+        uses: actions/checkout@v6
+        with:
+          path: pynect
+
+      - name: Check out Pyfig
+        uses: actions/checkout@v6
+        with:
+          repository: regbo/pyfig
+          path: pyfig
+
+      - name: Verify bootstrap and native boundary without Node or Python
+        run: |
+          docker run --rm \
+            --mount "type=bind,source=${GITHUB_WORKSPACE}/pyfig,target=/source/pyfig,readonly" \
+            --mount "type=bind,source=${GITHUB_WORKSPACE}/pynect,target=/source/pynect,readonly" \
+            oven/bun:1-debian \
+            sh /source/pynect/scripts/docker-zero-python.sh

@@ -1,0 +1,99 @@
+{
+  "name": "pynect",
+  "version": "0.2.0",
+  "description": "Typed, optionally Pydantic-validated Python calls from Node.js and Bun through embedded CPython.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js"
+    },
+    "./types": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/types/index.js",
+      "require": "./dist/types/index.js"
+    }
+  },
+  "bin": {
+    "pynect": "scripts/cli.js"
+  },
+  "files": [
+    "dist/",
+    "src/native/",
+    "python/*.py",
+    "scripts/build-native.js",
+    "scripts/cli.js",
+    "scripts/ensure-native.js",
+    "scripts/pyfig.js",
+    "scripts/python-provisioner.js",
+    "scripts/smoke-python-boundary.js",
+    "binding.gyp",
+    "README.md",
+    "SECURITY.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "bun run build:ts && bun run build:native",
+    "build:ts": "tsc -p tsconfig.json",
+    "build:native": "bun scripts/build-native.js",
+    "test:python-boundary": "bun scripts/smoke-python-boundary.js",
+    "codegen": "bun run build:ts && bun scripts/cli.js codegen",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "verify": "bun run typecheck && bun run build:native && bun run test:python-boundary",
+    "prepack": "bun run build && bun run test:python-boundary"
+  },
+  "keywords": [
+    "python",
+    "nodejs",
+    "bun",
+    "typescript",
+    "pydantic",
+    "cpython",
+    "native-addon",
+    "n-api"
+  ],
+  "author": "Reggie Bowser and NodePyX contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/regbo/pynect.git"
+  },
+  "bugs": {
+    "url": "https://github.com/regbo/pynect/issues"
+  },
+  "homepage": "https://github.com/regbo/pynect#readme",
+  "upstream": "https://github.com/Brah-Timo/nodepyx",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@msgpack/msgpack": "^3.1.2",
+    "commander": "^14.0.2",
+    "jsonc-parser": "^3.3.1",
+    "node-addon-api": "^8.5.0",
+    "node-gyp": "^11.5.0",
+    "node-gyp-build": "^4.8.4",
+    "pacwich": "^0.7.3",
+    "proper-lockfile": "^4.1.2",
+    "pyfig": "^0.2.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.1",
+    "@types/node": "^24.10.0",
+    "@types/proper-lockfile": "^4.1.4",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=22.0.0",
+    "bun": ">=1.2.0"
+  },
+  "os": ["linux", "darwin", "win32"],
+  "cpu": ["x64", "arm64"],
+  "binary": {
+    "module_name": "pynect_addon",
+    "module_path": "./prebuilds/{platform}-{arch}"
+  }
+}
