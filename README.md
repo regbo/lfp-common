@@ -136,7 +136,7 @@ The main tradeoff is isolation versus integration. Normal Pynect proxy calls avo
 
 ## Python and native build
 
-The package first loads a prebuilt N-API addon whose platform, architecture, Python minor, N-API version, and Linux glibc baseline match the active process. It then checks for an exact local build whose manifest names the interpreter selected by Pyfig. If neither addon works, Pynect lazily builds one against the selected interpreter. The builder is launched with `process.execPath`, so Bun launches Bun and Node.js launches Node.js instead of assuming a `node` command exists. The same approach works with another Node-compatible runtime when it implements the child-process and N-API behavior Pynect needs.
+The package first loads a prebuilt N-API addon whose platform, architecture, Python minor, N-API version, and Linux glibc baseline match the active process. On Linux and macOS, Pynect materializes that addon beside a symlink to the exact `libpython` selected by Pyfig, so the binary does not depend on the CI machine's Python path. It then checks for an exact local build whose manifest names the selected interpreter. If neither addon works, Pynect lazily builds one against that interpreter. The builder is launched with `process.execPath`, so Bun launches Bun and Node.js launches Node.js instead of assuming a `node` command exists. The same approach works with another Node-compatible runtime when it implements the child-process and N-API behavior Pynect needs.
 
 ```mermaid
 graph TD;

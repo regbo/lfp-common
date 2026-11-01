@@ -4,7 +4,7 @@
 - `scripts/ensure-native.js`: loqkit-coordinated native builder invoked through the active JavaScript runtime when no addon can be loaded.
 - `scripts/postinstall.js`: lifecycle entrypoint that finds the application through `INIT_CWD` and runs the same uv project sync when installed npm packages contribute Pynect manifests.
 - `scripts/build-typescript.js`: clean TypeScript build entrypoint; removes only `dist` before invoking the repository compiler so deleted source files cannot leak into npm artifacts.
-- `src/native/native-addon-loader.ts`: platform/Python/glibc-aware prebuild loader, exact-Python local-addon loader, and lazy build boundary; relaunches `process.execPath`, never a hard-coded Node executable.
+- `src/native/native-addon-loader.ts`: platform/Python/glibc-aware prebuild loader, portable `libpython` sidecar materializer, exact-Python local-addon loader, and lazy build boundary; relaunches `process.execPath`, never a hard-coded Node executable.
 - `scripts/stage-prebuild.js`: stages a release addon with platform, architecture, Python-minor, N-API, and Linux glibc compatibility metadata.
 - `scripts/python-provisioner.js`: compatibility wrapper around `scripts/pyfig.js`.
 - `scripts/docker-zero-python.sh`: clean Linux container proof for uv/Python bootstrap, native build, and shared-interpreter smoke coverage.

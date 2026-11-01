@@ -1,11 +1,13 @@
 import path from 'path';
 import fs from 'fs';
+import { createHash } from 'crypto';
 import { spawnSync } from 'child_process';
 import type { NativeAddon } from '../types/addon';
 
 export interface NativeAddonBuildOptions {
   projectRoot: string;
   pythonExecutable: string;
+  pythonLibrary: string;
   pythonVersion: string;
 }
 
@@ -76,6 +78,7 @@ interface NativePrebuildMetadata {
   pythonMajorMinor: string;
   napi: number;
   glibc?: string;
+  pythonLibraryName: string;
 }
 
 function loadMatchingPrebuild(options: NativeAddonBuildOptions): NativeAddon {
@@ -112,8 +115,62 @@ function loadMatchingPrebuild(options: NativeAddonBuildOptions): NativeAddon {
       );
     }
   }
+  const packagedAddon = path.join(directory, 'pynect_addon.node');
+  const addon = process.platform === 'win32'
+    ? packagedAddon
+    : materializePortablePrebuild(packagedAddon, metadata, options);
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  return require(path.join(directory, 'pynect_addon.node')) as NativeAddon;
+  return require(addon) as NativeAddon;
+}
+
+function materializePortablePrebuild(
+  packagedAddon: string,
+  metadata: NativePrebuildMetadata,
+  options: NativeAddonBuildOptions,
+): string {
+  const identity = createHash('sha256')
+    .update(path.resolve(options.pythonLibrary))
+    .digest('hex')
+    .slice(0, 12);
+  const directory = path.join(
+    options.projectRoot,
+    'node_modules',
+    '.pynect',
+    'native',
+    `${process.platform}-${process.arch}-python${metadata.pythonMajorMinor}-${identity}`,
+  );
+  const addon = path.join(directory, 'pynect_addon.node');
+  const library = path.join(directory, metadata.pythonLibraryName);
+  fs.mkdirSync(directory, { recursive: true });
+  publishFile(packagedAddon, addon);
+  publishSymlink(options.pythonLibrary, library);
+  return addon;
+}
+
+function publishFile(source: string, destination: string): void {
+  if (fs.existsSync(destination)) return;
+  const temporary = `${destination}.${process.pid}.tmp`;
+  try {
+    fs.copyFileSync(source, temporary, fs.constants.COPYFILE_EXCL);
+    fs.renameSync(temporary, destination);
+  } catch (error) {
+    if (!fs.existsSync(destination)) throw error;
+  } finally {
+    fs.rmSync(temporary, { force: true });
+  }
+}
+
+function publishSymlink(source: string, destination: string): void {
+  if (fs.existsSync(destination)) return;
+  const temporary = `${destination}.${process.pid}.tmp`;
+  try {
+    fs.symlinkSync(path.resolve(source), temporary, 'file');
+    fs.renameSync(temporary, destination);
+  } catch (error) {
+    if (!fs.existsSync(destination)) throw error;
+  } finally {
+    fs.rmSync(temporary, { force: true });
+  }
 }
 
 function loadMatchingLocalAddon(options: NativeAddonBuildOptions): NativeAddon {

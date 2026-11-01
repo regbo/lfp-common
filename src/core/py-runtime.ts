@@ -203,6 +203,7 @@ export class PyRuntime {
       addon = loadOrBuildNativeAddon({
         projectRoot: selectedProjectRoot,
         pythonExecutable: selected.executable,
+        pythonLibrary: selected.embedding.libraryPath,
         pythonVersion: selected.version,
       });
       logger.debug('Native addon loaded');

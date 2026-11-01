@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..');
 const buildMetadataPath = path.join(ROOT, 'build', 'pynect-python.json');
@@ -20,12 +21,31 @@ const metadata = {
   platform: process.platform,
   architecture: process.arch,
   pythonMajorMinor: `${match[1]}.${match[2]}`,
+  pythonLibraryName: path.basename(build.pythonLibrary),
   napi: 8,
 };
 if (process.platform === 'linux') {
   const glibc = process.report?.getReport().header.glibcVersionRuntime;
   if (!glibc) throw new Error('Linux prebuild staging requires a detectable glibc runtime.');
   metadata.glibc = glibc;
+}
+if (process.platform === 'darwin') {
+  const linked = spawnSync('otool', ['-L', addonPath], { encoding: 'utf8' });
+  if (linked.status !== 0) throw new Error(String(linked.stderr || 'otool failed'));
+  const dependency = linked.stdout
+    .split(/\r?\n/u)
+    .map(line => line.trim().split(/\s+/u)[0])
+    .find(item => item && /libpython.*\.dylib$/u.test(item));
+  if (!dependency) throw new Error('Could not find the linked Python dylib.');
+  metadata.pythonLibraryName = path.basename(dependency);
+  const rewritten = spawnSync(
+    'install_name_tool',
+    ['-change', dependency, `@loader_path/${metadata.pythonLibraryName}`, addonPath],
+    { encoding: 'utf8' },
+  );
+  if (rewritten.status !== 0) {
+    throw new Error(String(rewritten.stderr || 'install_name_tool failed'));
+  }
 }
 
 fs.mkdirSync(destination, { recursive: true });

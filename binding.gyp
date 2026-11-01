@@ -29,17 +29,24 @@
     "conditions": [
       ["OS=='linux'", {
         "cflags_cc": ["-fvisibility=hidden"],
-        "libraries": ["-ldl"],
+        "libraries": [
+          "<!(node -p \"process.env.PYNECT_PYTHON_LIBRARY || (() => { throw new Error('PYNECT_PYTHON_LIBRARY is required') })()\")",
+          "-ldl"
+        ],
         "ldflags": [
+          "-Wl,-rpath,'$$ORIGIN'",
           "-static-libgcc",
           "-static-libstdc++"
         ]
       }],
       ["OS=='mac'", {
-        "ldflags": ["-Wl,-undefined,dynamic_lookup"],
+        "libraries": [
+          "<!(node -p \"process.env.PYNECT_PYTHON_LIBRARY || (() => { throw new Error('PYNECT_PYTHON_LIBRARY is required') })()\")"
+        ],
         "xcode_settings": {
           "MACOSX_DEPLOYMENT_TARGET": "11.0",
           "OTHER_CFLAGS": ["-std=c++17", "-stdlib=libc++"],
+          "LD_RUNPATH_SEARCH_PATHS": ["@loader_path"],
           "GCC_ENABLE_CPP_EXCEPTIONS": "YES"
         }
       }],
