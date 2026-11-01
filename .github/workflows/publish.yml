@@ -78,6 +78,7 @@ jobs:
       - name: Build and verify native addon
         run: node scripts/build-native.js
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           PYNECT_AUTO_INSTALL: '0'
       - name: Verify shared Python boundary
         run: node scripts/smoke-python-boundary.js
@@ -143,6 +144,8 @@ jobs:
           merge-multiple: true
       - name: Verify tagged source
         run: bun run verify
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - name: Pack and audit the publication archive
         id: pack
         run: bun scripts/pack-for-publish.ts
