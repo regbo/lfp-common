@@ -15,12 +15,11 @@ export type ResolvedLockType =
   | "poll"
   | "skipped";
 export type LockType = ResolvedLockType | "composite";
-export type LockState =
+export type LockCallbackState =
   | "predicate-before"
   | "predicate-after"
-  | "executed"
-  | "timeout";
-export type LockCallbackState = Exclude<LockState, "timeout">;
+  | "executed";
+export type LockState = LockCallbackState | "timeout";
 
 type LockAcquired<TState extends LockState> = TState extends
   | "predicate-before"
@@ -98,18 +97,17 @@ export type ResolvedLockOptions<TContext extends object = object> = Omit<
 } &
   LockCallbacks<TContext>;
 
-/** Lock metadata plus the terminal state of one withLock attempt. */
-export interface LockStats extends LockInfo {
-  readonly state: LockState;
-  readonly acquired: boolean;
-  readonly executed: boolean;
-  readonly timedOut: boolean;
-}
+/** A callback context widened with the timeout state only results can observe. */
+export type LockResultContext<TContext extends object> = Readonly<
+  Omit<LockContext<TContext>, "state"> & {
+    readonly state: LockState;
+  }
+>;
 
-/** The action value and statistics for one withLock attempt. */
-export interface LockResult<TResult> {
+/** The action value and terminal context for one withLock attempt. */
+export interface LockResult<TContext extends object, TResult> {
   readonly value: TResult | undefined;
-  readonly stats: Readonly<LockStats>;
+  readonly context: LockResultContext<TContext>;
 }
 
 export interface WithLock {
@@ -117,12 +115,12 @@ export interface WithLock {
     context: TContext,
     action: LockAction<TContext, TResult>,
     options?: LockOptions<TContext>,
-  ): Promise<LockResult<TResult>>;
+  ): Promise<LockResult<TContext, TResult>>;
 
   <TContext extends object, TResult>(
     context: TContext,
     action: LockAction<TContext, TResult>,
     predicate: LockPredicate<TContext>,
     options?: LockOptions<TContext>,
-  ): Promise<LockResult<TResult>>;
+  ): Promise<LockResult<TContext, TResult>>;
 }

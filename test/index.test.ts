@@ -136,9 +136,9 @@ describe("withLock", () => {
 
       const results = await Promise.all([run(), run(), run()]);
       expect(peak).toBe(1);
-      expect(results.every(({ stats }) => stats.state === "executed")).toBe(
-        true,
-      );
+      expect(
+        results.every(({ context }) => context.state === "executed"),
+      ).toBe(true);
     } finally {
       await rm(lockDirectory, { force: true, recursive: true });
     }
@@ -146,9 +146,12 @@ describe("withLock", () => {
 
   test("supports an explicitly memory-only lock", async () => {
     let checks = 0;
+    let actionContext: object | undefined;
     const result = await withLock(
       { resource: "conditional" },
-      ({ lock }) => {
+      (context) => {
+        actionContext = context;
+        const { lock } = context;
         expect(lock.backends).toEqual([{ scope: "memory", type: "memory" }]);
         return "done";
       },
@@ -160,12 +163,11 @@ describe("withLock", () => {
     );
 
     expect(result.value).toBe("done");
-    expect(result.stats).toMatchObject({
+    expect(result.context).toMatchObject({
       acquired: true,
-      executed: true,
       state: "executed",
-      timedOut: false,
     });
+    expect(result.context).toBe(actionContext);
     expect(checks).toBe(2);
   });
 
@@ -184,7 +186,7 @@ describe("withLock", () => {
       );
 
       expect(result.value).toEqual(["memory", "file"]);
-      expect(result.stats.scope).toEqual(["memory", "file"]);
+      expect(result.context.lock.scope).toEqual(["memory", "file"]);
     } finally {
       await rm(lockDirectory, { force: true, recursive: true });
     }
@@ -214,7 +216,7 @@ describe("withLock", () => {
     );
 
     expect(result.value).toBe("done");
-    expect(result.stats.state).toBe("executed");
+    expect(result.context.state).toBe("executed");
     expect(checks).toBe(2);
     expect(actions).toBe(1);
     expect(acquiredPhases).toEqual([false, true]);
@@ -254,11 +256,9 @@ describe("withLock", () => {
     );
 
     expect(result.value).toBeUndefined();
-    expect(result.stats).toMatchObject({
+    expect(result.context).toMatchObject({
       acquired: true,
-      executed: false,
       state: "predicate-after",
-      timedOut: false,
     });
     expect(observedAcquired).toBe(true);
     expect(observedState).toBe("predicate-after");
@@ -286,11 +286,9 @@ describe("withLock", () => {
     );
 
     expect(result.value).toBeUndefined();
-    expect(result.stats).toMatchObject({
+    expect(result.context).toMatchObject({
       acquired: false,
-      executed: false,
       state: "predicate-before",
-      timedOut: false,
     });
     expect(observedAcquired).toBe(false);
     expect(observedState).toBe("predicate-before");
@@ -315,13 +313,13 @@ describe("withLock", () => {
       );
 
       expect(result.value).toBe("finished");
-      expect(result.stats.state).toBe("executed");
+      expect(result.context.state).toBe("executed");
     } finally {
       await rm(lockDirectory, { force: true, recursive: true });
     }
   });
 
-  test("returns timeout stats when configured and throws by default", async () => {
+  test("returns a timeout context when configured and throws by default", async () => {
     const key = "immediate-timeout";
     let signalEntered!: () => void;
     let releaseHolder!: () => void;
@@ -352,12 +350,12 @@ describe("withLock", () => {
       },
     );
     expect(attempt.value).toBeUndefined();
-    expect(attempt.stats).toMatchObject({
+    expect(attempt.context).toMatchObject({
       acquired: false,
-      executed: false,
+      resource: key,
       state: "timeout",
-      timedOut: true,
     });
+    expect(attempt.context.lock.waitedMs).toBeGreaterThanOrEqual(0);
 
     await expect(
       withLock(

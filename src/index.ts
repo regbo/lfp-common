@@ -19,8 +19,7 @@ import type {
   LockOptions,
   LockPredicate,
   LockResult,
-  LockState,
-  LockStats,
+  LockResultContext,
   WithLock,
 } from "./types.js";
 
@@ -75,21 +74,23 @@ function createInfo(
   });
 }
 
-function createResult<TResult>(
+function createResult<TContext extends object, TResult>(
   value: TResult | undefined,
+  context: LockResultContext<TContext>,
+): Readonly<LockResult<TContext, TResult>> {
+  return Object.freeze({ value, context });
+}
+
+function createTimeoutContext<TContext extends object>(
+  context: TContext,
   lock: Readonly<LockInfo>,
-  state: LockState,
-): Readonly<LockResult<TResult>> {
-  const executed = state === "executed";
-  const acquired = executed || state === "predicate-after";
-  const stats: Readonly<LockStats> = Object.freeze({
-    ...lock,
-    state,
-    acquired,
-    executed,
-    timedOut: state === "timeout",
-  });
-  return Object.freeze({ value, stats });
+): LockResultContext<TContext> {
+  return Object.freeze({
+    ...context,
+    state: "timeout",
+    acquired: false,
+    lock,
+  }) as LockResultContext<TContext>;
 }
 
 function singleBackend(backend: PreparedBackend): PreparedLock {
@@ -228,7 +229,7 @@ const withLockImplementation = async <TContext extends object, TResult>(
   action: LockAction<TContext, TResult>,
   predicateOrOptions?: LockPredicate<TContext> | LockOptions<TContext>,
   suppliedOptions?: LockOptions<TContext>,
-): Promise<LockResult<TResult>> => {
+): Promise<LockResult<TContext, TResult>> => {
   const options = lockOptionsSchema.parse(
     typeof predicateOrOptions === "function"
       ? suppliedOptions
@@ -270,7 +271,7 @@ const withLockImplementation = async <TContext extends object, TResult>(
 
   if (predicate && !(await predicate(beforeContext))) {
     await onCheckFailed?.(beforeContext);
-    return createResult(undefined, beforeContext.lock, beforeContext.state);
+    return createResult<TContext, TResult>(undefined, beforeContext);
   }
 
   const startedAt = performance.now();
@@ -328,20 +329,19 @@ const withLockImplementation = async <TContext extends object, TResult>(
         false,
         Math.max(0, performance.now() - startedAt),
       );
-      return createResult(undefined, waitingInfo, "timeout");
+      return createResult<TContext, TResult>(
+        undefined,
+        createTimeoutContext(context, waitingInfo),
+      );
     }
     throw error;
   }
 
   if (result.state === "predicate-after") {
     await onCheckFailed?.(result.context);
-    return createResult(
-      undefined,
-      result.context.lock,
-      result.context.state,
-    );
+    return createResult<TContext, TResult>(undefined, result.context);
   }
-  return createResult(result.value, result.context.lock, result.context.state);
+  return createResult<TContext, TResult>(result.value, result.context);
 };
 
 /**
@@ -382,7 +382,7 @@ export type {
   LockOptions,
   LockPredicate,
   LockResult,
-  LockStats,
+  LockResultContext,
   ResolvedLockOptions,
   LockState,
   LockType,

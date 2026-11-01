@@ -56,7 +56,7 @@ export const lockOptionsSchema = z
     scope: lockScopeSchema,
     /** Auto falls back to polling; flock requires native support; poll skips it. */
     fileStrategy: fileLockStrategySchema.default("auto"),
-    /** Optional wait limit. A number throws; object form can return stats. */
+    /** Optional wait limit. A number throws; object form can return a result. */
     timeout: lockTimeoutSchema.optional(),
     /** Delay between polling-file lock attempts. */
     pollIntervalMs: z.number().int().min(1).max(60_000).default(100),
