@@ -3,6 +3,10 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const {
+  computeNativeFingerprint,
+  nativeBuildConfig,
+} = require('./native-fingerprint');
 
 const ROOT = path.resolve(__dirname, '..');
 const buildMetadataPath = path.join(ROOT, 'build', 'pynect-python.json');
@@ -15,6 +19,13 @@ const build = JSON.parse(fs.readFileSync(buildMetadataPath, 'utf8'));
 const match = String(build.pythonVersion).match(/^(\d+)\.(\d+)/u);
 if (!match) throw new Error(`Invalid Python version in ${buildMetadataPath}: ${build.pythonVersion}`);
 if (!fs.existsSync(addonPath)) throw new Error(`Native addon is missing at ${addonPath}`);
+const nativeFingerprint = computeNativeFingerprint(ROOT);
+const expectedFingerprint = process.env.PYNECT_EXPECTED_NATIVE_FINGERPRINT;
+if (expectedFingerprint && expectedFingerprint !== nativeFingerprint) {
+  throw new Error(
+    `Native fingerprint changed after planning: ${expectedFingerprint} -> ${nativeFingerprint}`,
+  );
+}
 
 const metadata = {
   schemaVersion: 1,
@@ -22,7 +33,8 @@ const metadata = {
   architecture: process.arch,
   pythonMajorMinor: `${match[1]}.${match[2]}`,
   pythonLibraryName: path.basename(build.pythonLibrary),
-  napi: 8,
+  napi: nativeBuildConfig.napi,
+  nativeFingerprint,
 };
 if (process.platform === 'linux') {
   const glibc = process.report?.getReport().header.glibcVersionRuntime;

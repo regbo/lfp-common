@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "nodeMajor": 22,
+  "napi": 8,
+  "pythonMajorMinor": "3.12",
+  "windowsArmNodeGyp": "13.1.0",
+  "targets": [
+    {
+      "runner": "ubuntu-22.04",
+      "platform": "linux",
+      "arch": "x64"
+    },
+    {
+      "runner": "ubuntu-24.04-arm",
+      "platform": "linux",
+      "arch": "arm64"
+    },
+    {
+      "runner": "macos-15-intel",
+      "platform": "darwin",
+      "arch": "x64"
+    },
+    {
+      "runner": "macos-15",
+      "platform": "darwin",
+      "arch": "arm64"
+    },
+    {
+      "runner": "windows-2022",
+      "platform": "win32",
+      "arch": "x64"
+    },
+    {
+      "runner": "windows-11-arm",
+      "platform": "win32",
+      "arch": "arm64"
+    }
+  ]
+}

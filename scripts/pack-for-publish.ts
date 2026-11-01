@@ -1,7 +1,13 @@
-import { access, appendFile, mkdtemp, readFile } from 'node:fs/promises';
+import { access, appendFile, mkdtemp, readFile, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { auditArchive } from './archive.ts';
+import {
+  computeNativeFingerprint,
+  nativeBuildConfig,
+  validatePrebuildMetadata,
+  type NativePrebuildMetadata,
+} from './native-fingerprint.js';
 import { githubRepositoryFromRemote, registryVersionUrl } from './release-lib.ts';
 import { runCommand } from './process.ts';
 
@@ -27,21 +33,28 @@ if (registryResponse.status !== 404) {
   throw new Error(`npm registry check failed with HTTP ${registryResponse.status}`);
 }
 
-for (const target of [
-  'linux-x64',
-  'linux-arm64',
-  'darwin-x64',
-  'darwin-arm64',
-  'win32-x64',
-  'win32-arm64',
-]) {
-  const directory = resolve('prebuilds', target);
+const nativeFingerprint = computeNativeFingerprint();
+const expectedTargets = nativeBuildConfig.targets
+  .map(target => `${target.platform}-${target.arch}`)
+  .sort();
+const actualTargets = (await readdir(resolve('prebuilds'), { withFileTypes: true }))
+  .filter(entry => entry.isDirectory())
+  .map(entry => entry.name)
+  .sort();
+if (JSON.stringify(actualTargets) !== JSON.stringify(expectedTargets)) {
+  throw new Error(
+    `Native prebuild inventory is ${actualTargets.join(', ')}; expected ${expectedTargets.join(', ')}`,
+  );
+}
+for (const target of nativeBuildConfig.targets) {
+  const targetName = `${target.platform}-${target.arch}`;
+  const directory = resolve('prebuilds', targetName);
   await access(join(directory, 'pynect_addon.node'));
   const metadata = JSON.parse(
     await readFile(join(directory, 'pynect-prebuild.json'), 'utf8'),
-  ) as { schemaVersion?: number; pythonMajorMinor?: string };
-  if (metadata.schemaVersion !== 1 || metadata.pythonMajorMinor !== '3.12') {
-    throw new Error(`Invalid Python 3.12 prebuild metadata for ${target}`);
+  ) as NativePrebuildMetadata;
+  if (!validatePrebuildMetadata(metadata, target, nativeFingerprint)) {
+    throw new Error(`Invalid or stale native prebuild metadata for ${targetName}`);
   }
 }
 

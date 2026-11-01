@@ -477,27 +477,13 @@ bun install --frozen-lockfile
 bun run verify
 ```
 
-`verify` type-checks, rebuilds the addon, and runs the shared-interpreter smoke test. `scripts/docker-zero-python.sh` is the clean-container reproduction: it starts from the official Bun image, asserts that Node.js, Python, and uv are absent, installs the registry-published Pyfig dependency plus only the C++ toolchain, then verifies Pyfig bootstrap, lazy native compilation through Bun, and the full Pynect native boundary. The separate `Native binaries` workflow runs for native or Python-boundary changes and can also be started manually.
+`verify` type-checks, rebuilds the addon, and runs the shared-interpreter smoke test. `scripts/docker-zero-python.sh` is the clean-container reproduction: it starts from the official Bun image, asserts that Node.js, Python, and uv are absent, installs the registry-published Pyfig dependency plus only the C++ toolchain, then verifies Pyfig bootstrap, lazy native compilation through Bun, and the full Pynect native boundary. The separate `Native binaries` workflow runs for native build or loader changes and can also be started manually.
 
 ### Publishing
 
-Local publishing uses the package-scoped npm token at `~/.secrets/npm/pynect-publish-token`. The file contains only the raw token and must never be copied into the repository, an npm command-line argument, or a log. The token is limited to `pynect`, has package read/write access, has no organization access, bypasses publish-time 2FA, and expires January 30, 2027.
+Run `bun run release` from a clean, synchronized `main` branch. The command performs the full local release gate, commits the next patch version by default, creates a lightweight tag, and atomically pushes the branch and tag. Use `bun run release -- --dry-run`, `minor`, or `major` when needed.
 
-Load the token only into the current PowerShell process, verify the npm identity, and publish from a clean `main` branch:
-
-```powershell
-$tokenPath = Join-Path $env:USERPROFILE '.secrets\npm\pynect-publish-token'
-$env:NPM_TOKEN = (Get-Content -Raw -LiteralPath $tokenPath).Trim()
-
-try {
-  npm whoami --registry=https://registry.npmjs.org/
-  npm publish
-} finally {
-  Remove-Item Env:NPM_TOKEN -ErrorAction SilentlyContinue
-}
-```
-
-npm plans to remove direct publishing with bypass-2FA granular tokens in January 2027. Replace this local flow with trusted publishing before that cutoff; until then, rotate the token at the same secret path without changing repository files.
+The tag workflow publishes through npm Trusted Publishing with provenance. It fingerprints only native build inputs, including the C++ sources, build configuration, Python and N-API targets, and resolved native build dependencies. When the previous npm release has the same fingerprint, its integrity-verified six-platform prebuild set is reused. A changed or missing fingerprint runs the complete native matrix before the archive can be published.
 
 ## Project history
 

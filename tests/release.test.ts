@@ -7,6 +7,13 @@ import {
   latestReleaseVersion,
   planRelease,
 } from '../scripts/release-lib.ts';
+import {
+  computeNativeFingerprint,
+  hashNativeInputs,
+  nativeBuildConfig,
+  nativeFingerprintPaths,
+  validatePrebuildMetadata,
+} from '../scripts/native-fingerprint.js';
 
 describe('release workflow', () => {
   test('selects the greatest stable remote release tag', () => {
@@ -60,5 +67,44 @@ describe('release workflow', () => {
     expect(gitIdentityEmail(identity)).toBe('1002473+regbo@users.noreply.github.com');
     expect(isPublicGitHubIdentity(gitIdentityEmail(identity)!)).toBe(true);
     expect(isPublicGitHubIdentity('regbo@example.com')).toBe(false);
+  });
+
+  test('fingerprints native inputs independent of enumeration order', () => {
+    const first = hashNativeInputs([
+      { name: 'b', content: 'second' },
+      { name: 'a', content: 'first' },
+    ]);
+    expect(first).toBe(hashNativeInputs([
+      { name: 'a', content: 'first' },
+      { name: 'b', content: 'second' },
+    ]));
+    expect(first).not.toBe(hashNativeInputs([
+      { name: 'a', content: 'changed' },
+      { name: 'b', content: 'second' },
+    ]));
+  });
+
+  test('accepts prebuilds only for the current native fingerprint', () => {
+    const fingerprint = computeNativeFingerprint();
+    const target = nativeBuildConfig.targets[0]!;
+    const metadata = {
+      schemaVersion: 1,
+      platform: target.platform,
+      architecture: target.arch,
+      pythonMajorMinor: nativeBuildConfig.pythonMajorMinor,
+      napi: nativeBuildConfig.napi,
+      nativeFingerprint: fingerprint,
+      pythonLibraryName: 'libpython3.12.so.1.0',
+    };
+    expect(validatePrebuildMetadata(metadata, target, fingerprint)).toBe(true);
+    expect(validatePrebuildMetadata(metadata, target, 'sha256:stale')).toBe(false);
+  });
+
+  test('excludes application configuration and generators from native inputs', () => {
+    const paths = nativeFingerprintPaths();
+    expect(paths).not.toContain('package.json');
+    expect(paths).not.toContain('README.md');
+    expect(paths.some(path => path.startsWith('src/cli/'))).toBe(false);
+    expect(paths.some(path => path.startsWith('src/config/'))).toBe(false);
   });
 });

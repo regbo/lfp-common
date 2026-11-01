@@ -9,36 +9,28 @@ on:
       - binding.gyp
       - scripts/build-native.js
       - scripts/docker-zero-python.sh
+      - scripts/native-build-config.json
+      - scripts/native-fingerprint.js
       - scripts/pyfig.js
       - scripts/smoke-python-boundary.js
       - scripts/smoke-prebuild.js
       - scripts/stage-prebuild.js
-      - package.json
       - bun.lock
-      - src/cli/**
-      - src/core/isolated-worker.ts
-      - src/core/py-runtime.ts
-      - src/env/**
       - src/native/**
-      - src/types/config.ts
   pull_request:
     paths:
       - .github/workflows/native-binaries.yml
       - binding.gyp
       - scripts/build-native.js
       - scripts/docker-zero-python.sh
+      - scripts/native-build-config.json
+      - scripts/native-fingerprint.js
       - scripts/pyfig.js
       - scripts/smoke-python-boundary.js
       - scripts/smoke-prebuild.js
       - scripts/stage-prebuild.js
-      - package.json
       - bun.lock
-      - src/cli/**
-      - src/core/isolated-worker.ts
-      - src/core/py-runtime.ts
-      - src/env/**
       - src/native/**
-      - src/types/config.ts
 
 permissions:
   contents: read

@@ -15,50 +15,63 @@ env:
   PYNECT_SKIP_PREPACK: "1"
 
 jobs:
-  native-prebuilds:
-    name: ${{ matrix.platform }}-${{ matrix.arch }} Python 3.12
+  native-plan:
+    name: Plan native prebuilds
     if: github.repository == 'regbo/pynect'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      fingerprint: ${{ steps.plan.outputs.fingerprint }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+      node_major: ${{ steps.plan.outputs.node_major }}
+      python_major_minor: ${{ steps.plan.outputs.python_major_minor }}
+      reuse: ${{ steps.plan.outputs.reuse }}
+      source_version: ${{ steps.plan.outputs.source_version }}
+      windows_arm_node_gyp: ${{ steps.plan.outputs.windows_arm_node_gyp }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - name: Find compatible published prebuilds
+        id: plan
+        run: bun scripts/prepare-native-prebuilds.ts
+      - name: Upload reused native prebuilds
+        if: steps.plan.outputs.reuse == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: pynect-prebuild-reused
+          path: prebuilds/
+          if-no-files-found: error
+          retention-days: 14
+
+  native-prebuilds:
+    name: ${{ matrix.platform }}-${{ matrix.arch }} Python ${{ needs.native-plan.outputs.python_major_minor }}
+    needs: native-plan
+    if: github.repository == 'regbo/pynect' && needs.native-plan.outputs.reuse != 'true'
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
     timeout-minutes: 30
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - runner: ubuntu-22.04
-            platform: linux
-            arch: x64
-          - runner: ubuntu-24.04-arm
-            platform: linux
-            arch: arm64
-          - runner: macos-15-intel
-            platform: darwin
-            arch: x64
-          - runner: macos-15
-            platform: darwin
-            arch: arm64
-          - runner: windows-2022
-            platform: win32
-            arch: x64
-          - runner: windows-11-arm
-            platform: win32
-            arch: arm64
+      matrix: ${{ fromJSON(needs.native-plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: ${{ needs.native-plan.outputs.node_major }}
           architecture: ${{ matrix.arch }}
       - uses: actions/setup-python@v7
         with:
-          python-version: '3.12'
+          python-version: ${{ needs.native-plan.outputs.python_major_minor }}
           architecture: ${{ matrix.arch }}
       - name: Install build dependencies
         run: npm install --ignore-scripts --package-lock=false --no-audit --no-fund
       - name: Enable Visual Studio 2026 builds
         if: matrix.platform == 'win32' && matrix.arch == 'arm64'
-        run: npm install --no-save --ignore-scripts --package-lock=false --no-audit --no-fund node-gyp@13.1.0
+        run: npm install --no-save --ignore-scripts --package-lock=false --no-audit --no-fund node-gyp@${{ needs.native-plan.outputs.windows_arm_node_gyp }}
       - name: Build TypeScript
         run: node scripts/build-typescript.js
       - name: Build and verify native addon
@@ -69,6 +82,8 @@ jobs:
         run: node scripts/smoke-python-boundary.js
       - name: Stage prebuild
         run: node scripts/stage-prebuild.js
+        env:
+          PYNECT_EXPECTED_NATIVE_FINGERPRINT: ${{ needs.native-plan.outputs.fingerprint }}
       - name: Verify staged prebuild
         run: node scripts/smoke-prebuild.js
       - uses: actions/upload-artifact@v7
@@ -79,8 +94,12 @@ jobs:
           retention-days: 14
 
   publish:
-    needs: native-prebuilds
-    if: github.repository == 'regbo/pynect'
+    needs: [native-plan, native-prebuilds]
+    if: >-
+      always() &&
+      github.repository == 'regbo/pynect' &&
+      needs.native-plan.result == 'success' &&
+      (needs.native-plan.outputs.reuse == 'true' || needs.native-prebuilds.result == 'success')
     runs-on: ubuntu-latest
     permissions:
       contents: read
