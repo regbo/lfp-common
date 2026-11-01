@@ -17,6 +17,9 @@
 | `sync-resolver` | `src/sync-resolver.ts` | Perform async preparation behind synchronous caller APIs using `process.execPath`. | Synchronous runners |
 | CLI | `src/cli.ts` | Expose validated preparation and check-only policy through Commander. | End users |
 | CJS builder | `scripts/build-cjs.ts` | Bundle the public and sync-helper CommonJS entry points. | Package build |
+| Script command runner | `scripts/command.ts` | Run shell-free child commands and relaunch the current Bun executable. | Prepack and local release scripts |
+| Local release gate | `scripts/release.ts`, `scripts/release-utils.ts` | Derive the next remote SemVer, verify locally, audit, commit, tag, and atomically push. | Administrators running `bun run release` |
+| Prepack gate | `scripts/prepack.ts` | Verify and build local packages while honoring the tag workflow's explicit global bypass. | Bun/npm package lifecycle |
 | Release validation | `scripts/check-release.ts`, `scripts/audit-package.ts` | Match tags to versions, reject existing registry versions, and audit the exact npm archive. | Trusted npm publishing workflow |
 
 Keep discovery side-effect free in `probes.ts`, mutations in `provision.ts`, and all lock ordering in `coordination.ts`.

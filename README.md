@@ -194,13 +194,15 @@ Long child operations are asynchronous so the filesystem lease heartbeat remains
 
 Pyfig publishes only from a `v<package-version>` Git tag through `.github/workflows/publish.yml`. The workflow validates the exact tag, rejects a version already present on npm, builds and audits one tarball, and publishes that same archive through npm Trusted Publishing with provenance. It uses the GitHub `npm` environment and does not accept an npm token.
 
-Before pushing a release tag, commit the matching `package.json` version and run:
+Run the local release gate from a clean, synchronized `main` branch:
 
 ```sh
-bun install --frozen-lockfile
-bun run verify
-bun run release:check -- v0.3.0
+bun run release
 ```
+
+The command reads the latest `v<SemVer>` tag directly from the GitHub `origin`, applies a patch bump by default, checks the npm registry, runs the full local verification and build, audits a Bun-created tarball, creates the release commit and lightweight tag, then atomically pushes both. Use `bun run release -- minor` or `bun run release -- major` for a different increment. `bun run release -- --dry-run` exercises the entire local gate and restores `package.json` without committing or pushing.
+
+The tag workflow assumes release tags are created by repository administrators through that local gate. It does not rerun tests. `PYFIG_SKIP_PREPACK=1` is set once at workflow scope so npm lifecycle invocations cannot repeat local verification; the workflow still builds, validates, and audits the exact archive it publishes. Outside that workflow, `prepack` remains fail-closed and runs verification plus the build.
 
 ## Development
 

@@ -25,11 +25,12 @@
     "build": "tsc -p tsconfig.json && bun run scripts/build-cjs.ts",
     "test": "bun test",
     "test:zero-python": "bun run scripts/smoke-zero-python.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.scripts.json",
     "verify": "bun run typecheck && bun test",
+    "release": "bun run scripts/release.ts",
     "release:check": "bun run scripts/check-release.ts",
     "release:audit": "bun run scripts/audit-package.ts",
-    "prepack": "bun run verify && bun run build"
+    "prepack": "bun run scripts/prepack.ts"
   },
   "keywords": [
     "python",

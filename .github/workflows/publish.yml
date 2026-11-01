@@ -7,6 +7,11 @@ on:
 
 permissions: {}
 
+env:
+  # Admin-created tags have already passed the local release gate. Keep npm's
+  # lifecycle hook from repeating tests anywhere in this workflow.
+  PYFIG_SKIP_PREPACK: '1'
+
 concurrency:
   group: npm-publish-${{ github.ref }}
   cancel-in-progress: false
@@ -44,6 +49,9 @@ jobs:
       - name: Validate release tag and registry state
         id: release
         run: bun run release:check
+
+      - name: Build release package
+        run: bun run build
 
       - name: Build exact release archive
         id: pack
