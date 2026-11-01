@@ -20,6 +20,7 @@ import {
   pep440VersionSatisfies,
 } from '../src/pep440.ts';
 import { pythonSatisfiesPolicy, type PythonInfo } from '../src/probes.ts';
+import { githubApiHeaders } from '../src/provision.ts';
 import { buildUvCommand } from '../src/runners.ts';
 
 let temporaryRoot = '';
@@ -75,6 +76,15 @@ describe('pyfig', () => {
     expect(options.requiresUv).toBe('==0.13.*');
     expect(options.projectRoot).toBe(projectRoot);
     expect(resolveOptions({ env: { PYFIG_AUTO_INSTALL: '0' } }).installPython).toBe(false);
+  });
+
+  test('authenticates GitHub release discovery when a token is available', () => {
+    expect(githubApiHeaders({ GITHUB_TOKEN: 'actions-token' }).Authorization)
+      .toBe('Bearer actions-token');
+    expect(githubApiHeaders({ GH_TOKEN: 'cli-token' }).Authorization)
+      .toBe('Bearer cli-token');
+    expect(githubApiHeaders({})).not.toHaveProperty('Authorization');
+    expect(() => githubApiHeaders({ GITHUB_TOKEN: 'bad\ntoken' })).toThrow('line breaks');
   });
 
   test('rejects invalid setup configuration before probing', () => {

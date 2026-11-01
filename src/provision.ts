@@ -589,11 +589,7 @@ async function fetchUvReleaseCatalog(
         `https://api.github.com/repos/astral-sh/uv/releases?per_page=${UV_RELEASE_PAGE_SIZE}&page=${page}`,
         options.downloadTimeoutMs,
         dispatcher,
-        {
-          Accept: 'application/vnd.github+json',
-          'User-Agent': 'pyfig',
-          'X-GitHub-Api-Version': '2022-11-28',
-        },
+        githubApiHeaders(options.env),
       );
       const payload = JSON.parse(text) as unknown;
       if (!Array.isArray(payload)) {
@@ -625,6 +621,21 @@ async function fetchUvReleaseCatalog(
     throw new Error('GitHub returned no usable uv releases.');
   }
   return { fetchedAt: Date.now(), releases: [...releases.values()] };
+}
+
+/** Build GitHub API headers without exposing credentials outside the request. */
+export function githubApiHeaders(env: NodeJS.ProcessEnv): Record<string, string> {
+  const token = [env['GITHUB_TOKEN'], env['GH_TOKEN']]
+    .find(value => typeof value === 'string' && value.trim().length > 0);
+  if (token && /[\r\n]/u.test(token)) {
+    throw new TypeError('GitHub API token must not contain line breaks.');
+  }
+  return {
+    Accept: 'application/vnd.github+json',
+    'User-Agent': 'pyfig',
+    'X-GitHub-Api-Version': '2022-11-28',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
 }
 
 async function readFreshUvReleaseCatalog(file: string): Promise<UvReleaseCatalog | null> {
