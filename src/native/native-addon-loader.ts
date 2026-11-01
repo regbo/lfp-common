@@ -18,15 +18,24 @@ export interface NativeAddonBuildOptions {
 export function loadOrBuildNativeAddon(options: NativeAddonBuildOptions): NativeAddon {
   let initialError: unknown = new Error('Native rebuild explicitly requested.');
   if (process.env['PYNECT_FORCE_BUILD'] !== '1') {
+    if (process.env['PYNECT_PREFER_LOCAL'] === '1') {
+      try {
+        return loadMatchingLocalAddon(options);
+      } catch (error) {
+        initialError = error;
+      }
+    }
     try {
       return loadMatchingPrebuild(options);
     } catch (error) {
       initialError = error;
     }
-    try {
-      return loadMatchingLocalAddon(options);
-    } catch (error) {
-      initialError = new AggregateError([initialError, error], 'No compatible native addon loaded.');
+    if (process.env['PYNECT_PREFER_LOCAL'] !== '1') {
+      try {
+        return loadMatchingLocalAddon(options);
+      } catch (error) {
+        initialError = new AggregateError([initialError, error], 'No compatible native addon loaded.');
+      }
     }
   }
 

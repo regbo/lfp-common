@@ -75,6 +75,51 @@ console.log(await calculator.add(2, 3));
 
 `importModule()` initializes the shared runtime with defaults on first use and the runtime shuts down automatically when the process finishes. Call `init(config)` first only when custom runtime settings are needed. Call `shutdown()` explicitly only when the application needs to release Python before process exit.
 
+## JavaScript callbacks
+
+Python `Callable[...]` parameters generate as branded `PynectCallback` values. Create them inside `withCallbacks()` so registrations cannot leak when work succeeds, throws, or is cancelled:
+
+```python
+from collections.abc import Callable
+
+def transform(values: list[int], apply: Callable[[int], int]) -> list[int]:
+    return [apply(value) for value in values]
+```
+
+```ts
+import { importModule, withCallbacks } from 'pynect';
+
+const transforms = await importModule('transforms');
+const result = await withCallbacks(async ctx => {
+  const double = ctx.callback((value: number) => value * 2);
+  return transforms.transform([1, 2, 3], double);
+});
+```
+
+Callback implementations may return a value or a promise. They may also call Python again; while Python waits for JavaScript, the waiting worker releases the GIL and services queued Python work, so reentry remains live even with a one-thread pool. JavaScript errors become Python exceptions and return through the outer call as normal Pynect errors.
+
+Raw JavaScript functions are rejected. A callback is bound to the runtime and becomes invalid when its callback context exits. `callIsolated()` cannot accept callbacks because functions and embedded Python objects do not cross its process boundary.
+
+Nested callback depth defaults to the embedded interpreter's active `sys.getrecursionlimit()` value, normally 1000. Applications can choose a lower positive ceiling uniformly through API config, the root manifest, or the environment:
+
+```ts
+await init({ callbacks: { maxDepth: 100 } });
+```
+
+```json
+{
+  "pynect": {
+    "tool": {
+      "pynect": {
+        "callbacks": { "maxDepth": 100 }
+      }
+    }
+  }
+}
+```
+
+The equivalent environment variable is `PYNECT_CALLBACK_MAX_DEPTH`.
+
 ## Add Pydantic validation
 
 For Python-side normalization and validation, use Pydantic models in a module such as `users.py`:
@@ -132,7 +177,7 @@ Pynect and [PyBridge](https://github.com/marcj/pybridge) connect TypeScript and 
 
 PyBridge may be a better fit when every call must be process-isolated, or when RxJS generator streaming or Deepkit runtime serialization and reflection matter more than direct in-process access.
 
-The main tradeoff is isolation versus integration. Normal Pynect proxy calls avoid subprocess transport and duplicate controller definitions, while its optional JSON-only worker provides hard termination for selected calls. Supported Python 3.12 platform prebuilds avoid a local compiler; fallback builds still require a C++ toolchain.
+The main tradeoff is isolation versus integration. Normal Pynect proxy calls avoid subprocess transport and duplicate controller definitions, while its optional JSON-only worker provides hard termination for selected calls. CPython 3.10+ Stable ABI platform prebuilds avoid a local compiler; fallback builds still require a C++ toolchain.
 
 ## Python and native build
 
@@ -466,6 +511,7 @@ Pydantic cannot infer a validation target for an unannotated value, and some ext
 - Async Python uses one persistent asyncio loop. CPU-bound work still needs Python multiprocessing or native extensions that release the GIL.
 - Local modules use safe AST inspection, but codegen for explicitly requested installed packages imports those packages and may run their import-time code.
 - The isolated worker is not an operating-system sandbox and supports only JSON-compatible calls, not Python object proxies.
+- JavaScript callbacks are in-process and scoped to `withCallbacks()`; Python code cannot retain them past that scope.
 - The npm package includes CPython 3.10+ Stable ABI prebuilds for Linux, macOS, and Windows on x64 and ARM64. Incompatible platform baselines require a local C++ toolchain for the fallback build; free-threaded Python remains unsupported.
 
 See [SECURITY.md](./SECURITY.md) before exposing imports or call patterns to untrusted input.

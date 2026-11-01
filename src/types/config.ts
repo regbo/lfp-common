@@ -71,6 +71,14 @@ export interface IsolationConfig {
   cwd?: string;
 }
 
+export interface CallbackConfig {
+  /**
+   * Maximum nested Python -> JavaScript -> Python callback depth.
+   * By default Pynect uses the embedded interpreter's active recursion limit.
+   */
+  maxDepth?: number;
+}
+
 export interface MemoryConfig {
   /** Maximum Python heap size (e.g. '2GB', '512MB'). Default: '2GB' */
   limit?: string;
@@ -200,6 +208,9 @@ export interface PynectConfig extends PynectPackageManifest {
   /** Optional process-isolated, JSON-only calls with hard termination. */
   isolation?: IsolationConfig;
 
+  /** Registered JavaScript callback behavior. */
+  callbacks?: CallbackConfig;
+
   /** Callable selection and optional Pydantic validation policy. */
   dispatcher?: DispatcherConfig;
 
@@ -265,6 +276,7 @@ export interface ResolvedPynectConfig {
   logLevel: LogLevel;
   callTimeout: number;
   executionTimeout: number;
+  callbackMaxDepth: number;
   isolation: Required<IsolationConfig>;
   dispatcher: Required<DispatcherConfig>;
   allowUnsafeCode: boolean;
@@ -281,6 +293,11 @@ export interface ResolvedPynectConfig {
 }
 
 export function resolveConfig(config: PynectConfig = {}): ResolvedPynectConfig {
+  const callbackMaxDepth = config.callbacks?.maxDepth ?? 0;
+  if (!Number.isSafeInteger(callbackMaxDepth) ||
+    (config.callbacks?.maxDepth !== undefined && callbackMaxDepth <= 0)) {
+    throw new TypeError('callbacks.maxDepth must be a positive integer when provided.');
+  }
   return {
     autoShutdown: config.autoShutdown ?? true,
     pythonExecutable: config.python ?? config.pythonPath ?? 'python3',
@@ -304,6 +321,7 @@ export function resolveConfig(config: PynectConfig = {}): ResolvedPynectConfig {
     logLevel: config.logLevel ?? 'warn',
     callTimeout: config.callTimeout ?? 0,
     executionTimeout: config.executionTimeout ?? 0,
+    callbackMaxDepth,
     isolation: {
       enabled: config.isolation?.enabled ?? false,
       timeout: config.isolation?.timeout ?? 30000,

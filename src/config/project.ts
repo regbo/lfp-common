@@ -28,6 +28,10 @@ export interface PynectUvTable {
   'override-dependencies'?: string[];
 }
 
+export interface PynectCallbackTable {
+  maxDepth?: number;
+}
+
 export interface PynectToolTable {
   modules?: Record<string, PynectModuleManifest>;
   python?: string;
@@ -39,6 +43,7 @@ export interface PynectToolTable {
   autoSync?: AutoSyncMode;
   lockfile?: string;
   generatedDirectory?: string;
+  callbacks?: PynectCallbackTable;
 }
 
 export interface CanonicalPynectPackageManifest {
@@ -100,6 +105,7 @@ export interface ProjectConfigOverrides extends PynectPackageManifest {
   autoSync?: AutoSyncMode;
   lockfile?: string;
   generatedDirectory?: string;
+  callbacks?: PynectCallbackTable;
   env?: Record<string, string | undefined>;
 }
 
@@ -116,6 +122,7 @@ export interface ResolvedProjectConfig {
   autoSync: AutoSyncMode;
   lockfile: string;
   generatedDirectory: string;
+  callbackMaxDepth?: number;
   packageManifest: CanonicalPynectPackageManifest;
   env: NodeJS.ProcessEnv;
 }
@@ -225,6 +232,12 @@ export function resolveProjectConfig(
     DEFAULTS.createVirtualEnvironment,
     'PYNECT_CREATE_VIRTUAL_ENVIRONMENT',
   );
+  const callbackMaxDepth = first(
+    overrides.callbacks?.maxDepth,
+    apiTool.callbacks?.maxDepth,
+    parseOptionalPositiveInteger(env['PYNECT_CALLBACK_MAX_DEPTH'], 'PYNECT_CALLBACK_MAX_DEPTH'),
+    packageTool.callbacks?.maxDepth,
+  );
   const resolvedManifest: CanonicalPynectPackageManifest = {
     schemaVersion: CURRENT_PYNECT_SCHEMA_VERSION,
     project: {
@@ -249,6 +262,7 @@ export function resolveProjectConfig(
         autoSync,
         lockfile,
         generatedDirectory,
+        callbacks: callbackMaxDepth === undefined ? undefined : { maxDepth: callbackMaxDepth },
       },
     },
   };
@@ -266,6 +280,7 @@ export function resolveProjectConfig(
     autoSync,
     lockfile: resolveInsideProject(projectRoot, lockfile, 'pynect.lock'),
     generatedDirectory,
+    callbackMaxDepth,
     packageManifest: resolvedManifest,
     env,
   };
@@ -405,6 +420,7 @@ export function validatePackageManifest(
           pynectTool['generatedDirectory'] as string | undefined,
           value['generatedDirectory'] as string | undefined,
         ),
+        callbacks: pynectTool['callbacks'] as PynectCallbackTable | undefined,
       },
     },
   };
@@ -431,6 +447,13 @@ function validatePynectTool(value: Record<string, unknown>, source: string): voi
   optionalBoolean(value, 'createVirtualEnvironment', `${source}: pynect.tool.pynect`);
   if (value['autoSync'] !== undefined) parseAutoSync(value['autoSync']);
   if (value['modules'] !== undefined) validateModules(value['modules'], source);
+  if (value['callbacks'] !== undefined) {
+    const callbacks = optionalRecord(value, 'callbacks', `${source}: pynect.tool.pynect`);
+    if (callbacks['maxDepth'] !== undefined &&
+      (!Number.isSafeInteger(callbacks['maxDepth']) || (callbacks['maxDepth'] as number) <= 0)) {
+      throw new TypeError(`${source}: pynect.tool.pynect.callbacks.maxDepth must be a positive integer.`);
+    }
+  }
 }
 
 function validateRequirements(value: unknown, source: string): asserts value is string[] {
@@ -549,6 +572,15 @@ export function parseBoolean(value: string, name: string): boolean {
 function parseAutoSync(value: unknown): AutoSyncMode {
   if (value === 'never' || value === 'if-missing') return value;
   throw new TypeError(`autoSync must be "never" or "if-missing"; received ${String(value)}.`);
+}
+
+function parseOptionalPositiveInteger(value: string | undefined, name: string): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new TypeError(`${name} must be a positive integer; received ${value}.`);
+  }
+  return parsed;
 }
 
 function optionalString(value: Record<string, unknown>, key: string, source: string): void {

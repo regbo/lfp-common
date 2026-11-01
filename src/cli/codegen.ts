@@ -352,7 +352,7 @@ function splitParams(value: string): string[] {
   return parts;
 }
 
-function mapType(raw: unknown, overrides: StringMap = {}): string {
+export function mapType(raw: unknown, overrides: StringMap = {}): string {
   const value = String(raw || 'Any').trim();
   if (typeof overrides[value] === 'string') return overrides[value];
   if (TYPE_MAP[value]) return TYPE_MAP[value];
@@ -369,6 +369,15 @@ function mapType(raw: unknown, overrides: StringMap = {}): string {
   if (match) return splitParams(match[1]!).map(part => mapType(part, overrides)).join(' | ');
   match = value.match(/^(.+)\s*\|\s*None$/);
   if (match) return `${mapType(match[1]!, overrides)} | null`;
+  match = value.match(/^Callable\[\[(.*)\],\s*(.+)]$/);
+  if (match) {
+    const args = match[1]!.trim()
+      ? splitParams(match[1]!).map(part => mapType(part, overrides)).join(', ')
+      : '';
+    return `PynectCallback<[${args}], ${mapType(match[2]!, overrides)}>`;
+  }
+  match = value.match(/^Callable\[\.\.\.,\s*(.+)]$/);
+  if (match) return `PynectCallback<unknown[], ${mapType(match[1]!, overrides)}>`;
   return /^[A-Za-z_]\w*$/.test(value) ? value : 'PyProxy';
 }
 
@@ -413,6 +422,7 @@ function generate(moduleName: string, inspection: Inspection, options: CodegenOp
     `declare module 'pynect/${moduleName}' {`,
     `  type PyProxy = import('pynect').PyProxy;`,
     `  type PynectFunction<F extends (...args: never[]) => Promise<unknown>> = import('pynect').PynectFunction<F>;`,
+    `  type PynectCallback<A extends unknown[], R> = import('pynect').PynectCallback<A, R>;`,
   ];
   for (const x of inspection.constants) lines.push(`${doc(x.docstring)}  export const ${x.name}: ${mapType(x.type, options.typeOverrides)};`);
   for (const x of inspection.functions) lines.push(`${doc(x.docstring)}  export const ${x.name}: PynectFunction<${functionType(`${moduleName}.${x.name}`, x, options)}>;`);

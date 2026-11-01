@@ -11,6 +11,7 @@ Returns a JSON-serializable dict matching RawModuleInspection in TypeGenerator.t
 from __future__ import annotations
 
 import inspect
+import collections.abc
 import json
 import importlib
 import sys
@@ -40,6 +41,9 @@ def _get_annotation(annotation: Any) -> str:
         return 'None'
     if isinstance(annotation, str):
         return annotation
+    origin = getattr(annotation, '__origin__', None)
+    if origin is collections.abc.Callable:
+        return _stringify_generic(annotation)
     if hasattr(annotation, '__name__'):
         return annotation.__name__
     if hasattr(annotation, '__origin__'):
@@ -62,6 +66,14 @@ def _stringify_generic(tp: Any) -> str:
     if origin is typing.Union:
         parts = [_get_annotation(a) for a in args]
         return f"Union[{', '.join(parts)}]"
+
+    if origin is collections.abc.Callable:
+        if len(args) == 2 and args[0] is Ellipsis:
+            return f"Callable[..., {_get_annotation(args[1])}]"
+        if args:
+            parameters = ', '.join(_get_annotation(a) for a in args[:-1])
+            return f"Callable[[{parameters}], {_get_annotation(args[-1])}]"
+        return 'Callable'
 
     # typing.Optional[X]  is Union[X, None]
     if len(args) == 2 and type(None) in args:

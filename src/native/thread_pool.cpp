@@ -178,72 +178,79 @@ void PythonThreadPool::_workerThread(uint32_t threadId) {
       _stats.currentQueueSize.fetch_sub(1, std::memory_order_relaxed);
     }
 
-    // Check timeout before executing
-    if (_isTimedOut(task)) {
-      TaskResult timeoutResult;
-      timeoutResult.success = false;
-      timeoutResult.errorType = "TimeoutError";
-      timeoutResult.errorMessage = "Python task timed out after " +
-                                    std::to_string(task.timeoutMs) + "ms in queue";
-      timeoutResult.errorTraceback = "";
-      _stats.totalTasksTimedOut.fetch_add(1, std::memory_order_relaxed);
-      _postResult(task.id, std::move(timeoutResult), std::move(task.callback));
-      continue;
-    }
-
-    // Execute the task with GIL held
-    _stats.activeThreads.fetch_add(1, std::memory_order_relaxed);
-
-    auto startTime = std::chrono::steady_clock::now();
-    TaskResult result;
-
-    try {
-      // Acquire GIL - critical: must be released when we're done
+    {
       GILAcquire gil;
-
-      // Check timeout again (task might have waited in queue)
-      if (task.timeoutMs > 0 && _isTimedOut(task)) {
-        result.success = false;
-        result.errorType = "TimeoutError";
-        result.errorMessage = "Python task timed out";
-        result.errorTraceback = "";
-      } else {
-        // Execute the Python work
-        result = task.work();
-      }
-    } catch (const std::exception& e) {
-      result.success = false;
-      result.errorType = "RuntimeError";
-      result.errorMessage = std::string("C++ exception in worker thread: ") + e.what();
-      result.errorTraceback = "";
-    } catch (...) {
-      result.success = false;
-      result.errorType = "RuntimeError";
-      result.errorMessage = "Unknown C++ exception in worker thread";
-      result.errorTraceback = "";
-    }
-
-    auto endTime = std::chrono::steady_clock::now();
-    auto durationUs = std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime).count();
-    _stats.totalExecutionTimeUs.fetch_add(static_cast<uint64_t>(durationUs), std::memory_order_relaxed);
-
-    if (result.success) {
-      _stats.totalTasksCompleted.fetch_add(1, std::memory_order_relaxed);
-    } else {
-      _stats.totalTasksFailed.fetch_add(1, std::memory_order_relaxed);
-    }
-
-    _stats.activeThreads.fetch_sub(1, std::memory_order_relaxed);
-
-    // Post result back to Node.js event loop
-    _postResult(task.id, std::move(result), std::move(task.callback));
-
-    // Signal drain waiters
-    if (_draining.load()) {
-      std::lock_guard<std::mutex> lock(_queueMutex);
-      _drainCv.notify_all();
+      _executeTask(std::move(task));
     }
   }
+}
+
+void PythonThreadPool::_executeTask(PythonTask task) {
+  _stats.activeThreads.fetch_add(1, std::memory_order_relaxed);
+  const auto startTime = std::chrono::steady_clock::now();
+  TaskResult result;
+
+  try {
+    if (_isTimedOut(task)) {
+      result.success = false;
+      result.errorType = "TimeoutError";
+      result.errorMessage = "Python task timed out after " +
+        std::to_string(task.timeoutMs) + "ms in queue";
+      _stats.totalTasksTimedOut.fetch_add(1, std::memory_order_relaxed);
+    } else {
+      result = task.work();
+    }
+  } catch (const std::exception& e) {
+    result.success = false;
+    result.errorType = "RuntimeError";
+    result.errorMessage = std::string("C++ exception in worker thread: ") + e.what();
+  } catch (...) {
+    result.success = false;
+    result.errorType = "RuntimeError";
+    result.errorMessage = "Unknown C++ exception in worker thread";
+  }
+
+  const auto durationUs = std::chrono::duration_cast<std::chrono::microseconds>(
+    std::chrono::steady_clock::now() - startTime
+  ).count();
+  _stats.totalExecutionTimeUs.fetch_add(static_cast<uint64_t>(durationUs), std::memory_order_relaxed);
+  if (result.success) _stats.totalTasksCompleted.fetch_add(1, std::memory_order_relaxed);
+  else _stats.totalTasksFailed.fetch_add(1, std::memory_order_relaxed);
+  _stats.activeThreads.fetch_sub(1, std::memory_order_relaxed);
+  _postResult(task.id, std::move(result), std::move(task.callback));
+
+  if (_draining.load()) _drainCv.notify_all();
+}
+
+void PythonThreadPool::pumpUntil(const std::atomic<bool>& completed) {
+  PyThreadState* state = PyEval_SaveThread();
+  while (!completed.load(std::memory_order_acquire) && _running.load()) {
+    PythonTask task;
+    bool hasTask = false;
+    {
+      std::unique_lock<std::mutex> lock(_queueMutex);
+      _queueCv.wait(lock, [this, &completed] {
+        return completed.load(std::memory_order_acquire) ||
+          !_queue.empty() || !_running.load();
+      });
+      if (!completed.load(std::memory_order_acquire) && !_queue.empty()) {
+        task = std::move(_queue.front());
+        _queue.pop_front();
+        _stats.currentQueueSize.fetch_sub(1, std::memory_order_relaxed);
+        hasTask = true;
+      }
+    }
+    if (hasTask) {
+      PyEval_RestoreThread(state);
+      _executeTask(std::move(task));
+      state = PyEval_SaveThread();
+    }
+  }
+  PyEval_RestoreThread(state);
+}
+
+void PythonThreadPool::notifyWaiters() {
+  _queueCv.notify_all();
 }
 
 // Result Delivery

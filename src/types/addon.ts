@@ -39,6 +39,8 @@ export interface AddonInitOptions {
   enableProfiling: boolean;
   /** Include Python tracebacks in JavaScript errors */
   includeTracebacks: boolean;
+  /** Callback recursion ceiling; 0 uses Python's active recursion limit. */
+  callbackMaxDepth: number;
 }
 
 export interface AddonImportResult {
@@ -67,6 +69,8 @@ export interface AddonCallOptions {
   executionTimeout?: number;
   /** Unique key used for cancellation. */
   requestId?: string;
+  /** Logical callback depth propagated through reentrant Python calls. */
+  callbackDepth?: number;
 }
 
 export interface PyCallOptions {
@@ -111,6 +115,10 @@ export interface NativeAddon {
   initializePython(options: AddonInitOptions): Promise<void>;
   finalizePython(): Promise<void>;
   isInitialized(): boolean;
+
+  // JavaScript callbacks exposed to Python
+  registerCallback(dispatcher: (...args: never[]) => unknown): number;
+  disposeCallback(callbackId: number): void;
 
   // Module Import
   importModule(moduleName: string): Promise<AddonImportResult>;

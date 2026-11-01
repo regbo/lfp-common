@@ -89,6 +89,28 @@ describe('project configuration', () => {
     expect(config.packageManifest.tool.uv['override-dependencies']).toEqual(['packaging==24.2']);
   });
 
+  test('resolves callback depth from API, environment, package, then Python', () => {
+    const root = project({
+      name: 'callback-app',
+      version: '1.0.0',
+      pynect: { tool: { pynect: { callbacks: { maxDepth: 30 } } } },
+    });
+    expect(resolveProjectConfig({
+      projectRoot: root,
+      callbacks: { maxDepth: 10 },
+      env: { PYNECT_CALLBACK_MAX_DEPTH: '20' },
+    }).callbackMaxDepth).toBe(10);
+    expect(resolveProjectConfig({
+      projectRoot: root,
+      env: { PYNECT_CALLBACK_MAX_DEPTH: '20' },
+    }).callbackMaxDepth).toBe(20);
+    expect(resolveProjectConfig({ projectRoot: root }).callbackMaxDepth).toBe(30);
+    expect(() => resolveProjectConfig({
+      projectRoot: root,
+      env: { PYNECT_CALLBACK_MAX_DEPTH: '0' },
+    })).toThrow(/positive integer/);
+  });
+
   test('uses an explicit generated project location outside node_modules', () => {
     const root = project({
       name: 'example-app',

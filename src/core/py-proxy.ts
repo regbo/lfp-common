@@ -25,6 +25,10 @@ import type {
 } from '../types/python';
 import { translatePythonError } from '../utils/error-translator';
 import { Logger } from '../utils/logger';
+import {
+  currentCallbackDepth,
+  serializePynectCallback,
+} from './pynect-callback';
 
 const logger = new Logger('PyProxy');
 let nextRequestId = 0;
@@ -321,7 +325,7 @@ export class PyProxy {
 
       // Serialize arguments
       const serializedArgs = await Promise.all(
-        args.map(arg => PyProxy._serializeArg(arg))
+        args.map(arg => PyProxy._serializeArg(arg, addon))
       );
 
       const callOptions: AddonCallOptions = {
@@ -330,6 +334,7 @@ export class PyProxy {
         timeout: controls.queueTimeout ?? internal.callTimeout,
         executionTimeout: controls.executionTimeout ?? internal.executionTimeout,
         requestId: `pynect-${process.pid}-${Date.now()}-${++nextRequestId}`,
+        callbackDepth: currentCallbackDepth(),
       };
 
       // If last arg is a plain object (not PyProxy/Array), treat as kwargs
@@ -349,7 +354,7 @@ export class PyProxy {
           callOptions.args = serializedArgs.slice(0, -1);
           const kwargsEntries = await Promise.all(
             Object.entries(lastArg as Record<string, unknown>).map(
-              async ([k, v]) => [k, await PyProxy._serializeArg(v)] as [string, SerializedValue]
+              async ([k, v]) => [k, await PyProxy._serializeArg(v, addon)] as [string, SerializedValue]
             )
           );
           callOptions.kwargs = Object.fromEntries(kwargsEntries);
@@ -458,7 +463,7 @@ export class PyProxy {
     propName: string,
     value: unknown
   ): Promise<void> {
-    const serialized = await PyProxy._serializeArg(value);
+    const serialized = await PyProxy._serializeArg(value, internal.addon);
     await internal.addon.setAttribute(
       internal.objectId as number,
       propName,
@@ -582,7 +587,10 @@ export class PyProxy {
     });
   }
 
-  static async _serializeArg(value: unknown): Promise<SerializedValue> {
+  static async _serializeArg(
+    value: unknown,
+    addon?: NativeAddon,
+  ): Promise<SerializedValue> {
     // Already a SerializedValue
     if (
       value !== null &&
@@ -592,13 +600,53 @@ export class PyProxy {
       return value as SerializedValue;
     }
 
+    if (addon) {
+      const callback = serializePynectCallback(value, addon);
+      if (callback) return callback;
+    }
+    if (typeof value === 'function') {
+      throw new TypeError('JavaScript functions must be registered with ctx.callback() inside withCallbacks().');
+    }
+
     // PyProxy -> pass as Python reference
     if (value instanceof PyProxy) {
       const internal = value[PYPROXY_INTERNAL];
-      // If proxy has a path, resolve it first to get the objectId
+      if (addon && internal.addon !== addon) {
+        throw new Error('Python proxy belongs to a different Pynect runtime.');
+      }
       if (internal.path.length > 0) {
-        // We need to resolve it - for now, keep as reference
-        // Production: could pre-resolve path to objectId
+        const result = await internal.addon.getAttributePath(
+          internal.objectId as number,
+          internal.path,
+        ) as {
+          success?: boolean;
+          resultJson?: string | null;
+          objectId?: number;
+          isObject?: boolean;
+          error?: { type: string; message: string; traceback: string };
+        };
+        if (!result.success) {
+          if (result.error) {
+            throw translatePythonError({
+              type: result.error.type,
+              message: result.error.message,
+              traceback: result.error.traceback || '',
+            });
+          }
+          throw new Error('Unable to resolve Python argument proxy.');
+        }
+        if (result.isObject && result.objectId) {
+          return {
+            format: 6 as const,
+            data: null,
+            metadata: { objectId: result.objectId },
+          };
+        }
+        return {
+          format: 0 as const,
+          data: result.resultJson ?? 'null',
+          metadata: {},
+        };
       }
       return {
         format: 6 as const,  // PYTHON_REF

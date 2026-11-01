@@ -11,6 +11,11 @@ import { resolveConfig } from '../types/config';
 import type { PynectConfig, ResolvedPynectConfig } from '../types/config';
 import type { PyObjectId } from '../types/python';
 import { PyProxy } from './py-proxy';
+import {
+  createPynectCallbackContext,
+  type Awaitable,
+  type PynectCallbackContext,
+} from './pynect-callback';
 import { PyModule } from './py-module';
 import { PyContext } from './py-context';
 import { IsolatedWorker, type IsolatedCallOptions } from './isolated-worker';
@@ -64,6 +69,7 @@ export class PyRuntime {
   private readonly _memoryMonitor: MemoryMonitor;
   private _isolatedWorker?: IsolatedWorker;
   private _running = false;
+  private readonly _callbackContexts = new Set<Disposable>();
 
   private constructor(
     config: ResolvedPynectConfig,
@@ -190,6 +196,9 @@ export class PyRuntime {
       autoSync: project.autoSync,
       lockfile: project.lockfile,
       generatedDirectory: project.generatedDirectory,
+      callbacks: project.callbackMaxDepth === undefined
+        ? config.callbacks
+        : { ...config.callbacks, maxDepth: project.callbackMaxDepth },
       env: project.env as Record<string, string>,
       dispatcher: {
         ...config.dispatcher,
@@ -301,6 +310,7 @@ export class PyRuntime {
       env: this._config.env,
       enableProfiling: this._config.profilingEnabled,
       includeTracebacks: this._config.includeTracebacks,
+      callbackMaxDepth: this._config.callbackMaxDepth,
     });
 
     logger.debug('Python interpreter initialized');
@@ -420,6 +430,34 @@ pynect_dispatcher.configure(
       moduleNames.map(async name => [name, await this.import(name)] as const)
     );
     return Object.fromEntries(modules);
+  }
+
+  /** Run work with an owning scope for registered JavaScript callbacks. */
+  async withCallbacks<Result>(
+    work: (context: PynectCallbackContext) => Awaitable<Result>,
+  ): Promise<Result> {
+    this._ensureRunning();
+    let context: PynectCallbackContext & Disposable;
+    context = createPynectCallbackContext(
+      this._addon,
+      {
+        decode: value => PyProxy._deserializeAddonResult(value, {
+          objectId: 0 as PyObjectId,
+          path: [],
+          addon: this._addon,
+          callTimeout: this._config.callTimeout,
+          executionTimeout: this._config.executionTimeout,
+        }),
+        encode: value => PyProxy._serializeArg(value, this._addon),
+      },
+      () => this._callbackContexts.delete(context),
+    );
+    this._callbackContexts.add(context);
+    try {
+      return await work(context);
+    } finally {
+      context[Symbol.dispose]();
+    }
   }
 
   /**
@@ -622,6 +660,8 @@ pynect_dispatcher.configure(
 
     await this._isolatedWorker?.close();
     this._isolatedWorker = undefined;
+
+    for (const context of [...this._callbackContexts]) context[Symbol.dispose]();
 
     // Finalize Python interpreter
     try {

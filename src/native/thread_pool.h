@@ -144,9 +144,22 @@ public:
   /** Check if pool is running */
   bool isRunning() const noexcept { return _running.load(); }
 
+  /**
+   * Release the GIL and keep servicing queued Python work until a JavaScript
+   * callback completes. This preserves progress for reentrant calls even with
+   * a one-thread pool.
+   */
+  void pumpUntil(const std::atomic<bool>& completed);
+
+  /** Wake workers that may be waiting for callback completion. */
+  void notifyWaiters();
+
 private:
   /** Worker thread entry point */
   void _workerThread(uint32_t threadId);
+
+  /** Execute and deliver one task while the caller holds the GIL. */
+  void _executeTask(PythonTask task);
 
   /** Post result back to event loop via libuv */
   void _postResult(uint64_t taskId, TaskResult result, std::function<void(TaskResult)> callback);

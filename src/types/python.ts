@@ -146,7 +146,7 @@ export type SerializedFormat =
   | 'python_ref'
   | 'bytes'
   | 'none'
-  | number;   // numeric codes from the C++ addon (0=json,1=msgpack,2=numpy,3=df,4=series,6=ref,7=bytes,8=none)
+  | number;   // numeric codes from the C++ addon (9 is a registered JavaScript callback)
 
 export interface SerializedValue {
   format: SerializedFormat;
@@ -157,6 +157,8 @@ export interface SerializedValue {
 export interface SerializedMetadata {
   /** For python_ref: the object ID */
   objectId?: number;
+  /** For a registered JavaScript callback. */
+  callbackId?: number;
   /** For numpy_array: dtype, shape, strides */
   dtype?: string;
   shape?: number[];

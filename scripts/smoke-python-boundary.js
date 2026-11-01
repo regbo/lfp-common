@@ -1,5 +1,7 @@
 'use strict';
 
+process.env.PYNECT_PREFER_LOCAL ??= '1';
+
 const path = require('path');
 const { ensurePynectEnvironment } = require('./pyfig');
 
@@ -40,6 +42,22 @@ async function main() {
   );
   assertSuccess(inspector, 'codegen inspector');
   JSON.parse(inspector.stdout);
+  const callbackInspection = client.pythonSync(
+    [path.join(ROOT, 'python', 'type_inspector.py'), 'pynect_callback_fixture'],
+    {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PYTHONPATH: path.join(ROOT, 'tests', 'fixtures'),
+      },
+    },
+  );
+  assertSuccess(callbackInspection, 'callback type inspector');
+  const inspectedCallback = JSON.parse(callbackInspection.stdout).functions
+    .find(item => item.name === 'invoke')?.parameters?.[0]?.type;
+  if (inspectedCallback !== 'Callable[[Any], Any]') {
+    throw new Error(`Callback annotation was inspected as ${String(inspectedCallback)}.`);
+  }
 
   const worker = client.pythonSync(
     [path.join(ROOT, 'python', 'isolated_worker.py')],
@@ -69,15 +87,67 @@ async function main() {
     projectRoot: ROOT,
     allowUnsafeCode: true,
     logLevel: 'error',
+    pythonPath_extra: [path.join(ROOT, 'tests', 'fixtures')],
+    threadPool: { size: 1 },
+    callbacks: { maxDepth: 2 },
   });
   try {
     const embedded = await pynect.py.eval('__import__("sys").executable');
     assertSamePython(embedded, expected, 'embedded CPython');
+    const fixture = await pynect.importModule('pynect_callback_fixture');
+    await assertRejects(
+      () => fixture.invoke((value) => value, 1),
+      /ctx\.callback\(\)/,
+      'unregistered callback',
+    );
+
+    let disposedCallback;
+    await pynect.withCallbacks(async ctx => {
+      const asyncCallback = ctx.callback(async value => {
+        await Promise.resolve();
+        return value * 3;
+      });
+      if (await fixture.invoke(asyncCallback, 4) !== 12) {
+        throw new Error('Async JavaScript callback returned the wrong value.');
+      }
+
+      const reentrantCallback = ctx.callback(async value => fixture.double(value));
+      if (await fixture.invoke(reentrantCallback, 5) !== 10) {
+        throw new Error('Reentrant JavaScript callback returned the wrong value.');
+      }
+
+      let recursiveCallback;
+      recursiveCallback = ctx.callback(async depth => {
+        if (depth <= 0) return 0;
+        return fixture.invoke(recursiveCallback, depth - 1);
+      });
+      await assertRejects(
+        () => fixture.invoke(recursiveCallback, 2),
+        /recursion depth 3 exceeds the configured maximum of 2/,
+        'callback recursion limit',
+      );
+      disposedCallback = asyncCallback;
+    });
+    await assertRejects(
+      () => fixture.invoke(disposedCallback, 1),
+      /disposed/,
+      'callback context disposal',
+    );
   } finally {
     await pynect.shutdown();
   }
 
   console.log(`Python ${python.version} boundary verified: ${python.executable}`);
+}
+
+async function assertRejects(action, pattern, label) {
+  try {
+    await action();
+  } catch (error) {
+    if (pattern.test(String(error?.message || error))) return;
+    throw new Error(`${label} failed with an unexpected error: ${error?.message || error}`);
+  }
+  throw new Error(`${label} did not reject.`);
 }
 
 function assertSuccess(result, label) {

@@ -14,7 +14,7 @@ fs.renameSync(addon, heldAddon);
 try {
   const result = spawnSync(process.execPath, [path.join(__dirname, 'smoke-python-boundary.js')], {
     cwd: ROOT,
-    env: { ...process.env, PYNECT_SKIP_BUILD: '1' },
+    env: { ...process.env, PYNECT_PREFER_LOCAL: '0', PYNECT_SKIP_BUILD: '1' },
     stdio: 'inherit',
     windowsHide: true,
   });

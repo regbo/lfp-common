@@ -12,6 +12,7 @@ export type {
   MemoryConfig,
   ProfilingConfig,
   IsolationConfig,
+  CallbackConfig,
   DispatcherConfig,
   LogLevel,
 } from './config';

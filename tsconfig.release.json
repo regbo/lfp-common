@@ -20,6 +20,7 @@
     "scripts/process.ts",
     "scripts/release-lib.ts",
     "scripts/release.ts",
-    "tests/release.test.ts"
+    "tests/release.test.ts",
+    "tests/callback-types.ts"
   ]
 }

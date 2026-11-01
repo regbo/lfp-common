@@ -27,6 +27,7 @@ struct CallOptions {
   std::vector<std::pair<std::string, SerializedValue>> kwargs;
   uint32_t timeoutMs = 0;
   uint32_t executionTimeoutMs = 0;
+  uint32_t callbackDepth = 0;
   std::string requestId;
 };
 
@@ -213,6 +214,12 @@ public:
 
   void collectGarbage();
   size_t getTrackedObjectCount() const;
+
+  /** Serialize a callback argument using the normal Python -> JavaScript rules. */
+  TaskResult serializeValue(PyObject* obj);
+
+  /** Deserialize a JavaScript callback result using the normal argument rules. */
+  PyObject* deserializeValue(const SerializedValue& value);
 
 private:
   PythonBridge() = default;

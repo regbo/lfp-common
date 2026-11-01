@@ -6,6 +6,7 @@
 #include "python_bridge.h"
 #include "gil_guard.h"
 #include "type_converter.h"
+#include "callback_bridge.h"
 
 #include <Python.h>
 #include <sstream>
@@ -688,6 +689,9 @@ PyObject* PythonBridge::_deserialize(const SerializedValue& value) {
     case SerializedFormat::NONE:
       Py_RETURN_NONE;
 
+    case SerializedFormat::JS_CALLBACK:
+      return createPythonCallback(value.metadata.callbackId);
+
     default:
       // Try JSON fallback
       if (!value.jsonData.empty()) {
@@ -695,6 +699,14 @@ PyObject* PythonBridge::_deserialize(const SerializedValue& value) {
       }
       Py_RETURN_NONE;
   }
+}
+
+TaskResult PythonBridge::serializeValue(PyObject* obj) {
+  return _makeSuccessResult(obj);
+}
+
+PyObject* PythonBridge::deserializeValue(const SerializedValue& value) {
+  return _deserialize(value);
 }
 
 // Code Execution

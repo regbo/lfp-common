@@ -19,6 +19,7 @@
 #include "thread_pool.h"
 #include "type_converter.h"
 #include "gil_guard.h"
+#include "callback_bridge.h"
 
 #include <memory>
 #include <string>
@@ -29,6 +30,7 @@
 #include <iostream>
 #include <chrono>
 #include <ctime>
+#include <unordered_map>
 
 namespace pynect {
 
@@ -37,6 +39,38 @@ namespace pynect {
 static std::unique_ptr<PythonThreadPool> g_threadPool;
 static bool g_initialized = false;
 static bool g_includeTracebacks = false;
+static uint32_t g_callbackMaxDepth = 0;
+static std::atomic<uint32_t> g_nextCallbackId{1};
+static std::mutex g_callbacksMutex;
+static thread_local uint32_t g_callbackDepth = 0;
+
+struct CallbackState {
+  explicit CallbackState(Napi::ThreadSafeFunction callbackDispatcher)
+    : dispatcher(std::move(callbackDispatcher)) {}
+
+  Napi::ThreadSafeFunction dispatcher;
+  std::atomic<bool> active{true};
+};
+
+struct CallbackCompletion {
+  std::atomic<bool> completed{false};
+  std::mutex mutex;
+  SerializedValue value;
+  bool failed = false;
+  std::string errorName;
+  std::string errorMessage;
+  std::string errorStack;
+};
+
+struct CallbackInvocationPayload {
+  std::shared_ptr<CallbackState> state;
+  std::shared_ptr<CallbackCompletion> completion;
+  uint32_t depth;
+  std::vector<TaskResult> args;
+  std::map<std::string, TaskResult> kwargs;
+};
+
+static std::unordered_map<uint32_t, std::shared_ptr<CallbackState>> g_callbacks;
 
 // Helper: Extract SerializedValue from JS object
 
@@ -58,6 +92,15 @@ static SerializedValue jsToSerializedValue(const Napi::Object& obj) {
     } else if (data.IsBuffer()) {
       Napi::Buffer<uint8_t> buf = data.As<Napi::Buffer<uint8_t>>();
       sv.binaryData.assign(buf.Data(), buf.Data() + buf.Length());
+    } else if (data.IsTypedArray()) {
+      Napi::TypedArray array = data.As<Napi::TypedArray>();
+      Napi::ArrayBuffer buffer = array.ArrayBuffer();
+      auto* begin = static_cast<uint8_t*>(buffer.Data()) + array.ByteOffset();
+      sv.binaryData.assign(begin, begin + array.ByteLength());
+    } else if (data.IsArrayBuffer()) {
+      Napi::ArrayBuffer buffer = data.As<Napi::ArrayBuffer>();
+      auto* begin = static_cast<uint8_t*>(buffer.Data());
+      sv.binaryData.assign(begin, begin + buffer.ByteLength());
     }
   }
 
@@ -65,6 +108,9 @@ static SerializedValue jsToSerializedValue(const Napi::Object& obj) {
     Napi::Object meta = obj.Get("metadata").As<Napi::Object>();
     if (meta.Has("objectId")) {
       sv.metadata.objectId = meta.Get("objectId").As<Napi::Number>().Uint32Value();
+    }
+    if (meta.Has("callbackId")) {
+      sv.metadata.callbackId = meta.Get("callbackId").As<Napi::Number>().Uint32Value();
     }
     if (meta.Has("dtype") && meta.Get("dtype").IsString()) {
       sv.metadata.dtype = meta.Get("dtype").As<Napi::String>().Utf8Value();
@@ -115,6 +161,230 @@ static Napi::Object taskResultToJS(Napi::Env env, const TaskResult& result) {
   return obj;
 }
 
+static void completeCallback(
+  const std::shared_ptr<CallbackCompletion>& completion,
+  SerializedValue value
+) {
+  {
+    std::lock_guard<std::mutex> lock(completion->mutex);
+    if (completion->completed.load(std::memory_order_relaxed)) return;
+    completion->value = std::move(value);
+    completion->completed.store(true, std::memory_order_release);
+  }
+  if (g_threadPool) g_threadPool->notifyWaiters();
+}
+
+static void failCallback(
+  const std::shared_ptr<CallbackCompletion>& completion,
+  std::string name,
+  std::string message,
+  std::string stack = {}
+) {
+  {
+    std::lock_guard<std::mutex> lock(completion->mutex);
+    if (completion->completed.load(std::memory_order_relaxed)) return;
+    completion->failed = true;
+    completion->errorName = std::move(name);
+    completion->errorMessage = std::move(message);
+    completion->errorStack = std::move(stack);
+    completion->completed.store(true, std::memory_order_release);
+  }
+  if (g_threadPool) g_threadPool->notifyWaiters();
+}
+
+static std::shared_ptr<CallbackState> callbackState(uint32_t callbackId) {
+  std::lock_guard<std::mutex> lock(g_callbacksMutex);
+  auto found = g_callbacks.find(callbackId);
+  if (found == g_callbacks.end() || !found->second->active.load()) return nullptr;
+  return found->second;
+}
+
+struct CallbackDepthScope {
+  explicit CallbackDepthScope(uint32_t depth)
+    : previous(g_callbackDepth) {
+    g_callbackDepth = depth;
+  }
+  ~CallbackDepthScope() { g_callbackDepth = previous; }
+  uint32_t previous;
+};
+
+static constexpr const char* CALLBACK_CAPSULE = "pynect.callback";
+
+static void destroyCallbackCapsule(PyObject* capsule) {
+  auto* callbackId = static_cast<uint32_t*>(PyCapsule_GetPointer(capsule, CALLBACK_CAPSULE));
+  if (!callbackId) PyErr_Clear();
+  delete callbackId;
+}
+
+static PyObject* invokeJavaScriptCallback(
+  PyObject* capsule,
+  PyObject* args,
+  PyObject* kwargs
+) {
+  auto* callbackId = static_cast<uint32_t*>(PyCapsule_GetPointer(capsule, CALLBACK_CAPSULE));
+  if (!callbackId) return nullptr;
+  auto state = callbackState(*callbackId);
+  if (!state) {
+    PyErr_SetString(PyExc_RuntimeError, "Pynect callback has been disposed");
+    return nullptr;
+  }
+
+  const uint32_t depth = g_callbackDepth + 1;
+  if (g_callbackMaxDepth > 0 && depth > g_callbackMaxDepth) {
+    PyErr_Format(
+      PyExc_RecursionError,
+      "Pynect callback recursion depth %u exceeds the configured maximum of %u",
+      depth,
+      g_callbackMaxDepth
+    );
+    return nullptr;
+  }
+  CallbackDepthScope depthScope(depth);
+
+  auto completion = std::make_shared<CallbackCompletion>();
+  auto* payload = new CallbackInvocationPayload{state, completion, depth, {}, {}};
+  const Py_ssize_t argCount = PyTuple_Size(args);
+  payload->args.reserve(static_cast<size_t>(argCount));
+  for (Py_ssize_t index = 0; index < argCount; ++index) {
+    PyObject* value = PyTuple_GetItem(args, index);
+    payload->args.push_back(PythonBridge::getInstance().serializeValue(value));
+  }
+  if (kwargs) {
+    PyObject* key = nullptr;
+    PyObject* value = nullptr;
+    Py_ssize_t position = 0;
+    while (PyDict_Next(kwargs, &position, &key, &value)) {
+      Py_ssize_t length = 0;
+      const char* text = PyUnicode_AsUTF8AndSize(key, &length);
+      if (!text) {
+        delete payload;
+        return nullptr;
+      }
+      payload->kwargs.emplace(
+        std::string(text, static_cast<size_t>(length)),
+        PythonBridge::getInstance().serializeValue(value)
+      );
+    }
+  }
+
+  const napi_status status = state->dispatcher.NonBlockingCall(
+    payload,
+    [](Napi::Env env, Napi::Function dispatcher, CallbackInvocationPayload* invocation) {
+      const auto completion = invocation->completion;
+      try {
+        Napi::Object request = Napi::Object::New(env);
+        request.Set("depth", Napi::Number::New(env, invocation->depth));
+        Napi::Array argsArray = Napi::Array::New(env, invocation->args.size());
+        for (size_t index = 0; index < invocation->args.size(); ++index) {
+          argsArray.Set(index, taskResultToJS(env, invocation->args[index]));
+        }
+        request.Set("args", argsArray);
+        Napi::Object kwargsObject = Napi::Object::New(env);
+        for (const auto& [key, value] : invocation->kwargs) {
+          kwargsObject.Set(key, taskResultToJS(env, value));
+        }
+        request.Set("kwargs", kwargsObject);
+        request.Set("resolve", Napi::Function::New(
+          env,
+          [completion](const Napi::CallbackInfo& info) {
+            try {
+              if (info.Length() < 1 || !info[0].IsObject()) {
+                failCallback(completion, "TypeError", "Pynect callback returned an invalid value");
+                return;
+              }
+              completeCallback(completion, jsToSerializedValue(info[0].As<Napi::Object>()));
+            } catch (const std::exception& error) {
+              failCallback(completion, "TypeError", error.what());
+            }
+          }
+        ));
+        request.Set("reject", Napi::Function::New(
+          env,
+          [completion](const Napi::CallbackInfo& info) {
+            std::string name = "Error";
+            std::string message = "JavaScript callback failed";
+            std::string stack;
+            if (info.Length() > 0 && info[0].IsObject()) {
+              Napi::Object error = info[0].As<Napi::Object>();
+              if (error.Has("name")) name = error.Get("name").ToString().Utf8Value();
+              if (error.Has("message")) message = error.Get("message").ToString().Utf8Value();
+              if (error.Has("stack")) stack = error.Get("stack").ToString().Utf8Value();
+            }
+            failCallback(completion, std::move(name), std::move(message), std::move(stack));
+          }
+        ));
+        dispatcher.Call({request});
+      } catch (const std::exception& error) {
+        failCallback(completion, "Error", error.what());
+      }
+      delete invocation;
+    }
+  );
+  if (status != napi_ok) {
+    delete payload;
+    PyErr_SetString(PyExc_RuntimeError, "Unable to schedule the JavaScript callback");
+    return nullptr;
+  }
+
+  if (!g_threadPool) {
+    failCallback(completion, "RuntimeError", "Pynect thread pool is unavailable");
+  } else {
+    g_threadPool->pumpUntil(completion->completed);
+  }
+  if (!completion->completed.load(std::memory_order_acquire)) {
+    PyErr_SetString(PyExc_RuntimeError, "Pynect stopped while a callback was running");
+    return nullptr;
+  }
+
+  std::lock_guard<std::mutex> lock(completion->mutex);
+  if (completion->failed) {
+    std::string message = completion->errorName + ": " + completion->errorMessage;
+    if (g_includeTracebacks && !completion->errorStack.empty()) {
+      message += "\n" + completion->errorStack;
+    }
+    PyErr_SetString(PyExc_RuntimeError, message.c_str());
+    return nullptr;
+  }
+  return PythonBridge::getInstance().deserializeValue(completion->value);
+}
+
+PyObject* createPythonCallback(uint32_t callbackId) {
+  if (!callbackState(callbackId)) {
+    PyErr_SetString(PyExc_RuntimeError, "Pynect callback is not registered");
+    return nullptr;
+  }
+  auto* storedId = new uint32_t(callbackId);
+  PyObject* capsule = PyCapsule_New(storedId, CALLBACK_CAPSULE, destroyCallbackCapsule);
+  if (!capsule) {
+    delete storedId;
+    return nullptr;
+  }
+  PyRef capsuleRef = PyRef::steal(capsule);
+  static PyMethodDef method = {
+    "pynect_callback",
+    reinterpret_cast<PyCFunction>(invokeJavaScriptCallback),
+    METH_VARARGS | METH_KEYWORDS,
+    "Invoke a JavaScript callback registered with Pynect."
+  };
+  return PyCFunction_NewEx(&method, capsule, nullptr);
+}
+
+static uint32_t pythonRecursionLimit() {
+  GILAcquire gil;
+  PyObject* sys = PyImport_ImportModule("sys");
+  if (!sys) throw std::runtime_error("Unable to import sys for the recursion limit");
+  PyRef sysRef = PyRef::steal(sys);
+  PyObject* getter = PyObject_GetAttrString(sys, "getrecursionlimit");
+  if (!getter) throw std::runtime_error("sys.getrecursionlimit is unavailable");
+  PyRef getterRef = PyRef::steal(getter);
+  PyObject* value = PyObject_CallNoArgs(getter);
+  if (!value) throw std::runtime_error("Unable to read Python's recursion limit");
+  PyRef valueRef = PyRef::steal(value);
+  const long limit = PyLong_AsLong(value);
+  if (limit <= 0) throw std::runtime_error("Python returned an invalid recursion limit");
+  return static_cast<uint32_t>(limit);
+}
+
 // Exported Functions
 
 /**
@@ -156,6 +426,9 @@ static Napi::Value InitializePython(const Napi::CallbackInfo& info) {
   uint32_t maxQueueSize = opts.Has("maxQueueSize") ?
     opts.Get("maxQueueSize").As<Napi::Number>().Uint32Value() : 1000;
 
+  uint32_t callbackMaxDepth = opts.Has("callbackMaxDepth") ?
+    opts.Get("callbackMaxDepth").As<Napi::Number>().Uint32Value() : 0;
+
   g_includeTracebacks = opts.Has("includeTracebacks") &&
     opts.Get("includeTracebacks").ToBoolean().Value();
 
@@ -192,6 +465,7 @@ static Napi::Value InitializePython(const Napi::CallbackInfo& info) {
       pythonPathExtra,
       envVars
     );
+    g_callbackMaxDepth = callbackMaxDepth > 0 ? callbackMaxDepth : pythonRecursionLimit();
 
     // Initialize thread pool
     g_threadPool = std::make_unique<PythonThreadPool>(threadPoolSize, maxQueueSize);
@@ -225,6 +499,16 @@ static Napi::Value FinalizePython(const Napi::CallbackInfo& info) {
         "Cannot finalize Python while calls are active or queued"
       );
     }
+    std::vector<std::shared_ptr<CallbackState>> callbacks;
+    {
+      std::lock_guard<std::mutex> lock(g_callbacksMutex);
+      for (auto& [id, callback] : g_callbacks) {
+        callback->active.store(false);
+        callbacks.push_back(callback);
+      }
+      g_callbacks.clear();
+    }
+    for (auto& callback : callbacks) callback->dispatcher.Release();
     if (g_threadPool) {
       g_threadPool->shutdown();
       g_threadPool.reset();
@@ -247,6 +531,51 @@ static Napi::Value IsInitialized(const Napi::CallbackInfo& info) {
   return Napi::Boolean::New(info.Env(), g_initialized);
 }
 
+static Napi::Value RegisterCallback(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (!g_initialized || info.Length() < 1 || !info[0].IsFunction()) {
+    Napi::TypeError::New(env, "registerCallback expects a function on an initialized runtime")
+      .ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  const uint32_t callbackId = g_nextCallbackId.fetch_add(1, std::memory_order_relaxed);
+  Napi::ThreadSafeFunction dispatcher = Napi::ThreadSafeFunction::New(
+    env,
+    info[0].As<Napi::Function>(),
+    "PynectJavaScriptCallback",
+    0,
+    1
+  );
+  dispatcher.Unref(env);
+  auto state = std::make_shared<CallbackState>(std::move(dispatcher));
+  {
+    std::lock_guard<std::mutex> lock(g_callbacksMutex);
+    g_callbacks.emplace(callbackId, state);
+  }
+  return Napi::Number::New(env, callbackId);
+}
+
+static Napi::Value DisposeCallback(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 1 || !info[0].IsNumber()) {
+    Napi::TypeError::New(env, "disposeCallback expects a callback ID")
+      .ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  const uint32_t callbackId = info[0].As<Napi::Number>().Uint32Value();
+  std::shared_ptr<CallbackState> state;
+  {
+    std::lock_guard<std::mutex> lock(g_callbacksMutex);
+    auto found = g_callbacks.find(callbackId);
+    if (found != g_callbacks.end()) {
+      state = found->second;
+      g_callbacks.erase(found);
+    }
+  }
+  if (state && state->active.exchange(false)) state->dispatcher.Release();
+  return env.Undefined();
+}
+
 // Generic async wrapper
 
 /**
@@ -257,7 +586,8 @@ static Napi::Value SubmitTask(
   Napi::Env env,
   std::function<TaskResult()> work,
   uint32_t timeoutMs = 0,
-  std::string cancelKey = {}
+  std::string cancelKey = {},
+  uint32_t callbackDepth = 0
 ) {
   auto deferred = std::make_shared<Napi::Promise::Deferred>(
     Napi::Promise::Deferred::New(env)
@@ -269,8 +599,12 @@ static Napi::Value SubmitTask(
   }
 
   // Capture deferred by shared_ptr to safely use in callback
+  auto scopedWork = [work = std::move(work), callbackDepth]() mutable -> TaskResult {
+    CallbackDepthScope scope(callbackDepth);
+    return work();
+  };
   g_threadPool->submit(
-    std::move(work),
+    std::move(scopedWork),
     [deferred](TaskResult result) {
       Napi::Env callEnv = deferred->Env();
       Napi::HandleScope scope(callEnv);
@@ -481,11 +815,14 @@ static Napi::Value CallFunction(const Napi::CallbackInfo& info) {
     if (optsObj.Has("requestId") && optsObj.Get("requestId").IsString()) {
       options.requestId = optsObj.Get("requestId").As<Napi::String>().Utf8Value();
     }
+    if (optsObj.Has("callbackDepth") && optsObj.Get("callbackDepth").IsNumber()) {
+      options.callbackDepth = optsObj.Get("callbackDepth").As<Napi::Number>().Uint32Value();
+    }
   }
 
   return SubmitTask(env, [objectId, path, options]() -> TaskResult {
     return PythonBridge::getInstance().callFunctionSync(objectId, path, options);
-  }, options.timeoutMs, options.requestId);
+  }, options.timeoutMs, options.requestId, options.callbackDepth);
 }
 
 /**
@@ -516,11 +853,14 @@ static Napi::Value CallMethod(const Napi::CallbackInfo& info) {
     if (optsObj.Has("requestId") && optsObj.Get("requestId").IsString()) {
       options.requestId = optsObj.Get("requestId").As<Napi::String>().Utf8Value();
     }
+    if (optsObj.Has("callbackDepth") && optsObj.Get("callbackDepth").IsNumber()) {
+      options.callbackDepth = optsObj.Get("callbackDepth").As<Napi::Number>().Uint32Value();
+    }
   }
 
   return SubmitTask(env, [objectId, methodName, options]() -> TaskResult {
     return PythonBridge::getInstance().callMethodSync(objectId, methodName, options);
-  }, options.timeoutMs, options.requestId);
+  }, options.timeoutMs, options.requestId, options.callbackDepth);
 }
 
 /**
@@ -890,6 +1230,8 @@ static Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("initializePython",    Napi::Function::New(env, InitializePython));
   exports.Set("finalizePython",      Napi::Function::New(env, FinalizePython));
   exports.Set("isInitialized",       Napi::Function::New(env, IsInitialized));
+  exports.Set("registerCallback",    Napi::Function::New(env, RegisterCallback));
+  exports.Set("disposeCallback",     Napi::Function::New(env, DisposeCallback));
 
   // Module import
   exports.Set("importModule",        Napi::Function::New(env, ImportModule));

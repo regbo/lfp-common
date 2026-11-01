@@ -34,6 +34,7 @@ enum class SerializedFormat : uint8_t {
   PYTHON_REF = 6,
   BYTES = 7,
   NONE = 8,
+  JS_CALLBACK = 9,
 };
 
 /**
@@ -52,6 +53,7 @@ struct SerializedMetadata {
 
   // For PYTHON_REF
   uint32_t objectId = 0;
+  uint32_t callbackId = 0;
 
   // General
   int64_t length = 0;

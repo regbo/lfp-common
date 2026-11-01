@@ -28,6 +28,10 @@ import { PynectNotInitializedError } from './utils/error-translator';
 import type { PynectConfig } from './types/config';
 import type { PyProxyInterface } from './types/python';
 import type { IsolatedCallOptions } from './core/isolated-worker';
+import type {
+  Awaitable,
+  PynectCallbackContext,
+} from './core/pynect-callback';
 import { resolveExposedModule } from './env/project-environment';
 import { withPynectLock } from './utils/locking';
 
@@ -203,6 +207,14 @@ export function getRuntime(): PyRuntime {
   return _runtime;
 }
 
+/** Run work with callbacks that are disposed together when the scope exits. */
+export function withCallbacks<Result>(
+  work: (context: PynectCallbackContext) => Awaitable<Result>,
+): Promise<Result> {
+  if (!_runtime) throw new PynectNotInitializedError();
+  return _runtime.withCallbacks(work);
+}
+
 // Convenience API
 
 /**
@@ -352,6 +364,11 @@ export { PyProxy, PYNECT_WITH_OPTIONS } from './core/py-proxy';
 export type { PynectFunction } from './core/py-proxy';
 export { PyModule } from './core/py-module';
 export { PyCallable } from './core/py-callable';
+export type {
+  Awaitable,
+  PynectCallback,
+  PynectCallbackContext,
+} from './core/pynect-callback';
 export { PyIterator } from './core/py-iterator';
 export { PyContext } from './core/py-context';
 export { IsolatedWorker } from './core/isolated-worker';
@@ -409,6 +426,7 @@ export type {
   VirtualenvConfig,
   IsolationConfig,
   DispatcherConfig,
+  CallbackConfig,
   LogLevel,
   PyObjectId,
   PyTypeInfo,
@@ -433,6 +451,7 @@ export type {
   CanonicalPynectPackageManifest,
   PynectModuleManifest,
   PynectPackageManifest,
+  PynectCallbackTable,
   PynectProjectTable,
   PynectToolTable,
   PynectUvTable,
@@ -455,6 +474,7 @@ export default {
   isInitialized,
   getRuntime,
   py,
+  withCallbacks,
   import: importModule,
   callIsolated,
   eval: evalPython,
