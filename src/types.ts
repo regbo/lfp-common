@@ -33,23 +33,27 @@ export interface LockInfo {
 }
 
 /** The caller context plus immutable information about the current lock. */
-export type LockContext<TContext extends object> = Readonly<
-  Omit<TContext, "lock"> & { readonly lock: Readonly<LockInfo> }
+export type LockContext<
+  TContext extends object,
+  TAcquired extends boolean = boolean,
+> = Readonly<
+  Omit<TContext, "acquired" | "lock"> & {
+    /** Whether this context snapshot was created after lock acquisition. */
+    readonly acquired: TAcquired;
+    readonly lock: Readonly<LockInfo>;
+  }
 >;
 
 export type LockAction<TContext extends object, TResult> = (
-  context: LockContext<TContext>,
+  context: LockContext<TContext, true>,
 ) => TResult | PromiseLike<TResult>;
 
 export type LockPredicate<TContext extends object> = (
   context: LockContext<TContext>,
 ) => boolean | PromiseLike<boolean>;
 
-export type LockCheckFailureReason = "predicate-before" | "predicate-after";
-
 export type LockCheckFailedHandler<TContext extends object> = (
   context: LockContext<TContext>,
-  reason: LockCheckFailureReason,
 ) => void | PromiseLike<void>;
 
 interface LockCallbacks<TContext extends object> {
@@ -71,29 +75,39 @@ export type ResolvedLockOptions<TContext extends object = object> = Omit<
 > &
   LockCallbacks<TContext>;
 
-export type LockRunResult<TResult> =
-  | {
-      readonly executed: true;
-      readonly value: TResult;
-      readonly lock: Readonly<LockInfo>;
-    }
-  | {
-      readonly executed: false;
-      readonly reason: LockCheckFailureReason;
-      readonly lock: Readonly<LockInfo>;
-    };
+type LockOptionsWithoutPredicate<TContext extends object> = Omit<
+  LockOptions<TContext>,
+  "predicate"
+> & { readonly predicate?: never };
+
+type LockOptionsWithPredicate<TContext extends object> = Omit<
+  LockOptions<TContext>,
+  "predicate"
+> & { readonly predicate: LockPredicate<TContext> };
 
 export interface WithLock {
   <TContext extends object, TResult>(
     context: TContext,
     action: LockAction<TContext, TResult>,
-    options?: LockOptions<TContext>,
-  ): Promise<LockRunResult<TResult>>;
+    options?: LockOptionsWithoutPredicate<TContext>,
+  ): Promise<TResult>;
+
+  <TContext extends object, TResult>(
+    context: TContext,
+    action: LockAction<TContext, TResult>,
+    options: LockOptionsWithPredicate<TContext>,
+  ): Promise<TResult | undefined>;
+
+  <TContext extends object, TResult>(
+    context: TContext,
+    action: LockAction<TContext, TResult>,
+    options: LockOptions<TContext>,
+  ): Promise<TResult | undefined>;
 
   <TContext extends object, TResult>(
     context: TContext,
     action: LockAction<TContext, TResult>,
     predicate: LockPredicate<TContext>,
     options?: LockOptions<TContext>,
-  ): Promise<LockRunResult<TResult>>;
+  ): Promise<TResult | undefined>;
 }

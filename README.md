@@ -14,9 +14,11 @@ await withLock(
   },
   {
     key: "cache-refresh",
-    predicate: async ({ resource }) => resource === "cache",
-    onCheckFailed: async ({ resource, lock }, reason) => {
-      console.log(`${resource} skipped at ${reason} (${lock.state})`);
+    predicate: async ({ resource, acquired }) => {
+      return acquired ? await stillNeedsRefresh(resource) : true;
+    },
+    onCheckFailed: async ({ resource, acquired }) => {
+      console.log(`${resource} skipped ${acquired ? "after" : "before"} locking`);
     },
   },
 );
@@ -24,7 +26,9 @@ await withLock(
 
 By default, `withLock` acquires memory, worker-thread, and file locks for the same key. The argument after the action can be a predicate function or an options object containing `predicate`. The predicate runs once before waiting and again after all three layers are held. The action runs only when both checks pass.
 
-When either check fails, `onCheckFailed(context, reason)` runs after any acquired layers have been released. It can log, reread state, or start other lock work without holding this lock. Its `reason` is `"predicate-before"` or `"predicate-after"`; the supplied `lock` metadata is the snapshot from the failed check.
+Every callback receives `ctx.acquired`: it is `false` for the check before locking and `true` for the check after acquisition and for the action. When either check fails, `onCheckFailed(ctx)` runs after any acquired layers have been released. It can use `ctx.acquired` to distinguish the failed phase, log, reread state, or start other lock work without holding this lock. For this hook, `acquired` describes the check snapshot; it does not mean the hook currently holds the lock.
+
+`withLock` resolves to the action's value. Without a predicate its type is `Promise<T>`; with a predicate it is `Promise<T | undefined>`, where `undefined` means the action was skipped.
 
 Use a narrower scope only when you deliberately need one boundary:
 
@@ -85,7 +89,7 @@ flowchart TD
     options --> checking["Create context with checking state"]
     checking --> before{"Predicate passes before waiting?"}
     before -- "No" --> failedBefore["Run onCheckFailed without a lock"]
-    failedBefore --> skippedBefore["Return predicate-before"]
+    failedBefore --> skippedBefore["Return undefined"]
     before -- "Yes or absent" --> memory["Acquire memory lock"]
     memory --> worker["Acquire worker-thread lock"]
     worker --> file["Acquire native flock or polling file lock"]
@@ -93,7 +97,7 @@ flowchart TD
     acquired --> after{"Predicate still passes?"}
     after -- "No" --> releaseFailed["Release all layers"]
     releaseFailed --> failedAfter["Run onCheckFailed without a lock"]
-    failedAfter --> skippedAfter["Return predicate-after"]
+    failedAfter --> skippedAfter["Return undefined"]
     after -- "Yes or absent" --> action["Run the action exclusively"]
     action --> release["Release file, worker, then memory"]
     release --> result["Return the executed value"]

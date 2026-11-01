@@ -73,7 +73,8 @@ describe("withLock", () => {
       const run = () =>
         withLock(
           { resource: "layered" },
-          async ({ lock }) => {
+          async ({ acquired, lock }) => {
+            expect(acquired).toBe(true);
             expect(lock.scope).toBe("all");
             expect(lock.type).toBe("composite");
             expect(lock.backends.map(({ scope }) => scope)).toEqual([
@@ -117,13 +118,14 @@ describe("withLock", () => {
       { scope: "memory" },
     );
 
-    expect(result).toMatchObject({ executed: true, value: "done" });
+    expect(result).toBe("done");
     expect(checks).toBe(2);
   });
 
   test("accepts the predicate as an options field", async () => {
     let checks = 0;
     let actions = 0;
+    const acquiredPhases: boolean[] = [];
 
     const result = await withLock(
       { resource: "options-predicate" },
@@ -133,24 +135,25 @@ describe("withLock", () => {
       },
       {
         scope: "memory",
-        predicate: ({ resource }) => {
+        predicate: ({ acquired, resource }) => {
           checks += 1;
+          acquiredPhases.push(acquired);
           return resource === "options-predicate";
         },
       },
     );
 
-    expect(result).toMatchObject({ executed: true, value: "done" });
+    expect(result).toBe("done");
     expect(checks).toBe(2);
     expect(actions).toBe(1);
+    expect(acquiredPhases).toEqual([false, true]);
   });
 
   test("runs onCheckFailed after releasing an acquired lock", async () => {
     const key = "post-check-failure";
-    let checks = 0;
     let actions = 0;
     let nestedActions = 0;
-    let observedReason: string | undefined;
+    let observedAcquired: boolean | undefined;
 
     const result = await withLock(
       { resource: key },
@@ -160,39 +163,32 @@ describe("withLock", () => {
       {
         key,
         scope: "memory",
-        predicate: () => {
-          checks += 1;
-          return checks === 1;
-        },
-        onCheckFailed: async ({ lock, resource }, reason) => {
-          observedReason = reason;
+        predicate: ({ acquired }) => !acquired,
+        onCheckFailed: async ({ acquired, lock, resource }) => {
+          observedAcquired = acquired;
           expect(resource).toBe(key);
           expect(lock.state).toBe("acquired");
 
-          const nested = await withLock(
+          await withLock(
             { resource },
             () => {
               nestedActions += 1;
             },
             { key, scope: "memory", timeoutMs: 0 },
           );
-          expect(nested.executed).toBe(true);
         },
       },
     );
 
-    expect(result).toMatchObject({
-      executed: false,
-      reason: "predicate-after",
-    });
-    expect(observedReason).toBe("predicate-after");
+    expect(result).toBeUndefined();
+    expect(observedAcquired).toBe(true);
     expect(actions).toBe(0);
     expect(nestedActions).toBe(1);
   });
 
   test("reports a failed pre-acquisition check without taking the lock", async () => {
     let observedState: string | undefined;
-    let observedReason: string | undefined;
+    let observedAcquired: boolean | undefined;
 
     const result = await withLock(
       { resource: "pre-check-failure" },
@@ -201,20 +197,17 @@ describe("withLock", () => {
       },
       {
         scope: "memory",
-        predicate: () => false,
-        onCheckFailed: ({ lock }, reason) => {
+        predicate: ({ acquired }) => acquired,
+        onCheckFailed: ({ acquired, lock }) => {
+          observedAcquired = acquired;
           observedState = lock.state;
-          observedReason = reason;
         },
       },
     );
 
-    expect(result).toMatchObject({
-      executed: false,
-      reason: "predicate-before",
-    });
+    expect(result).toBeUndefined();
+    expect(observedAcquired).toBe(false);
     expect(observedState).toBe("checking");
-    expect(observedReason).toBe("predicate-before");
   });
 
   test("applies timeout only while acquiring the layered lock", async () => {
@@ -235,7 +228,7 @@ describe("withLock", () => {
         },
       );
 
-      expect(result).toMatchObject({ executed: true, value: "finished" });
+      expect(result).toBe("finished");
     } finally {
       await rm(lockDirectory, { force: true, recursive: true });
     }

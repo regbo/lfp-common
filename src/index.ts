@@ -17,7 +17,6 @@ import type {
   LockInfo,
   LockOptions,
   LockPredicate,
-  LockRunResult,
   WithLock,
 } from "./types.js";
 
@@ -35,11 +34,18 @@ type BaseLockInfo = Omit<
   "acquiredAt" | "backends" | "state" | "type" | "waitedMs"
 >;
 
-function createContext<TContext extends object>(
+function createContext<
+  TContext extends object,
+  TAcquired extends boolean,
+>(
   context: TContext,
   lock: Readonly<LockInfo>,
-): LockContext<TContext> {
-  return Object.freeze({ ...context, lock }) as LockContext<TContext>;
+  acquired: TAcquired,
+): LockContext<TContext, TAcquired> {
+  return Object.freeze({ ...context, acquired, lock }) as LockContext<
+    TContext,
+    TAcquired
+  >;
 }
 
 function freezeBackends(
@@ -195,7 +201,7 @@ const withLockImplementation = async <TContext extends object, TResult>(
   action: LockAction<TContext, TResult>,
   predicateOrOptions?: LockPredicate<TContext> | LockOptions<TContext>,
   suppliedOptions?: LockOptions<TContext>,
-): Promise<LockRunResult<TResult>> => {
+): Promise<TResult | undefined> => {
   const options = lockOptionsSchema.parse(
     typeof predicateOrOptions === "function"
       ? suppliedOptions
@@ -234,50 +240,42 @@ const withLockImplementation = async <TContext extends object, TResult>(
   const prepared = await prepareLock(provisionalInfo, options, identity.fileBase);
   const checkingInfo = createInfo(baseInfo, prepared.initial, "checking");
 
-  if (predicate && !(await predicate(createContext(context, checkingInfo)))) {
-    const result = {
-      executed: false,
-      reason: "predicate-before",
-      lock: checkingInfo,
-    } as const;
-    await onCheckFailed?.(
-      createContext(context, checkingInfo),
-      result.reason,
-    );
-    return result;
+  if (
+    predicate &&
+    !(await predicate(createContext(context, checkingInfo, false)))
+  ) {
+    await onCheckFailed?.(createContext(context, checkingInfo, false));
+    return undefined;
   }
 
   const startedAt = performance.now();
   let acquiredInfo: Readonly<LockInfo> | undefined;
 
-  const result: LockRunResult<TResult> = await prepared.run(async (details) => {
+  const result = await prepared.run(async (details) => {
     acquiredInfo = createInfo(
       baseInfo,
       details,
       "acquired",
       Math.max(0, performance.now() - startedAt),
     );
-    const acquiredContext = createContext(context, acquiredInfo);
+    const acquiredContext = createContext(context, acquiredInfo, true);
 
     if (predicate && !(await predicate(acquiredContext))) {
       return {
         executed: false,
-        reason: "predicate-after",
-        lock: acquiredInfo,
-      };
+        context: acquiredContext,
+      } as const;
     }
 
     const value = await action(acquiredContext);
-    return { executed: true, value, lock: acquiredInfo };
+    return { executed: true, value } as const;
   });
 
   if (!result.executed) {
-    await onCheckFailed?.(
-      createContext(context, result.lock),
-      result.reason,
-    );
+    await onCheckFailed?.(result.context);
+    return undefined;
   }
-  return result;
+  return result.value;
 };
 
 /**
@@ -285,7 +283,8 @@ const withLockImplementation = async <TContext extends object, TResult>(
  *
  * By default, memory, worker-thread, and cross-process file layers are held in
  * that order. When supplied, the predicate runs before waiting and again after
- * every requested layer has been acquired.
+ * every requested layer has been acquired. Callbacks distinguish those phases
+ * through context.acquired.
  */
 export const withLock: WithLock = withLockImplementation;
 
@@ -305,13 +304,11 @@ export type {
   LockBackendInfo,
   LockBackendScope,
   LockCheckFailedHandler,
-  LockCheckFailureReason,
   LockContext,
   LockInfo,
   LockOptions,
   LockPredicate,
   ResolvedLockOptions,
-  LockRunResult,
   LockState,
   LockType,
   ResolvedLockType,
