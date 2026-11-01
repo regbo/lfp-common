@@ -1,5 +1,8 @@
 import { performance } from "node:perf_hooks";
-import { prepareFileBackend } from "./backends/file.js";
+import {
+  prepareFlockBackend,
+  preparePollBackend,
+} from "./backends/file.js";
 import { prepareMemoryBackend } from "./backends/memory.js";
 import type { PreparedBackend } from "./backends/types.js";
 import { prepareWorkerBackend } from "./backends/worker.js";
@@ -7,8 +10,14 @@ import { LockAbortedError, LockTimeoutError } from "./errors.js";
 import { createLockIdentity } from "./identity.js";
 import {
   lockOptionsSchema,
+  type NormalizedLockScope,
   type ResolvedLockOptionsData,
 } from "./schemas.js";
+import {
+  resolveLockScope,
+  selectedLockScopes,
+  shouldSkipPoll,
+} from "./scope.js";
 import type {
   LockAction,
   LockBackendInfo,
@@ -34,7 +43,7 @@ interface PreparedLock {
 
 type BaseLockInfo = Omit<
   LockInfo,
-  "acquiredAt" | "backends" | "type" | "waitedMs"
+  "acquiredAt" | "backends" | "scope" | "type" | "waitedMs"
 >;
 
 function createContext<
@@ -59,6 +68,7 @@ function freezeBackends(
 
 function createInfo(
   base: BaseLockInfo,
+  configuredScope: NormalizedLockScope,
   details: readonly Readonly<LockBackendInfo>[],
   acquired = false,
   waitedMs = 0,
@@ -66,7 +76,13 @@ function createInfo(
   const backends = freezeBackends(details);
   return Object.freeze({
     ...base,
-    type: backends.length === 1 ? backends[0]!.type : "composite",
+    scope: resolveLockScope(configuredScope, backends),
+    type:
+      backends.length === 0
+        ? "skipped"
+        : backends.length === 1
+          ? backends[0]!.type
+          : "composite",
     backends,
     waitedMs,
     ...(acquired ? { acquiredAt: new Date().toISOString() } : {}),
@@ -153,10 +169,26 @@ function layeredBackends(
           }
           return callback(acquired);
         }
-        return backend.run(async (details) => {
-          acquired.push(details);
+        if (
+          backend.initial.scope === "poll" &&
+          shouldSkipPoll(options.scope, acquired)
+        ) {
+          acquired.push(
+            Object.freeze({
+              scope: "poll",
+              type: "skipped",
+              fallback: "native-flock-acquired",
+            }),
+          );
           return acquireAt(index + 1);
-        });
+        }
+        return backend.run(
+          async (details) => {
+            acquired.push(details);
+            return acquireAt(index + 1);
+          },
+          acquired,
+        );
       };
 
       try {
@@ -177,27 +209,28 @@ async function prepareLock(
   fileBase: string,
 ): Promise<PreparedLock> {
   const controller = new AbortController();
-  const isLayered = options.scope.length > 1;
+  const scopes = selectedLockScopes(options.scope);
+  const isLayered = scopes.length > 1;
   const effectiveOptions = isLayered
     ? { ...options, signal: controller.signal }
     : options;
-  const fileLayerSelected = options.scope.includes("file");
   const backends: PreparedBackend[] = [];
 
-  for (const scope of options.scope) {
+  for (const scope of scopes) {
     switch (scope) {
       case "memory":
         backends.push(prepareMemoryBackend(info, effectiveOptions));
         break;
       case "worker":
+        backends.push(prepareWorkerBackend(info, effectiveOptions));
+        break;
+      case "flock":
         backends.push(
-          prepareWorkerBackend(info, effectiveOptions, fileLayerSelected),
+          await prepareFlockBackend(info, effectiveOptions, fileBase),
         );
         break;
-      case "file":
-        backends.push(
-          await prepareFileBackend(info, effectiveOptions, fileBase),
-        );
+      case "poll":
+        backends.push(preparePollBackend(info, effectiveOptions, fileBase));
         break;
     }
   }
@@ -209,15 +242,16 @@ async function prepareLock(
 function provisionalBackends(
   options: ResolvedLockOptionsData,
 ): readonly LockBackendInfo[] {
-  const fileType = options.fileStrategy === "poll" ? "poll" : "flock";
-  return options.scope.map((scope) => {
+  return selectedLockScopes(options.scope).map((scope) => {
     switch (scope) {
       case "memory":
         return { scope, type: "memory" } as const;
       case "worker":
         return { scope, type: "worker" } as const;
-      case "file":
-        return { scope, type: fileType } as const;
+      case "flock":
+        return { scope, type: "flock" } as const;
+      case "poll":
+        return { scope, type: "poll" } as const;
     }
   });
 }
@@ -252,15 +286,15 @@ const withLockImplementation = async <TContext extends object, TResult>(
     id: identity.id,
     name: identity.name,
     namespace: identity.namespace,
-    scope: options.scope,
-    ...(options.scope.includes("file")
-      ? { strategy: options.fileStrategy }
-      : {}),
   } satisfies BaseLockInfo;
 
-  const provisionalInfo = createInfo(baseInfo, provisionalBackends(options));
+  const provisionalInfo = createInfo(
+    baseInfo,
+    options.scope,
+    provisionalBackends(options),
+  );
   const prepared = await prepareLock(provisionalInfo, options, identity.fileBase);
-  const checkingInfo = createInfo(baseInfo, prepared.initial);
+  const checkingInfo = createInfo(baseInfo, options.scope, prepared.initial);
   const beforeContext = createContext(
     context,
     checkingInfo,
@@ -290,6 +324,7 @@ const withLockImplementation = async <TContext extends object, TResult>(
       fullyAcquired = true;
       const acquiredInfo = createInfo(
         baseInfo,
+        options.scope,
         details,
         true,
         Math.max(0, performance.now() - startedAt),
@@ -323,6 +358,7 @@ const withLockImplementation = async <TContext extends object, TResult>(
     ) {
       const waitingInfo = createInfo(
         baseInfo,
+        options.scope,
         prepared.initial,
         false,
         Math.max(0, performance.now() - startedAt),
@@ -345,27 +381,27 @@ const withLockImplementation = async <TContext extends object, TResult>(
 /**
  * Runs an action with exclusive access to a deterministic lock.
  *
- * By default, memory, worker-thread, and cross-process file layers are held in
- * that order. When supplied, the predicate runs before waiting and again after
- * every requested layer has been acquired. Callbacks distinguish those phases
- * through context.state.
+ * By default, memory is required, worker-thread and native flock layers are
+ * used when available, and polling is used when native flock is bypassed. When
+ * supplied, the predicate runs before waiting and again after every enabled
+ * layer has been handled. Callbacks distinguish those phases through
+ * context.state.
  */
 export const withLock: WithLock = withLockImplementation;
 
 export { LockAbortedError, LockTimeoutError, LockUnavailableError } from "./errors.js";
 export { memoize } from "./memoize.js";
 export {
-  fileLockStrategySchema,
+  lockAutoScopeSchema,
   lockBackendScopeSchema,
   lockOptionsSchema,
   lockScopeSchema,
   lockTimeoutSchema,
 } from "./schemas.js";
 export type {
-  FileLockStrategy,
   LockTimeout,
   LockScope,
-  ResolvedLockScope,
+  NormalizedLockScope,
   ResolvedLockTimeout,
 } from "./schemas.js";
 export type {
@@ -380,6 +416,7 @@ export type {
   LockPredicate,
   LockResult,
   LockResultContext,
+  ResolvedLockScope,
   ResolvedLockOptions,
   LockState,
   LockType,

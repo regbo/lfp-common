@@ -23,9 +23,13 @@ await withLock(
     key: "cross-process",
     lockDirectory,
     namespace: "loqkit-process-test",
-    fileStrategy: "poll",
     pollIntervalMs: 5,
-    scope: "file",
+    scope: {
+      memory: false,
+      worker: false,
+      flock: false,
+      poll: true,
+    },
     timeout: 5_000,
   },
 );

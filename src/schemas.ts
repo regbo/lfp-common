@@ -1,22 +1,25 @@
 import { z } from "zod";
 
-export const lockBackendScopeSchema = z.enum(["memory", "worker", "file"]);
-const allBackendScopes = ["memory", "worker", "file"] as const;
-const lockScopeListSchema = z
-  .array(lockBackendScopeSchema)
-  .min(1)
-  .max(allBackendScopes.length)
-  .refine((scopes) => new Set(scopes).size === scopes.length, {
-    message: "Lock scopes must be unique",
-  });
+export const lockBackendScopes = [
+  "memory",
+  "worker",
+  "flock",
+  "poll",
+] as const;
+export const lockBackendScopeSchema = z.enum(lockBackendScopes);
+export const lockAutoScopeSchema = z.union([z.boolean(), z.literal("auto")]);
 export const lockScopeSchema = z
-  .union([lockBackendScopeSchema, lockScopeListSchema])
-  .default([...allBackendScopes])
+  .object({
+    memory: z.boolean().default(true),
+    worker: lockAutoScopeSchema.default("auto"),
+    flock: lockAutoScopeSchema.default("auto"),
+    poll: lockAutoScopeSchema.default("auto"),
+  })
+  .strict()
+  .default({ memory: true, worker: "auto", flock: "auto", poll: "auto" })
   .transform((scope) => {
-    const requested = new Set(Array.isArray(scope) ? scope : [scope]);
-    return Object.freeze(allBackendScopes.filter((item) => requested.has(item)));
+    return Object.freeze(scope);
   });
-export const fileLockStrategySchema = z.enum(["auto", "flock", "poll"]);
 
 const timeoutMsSchema = z.number().int().min(0).max(2_147_483_647);
 export const lockTimeoutSchema = z
@@ -52,10 +55,8 @@ export const lockOptionsSchema = z
     name: z.string().trim().min(1).max(200).optional(),
     /** Overrides namespace discovery from the consuming package. */
     namespace: z.string().trim().min(1).max(214).optional(),
-    /** One or more lock boundaries. Omission acquires every layer. */
+    /** Lock layers. Omitted properties use their documented defaults. */
     scope: lockScopeSchema,
-    /** Auto falls back to polling; flock requires native support; poll skips it. */
-    fileStrategy: fileLockStrategySchema.default("auto"),
     /** Optional wait limit. A number throws; object form can return a result. */
     timeout: lockTimeoutSchema.optional(),
     /** Delay between polling-file lock attempts. */
@@ -80,9 +81,8 @@ export const lockOptionsSchema = z
   .strict();
 
 export type LockBackendScope = z.infer<typeof lockBackendScopeSchema>;
-export type LockScope = LockBackendScope | readonly LockBackendScope[];
-export type ResolvedLockScope = z.output<typeof lockScopeSchema>;
-export type FileLockStrategy = z.infer<typeof fileLockStrategySchema>;
+export type LockScope = Exclude<z.input<typeof lockScopeSchema>, undefined>;
+export type NormalizedLockScope = z.output<typeof lockScopeSchema>;
 export type LockTimeout = z.input<typeof lockTimeoutSchema>;
 export type ResolvedLockTimeout = z.output<typeof lockTimeoutSchema>;
 export type LockOptionsInput = z.input<typeof lockOptionsSchema>;

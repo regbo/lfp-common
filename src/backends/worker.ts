@@ -6,7 +6,7 @@ import {
 } from "../errors.js";
 import type { ResolvedLockOptionsData } from "../schemas.js";
 import type { LockBackendInfo, LockInfo } from "../types.js";
-import type { PreparedBackend } from "./types.js";
+import { prepareSkippedBackend, type PreparedBackend } from "./types.js";
 
 interface WorkerLockManager {
   request<TResult>(
@@ -28,32 +28,25 @@ function getWorkerLocks(): WorkerLockManager | undefined {
     : undefined;
 }
 
-function passThroughBackend(
-  details: Readonly<LockBackendInfo>,
-): PreparedBackend {
-  return {
-    initial: details,
-    async run<TResult>(
-      callback: (details: Readonly<LockBackendInfo>) => Promise<TResult>,
-    ): Promise<TResult> {
-      return callback(details);
-    },
-  };
+interface WorkerBackendDependencies {
+  readonly getWorkerLocks: () => WorkerLockManager | undefined;
 }
 
 export function prepareWorkerBackend(
   info: Readonly<LockInfo>,
   options: ResolvedLockOptionsData,
-  fileLayerSelected = false,
+  dependencies: WorkerBackendDependencies = { getWorkerLocks },
 ): PreparedBackend {
-  const locks = getWorkerLocks();
+  const locks = dependencies.getWorkerLocks();
   if (!locks) {
     const fallback = {
       scope: "worker",
       type: "skipped",
-      fallback: "worker-locks-unavailable-file-layer-selected",
+      fallback: "worker-locks-unavailable",
     } as const satisfies LockBackendInfo;
-    if (fileLayerSelected) return passThroughBackend(fallback);
+    if (options.scope.worker === "auto") {
+      return prepareSkippedBackend(fallback);
+    }
     throw new LockUnavailableError(
       info,
       "the runtime does not provide worker_threads.locks",

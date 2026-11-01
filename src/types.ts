@@ -1,9 +1,8 @@
 import type {
-  FileLockStrategy,
   LockBackendScope as SchemaLockBackendScope,
   LockOptionsInput,
   LockScope,
-  ResolvedLockScope,
+  NormalizedLockScope,
   ResolvedLockOptionsData,
 } from "./schemas.js";
 
@@ -21,6 +20,14 @@ export type LockCallbackState =
   | "executed";
 export type LockState = LockCallbackState | "timeout";
 
+/** The enabled, disabled, or automatically skipped outcome of every layer. */
+export interface ResolvedLockScope {
+  readonly memory: boolean;
+  readonly worker: boolean | "skipped";
+  readonly flock: boolean | "skipped";
+  readonly poll: boolean | "skipped";
+}
+
 /** One requested lock layer and the implementation that satisfied it. */
 export interface LockBackendInfo {
   readonly scope: LockBackendScope;
@@ -37,7 +44,6 @@ export interface LockInfo {
   readonly scope: ResolvedLockScope;
   readonly type: LockType;
   readonly backends: readonly Readonly<LockBackendInfo>[];
-  readonly strategy?: FileLockStrategy;
   readonly waitedMs: number;
   readonly acquiredAt?: string;
 }
@@ -85,7 +91,7 @@ export type ResolvedLockOptions<TContext extends object = object> = Omit<
   ResolvedLockOptionsData,
   "onCheckFailed" | "predicate" | "scope"
 > & {
-  readonly scope: ResolvedLockScope;
+  readonly scope: NormalizedLockScope;
 } &
   LockCallbacks<TContext>;
 

@@ -5,7 +5,7 @@ import { LockUnavailableError } from "../errors.js";
 import type { ResolvedLockOptionsData } from "../schemas.js";
 import type { LockBackendInfo, LockInfo } from "../types.js";
 import { throwIfAborted, waitForRetry } from "../waiting.js";
-import type { PreparedBackend } from "./types.js";
+import { prepareSkippedBackend, type PreparedBackend } from "./types.js";
 
 interface FsExt {
   flock(
@@ -64,20 +64,19 @@ function preparePollingBackend(
   info: Readonly<LockInfo>,
   options: ResolvedLockOptionsData,
   file: string,
-  fallback?: string,
 ): PreparedBackend {
   const target = `${file}.target`;
   const details = {
-    scope: "file",
+    scope: "poll",
     type: "poll",
     file,
-    ...(fallback ? { fallback } : {}),
   } as const satisfies LockBackendInfo;
 
   return {
     initial: details,
     async run<TResult>(
       callback: (details: Readonly<LockBackendInfo>) => Promise<TResult>,
+      acquired: readonly Readonly<LockBackendInfo>[] = [],
     ): Promise<TResult> {
       await mkdir(dirname(file), { recursive: true });
       const targetHandle = await open(target, "a");
@@ -96,6 +95,18 @@ function preparePollingBackend(
           });
         } catch (error) {
           if (!isPollingContention(error)) throw error;
+          if (
+            acquired.some(
+              (backend) =>
+                backend.scope === "flock" && backend.type === "flock",
+            )
+          ) {
+            throw new LockUnavailableError(
+              info,
+              "poll lock is contended while native flock is already held",
+              error,
+            );
+          }
           await waitForRetry(
             startedAt,
             options.timeout?.ms,
@@ -116,15 +127,14 @@ function preparePollingBackend(
   };
 }
 
-function prepareFlockBackend(
+function createFlockBackend(
   fsExt: FsExt,
   info: Readonly<LockInfo>,
   options: ResolvedLockOptionsData,
   file: string,
-  pollingFallback?: PreparedBackend,
 ): PreparedBackend {
   const details = {
-    scope: "file",
+    scope: "flock",
     type: "flock",
     file,
   } as const satisfies LockBackendInfo;
@@ -156,11 +166,15 @@ function prepareFlockBackend(
               continue;
             }
 
-            // Never switch protocols for contention: a proper-lockfile lock
-            // would not see the flock already held by another caller.
-            if (pollingFallback) {
+            if (options.scope.flock === "auto") {
+              const skipped = {
+                scope: "flock",
+                type: "skipped",
+                file,
+                fallback: "native-flock-failed",
+              } as const satisfies LockBackendInfo;
               await handle.close();
-              return pollingFallback.run(callback);
+              return callback(skipped);
             }
             throw new LockUnavailableError(
               info,
@@ -182,45 +196,38 @@ function prepareFlockBackend(
   };
 }
 
-export async function prepareFileBackend(
+export function preparePollBackend(
+  info: Readonly<LockInfo>,
+  options: ResolvedLockOptionsData,
+  fileBase: string,
+): PreparedBackend {
+  return preparePollingBackend(info, options, `${fileBase}.poll.lock`);
+}
+
+export async function prepareFlockBackend(
   info: Readonly<LockInfo>,
   options: ResolvedLockOptionsData,
   fileBase: string,
   dependencies: FileBackendDependencies = { loadFsExt },
 ): Promise<PreparedBackend> {
-  const pollFile = `${fileBase}.poll.lock`;
-  const polling = preparePollingBackend(info, options, pollFile);
-
-  if (options.fileStrategy === "poll") return polling;
-
+  const flockFile = `${fileBase}.flock`;
   const fsExt = await dependencies.loadFsExt();
   if (!fsExt) {
-    if (options.fileStrategy === "flock") {
+    if (options.scope.flock === true) {
       throw new LockUnavailableError(
         info,
         "native flock is unavailable on this platform",
       );
     }
-    return preparePollingBackend(
-      info,
-      options,
-      pollFile,
-      "native-flock-unavailable",
+    return prepareSkippedBackend(
+      Object.freeze({
+        scope: "flock",
+        type: "skipped",
+        file: flockFile,
+        fallback: "native-flock-unavailable",
+      } satisfies LockBackendInfo),
     );
   }
 
-  const flockFile = `${fileBase}.flock`;
-  const fallback = preparePollingBackend(
-    info,
-    options,
-    pollFile,
-    "native-flock-failed",
-  );
-  return prepareFlockBackend(
-    fsExt,
-    info,
-    options,
-    flockFile,
-    options.fileStrategy === "auto" ? fallback : undefined,
-  );
+  return createFlockBackend(fsExt, info, options, flockFile);
 }

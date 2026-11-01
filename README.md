@@ -30,7 +30,7 @@ const result = await withLock(
 console.log(result.value, result.context.state, result.context.lock.waitedMs);
 ```
 
-By default, `withLock` acquires memory, worker-thread, and file locks for the same key. The argument after the action can be a predicate function or an options object containing `predicate`. The predicate runs once before waiting and again after all three layers are held. The action runs only when both checks pass.
+By default, `withLock` requires an in-memory lock, uses worker-thread and native `flock` locks when available, and uses portable polling when native flock is skipped. The argument after the action can be a predicate function or an options object containing `predicate`. The predicate runs once before waiting and again after every enabled layer has been handled. The action runs only when both checks pass.
 
 Every callback receives `ctx.state`: `"predicate-before"` for the first check, `"predicate-after"` for the check after acquisition, and `"executed"` for the action. When either check fails, `onCheckFailed(ctx)` runs after any acquired layers have been released. It can inspect `ctx.state`, log, reread data, or start other lock work without holding this lock.
 
@@ -48,14 +48,28 @@ if (attempt.context.state === "timeout") {
 }
 ```
 
-Use a narrower scope only when you deliberately need one boundary:
+`scope` is a partial configuration map. Omitting the map or a property uses its default; `false` disables that layer. Worker and flock additionally accept `"auto"`, which uses the layer when available and otherwise records it as skipped:
 
 ```ts
-await withLock(context, action, { scope: "memory" });
-await withLock(context, action, { scope: ["memory", "file"] });
+await withLock(context, action, {
+  scope: { worker: false, flock: false },
+});
+
+await withLock(context, action, {
+  scope: { memory: false, worker: true, flock: false, poll: false },
+});
 ```
 
-`scope` accepts one backend or a non-empty array. Omit it to acquire all three. Selected layers always run in `memory`, `worker`, `file` order regardless of the array's input order.
+| Scope | Values | Default | Behavior |
+| --- | --- | --- | --- |
+| `memory` | `true`, `false` | `true` | Locks within the current JavaScript isolate. |
+| `worker` | `true`, `false`, `"auto"` | `"auto"` | Coordinates worker threads. `true` throws `LockUnavailableError` when the runtime API is unavailable. |
+| `flock` | `true`, `false`, `"auto"` | `"auto"` | Uses native advisory file locking. `true` throws `LockUnavailableError` when native support is unavailable or fails. |
+| `poll` | `true`, `false`, `"auto"` | `"auto"` | Uses the portable polling file lock. `"auto"` skips it when native flock was acquired and otherwise requires it. |
+
+Enabled layers always run in `memory`, `worker`, `flock`, `poll` order and release in reverse. Setting all four to `false` is allowed and runs the predicate and action without an exclusivity boundary.
+
+Callbacks and results expose the resolved outcome on `ctx.lock.scope`. It contains a boolean for `memory`, and `true`, `false`, or `"skipped"` for `worker`, `flock`, and `poll`; `"auto"` never appears there. An automatic layer can change from `true` in the first predicate context to `"skipped"` after acquisition determines that it is unsupported or redundant. `ctx.lock.backends` retains the lower-level implementation and fallback details.
 
 ## Memoization
 
@@ -94,13 +108,14 @@ flowchart TD
 
 `withLock` is a key-scoped lock. Calls with the same namespace and key run one at a time; calls with different keys can run concurrently. If no key is supplied, loqkit hashes the context into a stable key.
 
-When `scope` is omitted, loqkit acquires these layers in order and releases them in reverse:
+When `scope` is omitted, loqkit handles these layers in order and releases acquired layers in reverse:
 
 1. An in-memory [`async-mutex`](https://github.com/DirtyHairy/async-mutex) lock serializes callers in the current JavaScript isolate.
-2. Node's worker lock manager coordinates worker threads when the runtime provides it. In the default layered mode, the file layer still preserves coordination when that API is unavailable; an explicit worker-only lock reports `LockUnavailableError` instead.
-3. A file lock coordinates processes on the same host. On macOS and Linux, `fileStrategy: "auto"` prefers the optional native [`fs-ext`](https://github.com/baudehlo/node-fs-ext) `flock` implementation. If native locking is unavailable or acquisition fails—for example, because a network filesystem does not support `flock`—loqkit transparently falls back to [`proper-lockfile`](https://github.com/moxystudio/node-proper-lockfile) polling.
+2. Node's worker lock manager coordinates worker threads when the runtime provides it. The default `"auto"` mode records this layer as skipped when that API is unavailable.
+3. On macOS and Linux, the optional [`fs-ext`](https://github.com/baudehlo/node-fs-ext) layer uses native `flock`. The default `"auto"` mode records the layer as skipped when native locking is unavailable or acquisition fails, including filesystems that reject `flock`.
+4. A [`proper-lockfile`](https://github.com/moxystudio/node-proper-lockfile) polling lock coordinates processes that share the configured lock directory. Its default `"auto"` mode acquires it when flock was skipped or disabled and skips it after flock succeeds.
 
-`fileStrategy: "auto"` is the default and the only mode that falls back from native `flock` to portable polling. Set `fileStrategy: "flock"` to require native locking; it throws `LockUnavailableError` when native support is unavailable or acquisition fails. Set `fileStrategy: "poll"` to skip native locking entirely. A contention response stays on `flock`; switching protocols while another caller holds a native lock would break exclusivity. Filesystems that incorrectly report a successful native lock cannot be detected, so configure `"poll"` for a network mount known to have unreliable `flock` semantics. `lockDirectory` or `LOQKIT_LOCK_DIR` controls where file locks are stored.
+An automatic flock layer is bypassed only for unavailability or a non-contention acquisition failure. Ordinary contention continues waiting on flock so exclusivity is preserved. Set `scope.poll` to `true` to require both mechanisms; because flock has already serialized loqkit callers, polling contention in that state fails immediately with `LockUnavailableError` instead of waiting forever. Set `scope.flock` to `false` for a network mount known to have unreliable flock semantics. `lockDirectory` or `LOQKIT_LOCK_DIR` controls where both file-based layers store their lock files.
 
 ```mermaid
 flowchart TD
@@ -111,19 +126,21 @@ flowchart TD
     failedBefore --> skippedBefore["Return predicate-before context"]
     before -- "Yes or absent" --> memory["Acquire memory lock"]
     memory --> worker["Acquire worker-thread lock"]
-    worker --> file["Acquire native flock or polling file lock"]
+    worker --> flock["Acquire or bypass native flock"]
+    flock --> poll["Acquire or bypass portable polling lock"]
     memory -. "Timeout" .-> timeout{"timeout.error?"}
     worker -. "Timeout" .-> timeout
-    file -. "Timeout" .-> timeout
+    flock -. "Timeout" .-> timeout
+    poll -. "Timeout" .-> timeout
     timeout -- "Yes" --> timeoutError["Throw LockTimeoutError"]
     timeout -- "No" --> timeoutResult["Return timeout context"]
-    file --> acquired["Create predicate-after context with all layers acquired"]
+    poll --> acquired["Create predicate-after context with enabled layers handled"]
     acquired --> after{"Predicate still passes?"}
     after -- "No" --> releaseFailed["Release all layers"]
     releaseFailed --> failedAfter["Run onCheckFailed without a lock"]
     failedAfter --> skippedAfter["Return predicate-after context"]
     after -- "Yes or absent" --> action["Run action with executed context"]
-    action --> release["Release file, worker, then memory"]
+    action --> release["Release poll, flock, worker, then memory"]
     release --> result["Return value and executed context"]
 ```
 
@@ -135,7 +152,7 @@ sequenceDiagram
     participant B as Caller B
     participant L as Layered lock for one key
 
-    A->>L: Acquire memory, worker, file
+    A->>L: Acquire enabled memory, worker, flock, poll layers
     L-->>A: Granted
     B->>B: Check predicate
     B->>L: Acquire same layers

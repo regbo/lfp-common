@@ -3,7 +3,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { prepareFileBackend } from "../src/backends/file.js";
+import {
+  prepareFlockBackend,
+  preparePollBackend,
+} from "../src/backends/file.js";
+import { prepareWorkerBackend } from "../src/backends/worker.js";
 import {
   LockTimeoutError,
   LockUnavailableError,
@@ -11,8 +15,21 @@ import {
   withLock,
 } from "../src/index.js";
 import { lockOptionsSchema } from "../src/schemas.js";
+import { resolveLockScope, shouldSkipPoll } from "../src/scope.js";
 import type { LockInfo } from "../src/types.js";
 
+const defaultScope = {
+  memory: true,
+  worker: "auto",
+  flock: "auto",
+  poll: "auto",
+} as const;
+const memoryOnly = {
+  memory: true,
+  worker: false,
+  flock: false,
+  poll: false,
+} as const;
 describe("memoize", () => {
   test("memoizes synchronous results, including undefined", () => {
     let calls = 0;
@@ -69,23 +86,30 @@ describe("memoize", () => {
 });
 
 describe("withLock", () => {
-  test("normalizes scope and optional timeout shorthand", () => {
-    expect(lockOptionsSchema.parse({}).scope).toEqual([
-      "memory",
-      "worker",
-      "file",
-    ]);
-    expect(lockOptionsSchema.parse({ scope: "memory" }).scope).toEqual([
-      "memory",
-    ]);
+  test("normalizes scope defaults and optional timeout shorthand", () => {
+    expect(lockOptionsSchema.parse({}).scope).toEqual(defaultScope);
+    expect(lockOptionsSchema.parse({ scope: {} }).scope).toEqual(defaultScope);
     expect(
-      lockOptionsSchema.parse({ scope: ["file", "memory"] }).scope,
-    ).toEqual(["memory", "file"]);
-    expect(() => lockOptionsSchema.parse({ scope: [] })).toThrow();
+      lockOptionsSchema.parse({
+        scope: {
+          memory: undefined,
+          worker: undefined,
+          flock: undefined,
+          poll: undefined,
+        },
+      }).scope,
+    ).toEqual(defaultScope);
+    expect(
+      lockOptionsSchema.parse({
+        scope: { memory: false, worker: true, flock: false },
+      }).scope,
+    ).toEqual({ memory: false, worker: true, flock: false, poll: "auto" });
     expect(() =>
-      lockOptionsSchema.parse({ scope: ["memory", "memory"] }),
+      lockOptionsSchema.parse({ scope: { memory: "auto" } }),
     ).toThrow();
-    expect(() => lockOptionsSchema.parse({ scope: "all" })).toThrow();
+    expect(() =>
+      lockOptionsSchema.parse({ scope: { unknown: true } }),
+    ).toThrow();
 
     expect(lockOptionsSchema.parse({}).timeout).toBeUndefined();
     expect(lockOptionsSchema.parse({ timeout: 25 }).timeout).toEqual({
@@ -101,7 +125,7 @@ describe("withLock", () => {
     ).toEqual({ ms: 0, error: false });
   });
 
-  test("acquires memory, worker, and file layers by default", async () => {
+  test("uses required and automatic layers by default", async () => {
     const lockDirectory = await mkdtemp(join(tmpdir(), "loqkit-test-"));
     let active = 0;
     let peak = 0;
@@ -112,14 +136,20 @@ describe("withLock", () => {
           { resource: "layered" },
           async ({ lock, state }) => {
             expect(state).toBe("executed");
-            expect(lock.scope).toEqual(["memory", "worker", "file"]);
+            expect(lock.scope.memory).toBe(true);
+            expect([true, "skipped"]).toContain(lock.scope.worker);
+            expect([true, "skipped"]).toContain(lock.scope.flock);
+            expect([true, "skipped"]).toContain(lock.scope.poll);
             expect(lock.type).toBe("composite");
             expect(lock.backends.map(({ scope }) => scope)).toEqual([
               "memory",
               "worker",
-              "file",
+              "flock",
+              "poll",
             ]);
-            expect(lock.backends[2]?.type).toBe("poll");
+            expect(["worker", "skipped"]).toContain(lock.backends[1]?.type);
+            expect(["flock", "skipped"]).toContain(lock.backends[2]?.type);
+            expect(["poll", "skipped"]).toContain(lock.backends[3]?.type);
 
             active += 1;
             peak = Math.max(peak, active);
@@ -128,7 +158,6 @@ describe("withLock", () => {
           },
           {
             key: "layered",
-            fileStrategy: "poll",
             lockDirectory,
           },
         );
@@ -158,7 +187,7 @@ describe("withLock", () => {
         checks += 1;
         return true;
       },
-      { scope: "memory" },
+      { scope: memoryOnly },
     );
 
     expect(result.value).toBe("done");
@@ -170,7 +199,7 @@ describe("withLock", () => {
     expect(checks).toBe(2);
   });
 
-  test("supports multiple selected scopes in canonical order", async () => {
+  test("supports scope overrides in canonical order", async () => {
     const lockDirectory = await mkdtemp(join(tmpdir(), "loqkit-scope-test-"));
 
     try {
@@ -178,14 +207,18 @@ describe("withLock", () => {
         { resource: "selected-scopes" },
         ({ lock }) => lock.backends.map(({ scope }) => scope),
         {
-          fileStrategy: "poll",
           lockDirectory,
-          scope: ["file", "memory"],
+          scope: { ...defaultScope, worker: false, flock: false },
         },
       );
 
-      expect(result.value).toEqual(["memory", "file"]);
-      expect(result.context.lock.scope).toEqual(["memory", "file"]);
+      expect(result.value).toEqual(["memory", "poll"]);
+      expect(result.context.lock.scope).toEqual({
+        memory: true,
+        worker: false,
+        flock: false,
+        poll: true,
+      });
     } finally {
       await rm(lockDirectory, { force: true, recursive: true });
     }
@@ -203,7 +236,7 @@ describe("withLock", () => {
         return "done";
       },
       {
-        scope: "memory",
+        scope: memoryOnly,
         predicate: ({ resource, state }) => {
           checks += 1;
           states.push(state);
@@ -232,7 +265,7 @@ describe("withLock", () => {
       },
       {
         key,
-        scope: "memory",
+        scope: memoryOnly,
         predicate: ({ state }) => state === "predicate-before",
         onCheckFailed: async ({ resource, state }) => {
           observedState = state;
@@ -243,7 +276,7 @@ describe("withLock", () => {
             () => {
               nestedActions += 1;
             },
-            { key, scope: "memory", timeout: 0 },
+            { key, scope: memoryOnly, timeout: 0 },
           );
         },
       },
@@ -268,7 +301,7 @@ describe("withLock", () => {
         throw new Error("action should not run");
       },
       {
-        scope: "memory",
+        scope: memoryOnly,
         predicate: ({ state }) => state === "predicate-after",
         onCheckFailed: ({ state }) => {
           observedState = state;
@@ -296,8 +329,8 @@ describe("withLock", () => {
         },
         {
           key: "long-action",
-          fileStrategy: "poll",
           lockDirectory,
+          scope: { ...defaultScope, flock: false },
           timeout: 100,
         },
       );
@@ -326,7 +359,7 @@ describe("withLock", () => {
         await release;
         return "holder";
       },
-      { key, scope: "memory" },
+      { key, scope: memoryOnly },
     );
     await entered;
 
@@ -335,7 +368,7 @@ describe("withLock", () => {
       () => "contender",
       {
         key,
-        scope: "memory",
+        scope: memoryOnly,
         timeout: { ms: 0, error: false },
       },
     );
@@ -351,7 +384,7 @@ describe("withLock", () => {
       withLock(
         { resource: key },
         () => "contender",
-        { key, scope: "memory", timeout: 0 },
+        { key, scope: memoryOnly, timeout: 0 },
       ),
     ).rejects.toBeInstanceOf(LockTimeoutError);
 
@@ -389,26 +422,156 @@ describe("withLock", () => {
     }
   });
 
-  test("auto falls back to proper-lockfile when native flock acquisition fails", async () => {
+  test("supports disabling every lock layer", async () => {
+    const result = await withLock(
+      { resource: "unlocked" },
+      ({ lock }) => lock.backends.length,
+      {
+        scope: {
+          memory: false,
+          worker: false,
+          flock: false,
+          poll: false,
+        },
+      },
+    );
+
+    expect(result.value).toBe(0);
+    expect(result.context.lock.type).toBe("skipped");
+    expect(result.context.lock.backends).toEqual([]);
+  });
+
+  test("reports automatic scope outcomes as true or skipped", () => {
+    expect(
+      resolveLockScope(defaultScope, [
+        { scope: "memory", type: "memory" },
+        {
+          scope: "worker",
+          type: "skipped",
+          fallback: "worker-locks-unavailable",
+        },
+        { scope: "flock", type: "flock" },
+        { scope: "poll", type: "skipped" },
+      ]),
+    ).toEqual({
+      memory: true,
+      worker: "skipped",
+      flock: true,
+      poll: "skipped",
+    });
+    expect(
+      shouldSkipPoll(defaultScope, [{ scope: "flock", type: "flock" }]),
+    ).toBe(true);
+    expect(
+      shouldSkipPoll(
+        { ...defaultScope, poll: true },
+        [{ scope: "flock", type: "flock" }],
+      ),
+    ).toBe(false);
+  });
+
+  test("required poll fails fast on contention after flock acquisition", async () => {
+    const root = await mkdtemp(join(tmpdir(), "loqkit-poll-test-"));
+    const options = lockOptionsSchema.parse({
+      lockDirectory: root,
+      scope: {
+        memory: false,
+        worker: false,
+        flock: true,
+        poll: true,
+      },
+      timeout: 250,
+    });
+    const info = {
+      id: "required-poll",
+      name: "required-poll",
+      namespace: "loqkit-test",
+      scope: {
+        memory: false,
+        worker: false,
+        flock: true,
+        poll: true,
+      },
+      type: "composite",
+      backends: [
+        { scope: "flock", type: "flock" },
+        { scope: "poll", type: "poll" },
+      ],
+      waitedMs: 0,
+    } as const satisfies LockInfo;
+    const fileBase = join(root, "required-poll");
+    let enterHolder!: () => void;
+    let releaseHolder!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      enterHolder = resolve;
+    });
+    const release = new Promise<void>((resolve) => {
+      releaseHolder = resolve;
+    });
+
+    try {
+      const holderBackend = preparePollBackend(info, options, fileBase);
+      const holder = holderBackend.run(async () => {
+        enterHolder();
+        await release;
+      });
+      await entered;
+
+      const contender = preparePollBackend(info, options, fileBase);
+      await expect(
+        contender.run(async () => undefined, [
+          { scope: "flock", type: "flock" },
+        ]),
+      ).rejects.toBeInstanceOf(LockUnavailableError);
+
+      releaseHolder();
+      await holder;
+    } finally {
+      releaseHolder?.();
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
+  test("auto bypasses native flock when it is unavailable or fails", async () => {
     const root = await mkdtemp(join(tmpdir(), "loqkit-fallback-test-"));
     const options = lockOptionsSchema.parse({
-      fileStrategy: "auto",
       lockDirectory: root,
-      scope: ["file"],
+      scope: {
+        memory: false,
+        worker: false,
+        flock: "auto",
+        poll: false,
+      },
     });
     const info = {
       id: "native-fallback",
       name: "native-fallback",
       namespace: "loqkit-test",
-      scope: ["file"],
+      scope: {
+        memory: false,
+        worker: false,
+        flock: true,
+        poll: false,
+      },
       type: "flock",
-      backends: [{ scope: "file", type: "flock" }],
-      strategy: "auto",
+      backends: [{ scope: "flock", type: "flock" }],
       waitedMs: 0,
     } as const satisfies LockInfo;
 
     try {
-      const backend = await prepareFileBackend(
+      const unavailable = await prepareFlockBackend(
+        info,
+        options,
+        join(root, "native-unavailable"),
+        { loadFsExt: async () => undefined },
+      );
+      expect(await unavailable.run(async (details) => details)).toMatchObject({
+        scope: "flock",
+        type: "skipped",
+        fallback: "native-flock-unavailable",
+      });
+
+      const failed = await prepareFlockBackend(
         info,
         options,
         join(root, "native-fallback"),
@@ -425,10 +588,9 @@ describe("withLock", () => {
         },
       );
 
-      const details = await backend.run(async (acquired) => acquired);
-      expect(details).toMatchObject({
-        scope: "file",
-        type: "poll",
+      expect(await failed.run(async (details) => details)).toMatchObject({
+        scope: "flock",
+        type: "skipped",
         fallback: "native-flock-failed",
       });
     } finally {
@@ -439,29 +601,37 @@ describe("withLock", () => {
   test("explicit flock throws when native locking is unavailable or fails", async () => {
     const root = await mkdtemp(join(tmpdir(), "loqkit-flock-test-"));
     const options = lockOptionsSchema.parse({
-      fileStrategy: "flock",
       lockDirectory: root,
-      scope: "file",
+      scope: {
+        memory: false,
+        worker: false,
+        flock: true,
+        poll: false,
+      },
     });
     const info = {
       id: "required-native",
       name: "required-native",
       namespace: "loqkit-test",
-      scope: ["file"],
+      scope: {
+        memory: false,
+        worker: false,
+        flock: true,
+        poll: false,
+      },
       type: "flock",
-      backends: [{ scope: "file", type: "flock" }],
-      strategy: "flock",
+      backends: [{ scope: "flock", type: "flock" }],
       waitedMs: 0,
     } as const satisfies LockInfo;
 
     try {
       await expect(
-        prepareFileBackend(info, options, join(root, "unavailable"), {
+        prepareFlockBackend(info, options, join(root, "unavailable"), {
           loadFsExt: async () => undefined,
         }),
       ).rejects.toBeInstanceOf(LockUnavailableError);
 
-      const backend = await prepareFileBackend(
+      const backend = await prepareFlockBackend(
         info,
         options,
         join(root, "failed"),
@@ -488,12 +658,11 @@ describe("withLock", () => {
 
       let attempts = 0;
       const immediateOptions = lockOptionsSchema.parse({
-        fileStrategy: "flock",
         lockDirectory: root,
-        scope: "file",
+        scope: options.scope,
         timeout: 0,
       });
-      const busyBackend = await prepareFileBackend(
+      const busyBackend = await prepareFlockBackend(
         info,
         immediateOptions,
         join(root, "busy"),
@@ -515,5 +684,49 @@ describe("withLock", () => {
     } finally {
       await rm(root, { force: true, recursive: true });
     }
+  });
+
+  test("worker auto bypasses an unavailable API while true is strict", async () => {
+    const autoOptions = lockOptionsSchema.parse({
+      scope: {
+        memory: false,
+        worker: "auto",
+        flock: false,
+        poll: false,
+      },
+    });
+    const autoInfo = {
+      id: "worker-auto",
+      name: "worker-auto",
+      namespace: "loqkit-test",
+      scope: {
+        memory: false,
+        worker: true,
+        flock: false,
+        poll: false,
+      },
+      type: "worker",
+      backends: [{ scope: "worker", type: "worker" }],
+      waitedMs: 0,
+    } as const satisfies LockInfo;
+    const unavailable = { getWorkerLocks: () => undefined };
+    const autoBackend = prepareWorkerBackend(
+      autoInfo,
+      autoOptions,
+      unavailable,
+    );
+
+    expect(await autoBackend.run(async (details) => details)).toMatchObject({
+      scope: "worker",
+      type: "skipped",
+      fallback: "worker-locks-unavailable",
+    });
+
+    const strictOptions = lockOptionsSchema.parse({
+      scope: { ...autoOptions.scope, worker: true },
+    });
+    expect(() =>
+      prepareWorkerBackend(autoInfo, strictOptions, unavailable),
+    ).toThrow(LockUnavailableError);
   });
 });
