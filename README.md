@@ -466,7 +466,7 @@ Pydantic cannot infer a validation target for an unannotated value, and some ext
 - Async Python uses one persistent asyncio loop. CPU-bound work still needs Python multiprocessing or native extensions that release the GIL.
 - Local modules use safe AST inspection, but codegen for explicitly requested installed packages imports those packages and may run their import-time code.
 - The isolated worker is not an operating-system sandbox and supports only JSON-compatible calls, not Python object proxies.
-- GitHub Actions builds Python 3.12 native artifacts for Linux, macOS, and Windows on x64 and ARM64. Those artifacts are not yet attached to releases or downloaded during package installation.
+- The npm package includes Python 3.12 native prebuilds for Linux, macOS, and Windows on x64 and ARM64. Other Python minors or incompatible platform baselines require a local C++ toolchain for the fallback build.
 
 See [SECURITY.md](./SECURITY.md) before exposing imports or call patterns to untrusted input.
 
