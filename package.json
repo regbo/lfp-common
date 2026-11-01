@@ -1,0 +1,77 @@
+{
+  "name": "pyfig",
+  "version": "0.2.0",
+  "description": "Provision a repo-local Python venv with uv-first tooling and locked fallbacks.",
+  "type": "module",
+  "main": "./dist/cjs/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/cjs/index.js"
+    }
+  },
+  "bin": {
+    "pyfig": "dist/cli.js"
+  },
+  "files": [
+    "dist/",
+    "LICENSE",
+    "README.md",
+    "SECURITY.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && bun run scripts/build-cjs.ts",
+    "test": "bun test",
+    "test:zero-python": "bun run scripts/smoke-zero-python.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "verify": "bun run typecheck && bun test",
+    "prepack": "bun run verify && bun run build"
+  },
+  "keywords": [
+    "python",
+    "pip",
+    "uv",
+    "bootstrap",
+    "bun",
+    "cli"
+  ],
+  "author": "Reggie Bowser",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/regbo/pyfig.git"
+  },
+  "bugs": {
+    "url": "https://github.com/regbo/pyfig/issues"
+  },
+  "homepage": "https://github.com/regbo/pyfig#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22.0.0 <=26.x",
+    "bun": ">=1.2.0"
+  },
+  "dependencies": {
+    "commander": "^14.0.3",
+    "env-paths": "^4.0.0",
+    "extract-zip": "^2.0.1",
+    "pacwich": "^0.7.3",
+    "proper-lockfile": "^4.1.2",
+    "semver": "^7.8.5",
+    "tar": "^7.4.3",
+    "undici": "^7.30.1",
+    "which": "^6.0.1"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.4",
+    "@types/node": "^26.6.6",
+    "@types/proper-lockfile": "^4.1.4",
+    "@types/semver": "^7.8.0",
+    "@types/which": "^3.0.4",
+    "typescript": "^7.0.2"
+  }
+}
