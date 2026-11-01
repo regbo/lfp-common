@@ -53,7 +53,7 @@ Pass any `PyfigOptions` as the third argument when a helper needs a custom Pytho
 
 Pyfig publishes matching ESM and CommonJS entry points. The root API intentionally contains only configuration constants, the scoped client, preparation helpers, spawn helpers, project-root discovery, public result types, and cache invalidation. Probe and lock internals are not package exports.
 
-Defaults are Python `>=3.10.0 <4.0.0`, pip `>=20.3.0`, managed Python `3.12`, pinned uv `0.13.6`, and system uv `>=0.13.6 <1.0.0`.
+Defaults are Python `>=3.10.0 <4.0.0`, pip `>=20.3.0`, managed Python `3.12`, pinned uv `0.13.6`, and external uv `>=0.10.0 <1.0.0`. A compatible configured or PATH uv is preferred even when Pyfig's cached managed version is newer.
 
 Package mutation is always performed by uv, whose own target-environment lock protects concurrent installs and removals. When uv installation is explicitly disabled, the venv interpreter's `python -m pip` remains available for read-only commands such as `list`; mutable pip commands are rejected. Standalone `pip` and `pip3` executables are never discovered or executed.
 

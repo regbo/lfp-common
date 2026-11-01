@@ -7,6 +7,8 @@ import semver from 'semver';
 import {
   DEFAULT_PIP_RANGE,
   DEFAULT_PYTHON_RANGE,
+  DEFAULT_UV_RANGE,
+  DEFAULT_UV_VERSION,
   clearPyfigCaches,
   createPyfig,
   ensureEnvironment,
@@ -56,6 +58,9 @@ describe('pyfig', () => {
     expect(semver.validRange(DEFAULT_PIP_RANGE)).not.toBeNull();
     expect(semver.satisfies('3.10.0', DEFAULT_PYTHON_RANGE)).toBe(true);
     expect(semver.satisfies('4.0.0', DEFAULT_PYTHON_RANGE)).toBe(false);
+    expect(semver.satisfies('0.10.0', DEFAULT_UV_RANGE)).toBe(true);
+    expect(semver.satisfies('0.9.9', DEFAULT_UV_RANGE)).toBe(false);
+    expect(semver.satisfies(DEFAULT_UV_VERSION, DEFAULT_UV_RANGE)).toBe(true);
   });
 
   test('applies options over environment values', () => {
@@ -120,7 +125,7 @@ describe('pyfig', () => {
     expect(environment.packageManager.virtualEnvironment).toBe(expectedVenv);
   }, 15_000);
 
-  test('prefers an existing uv over venv pip', async () => {
+  test('prefers a compatible existing uv over managed uv and venv pip', async () => {
     const uv = await ensureUv({ autoInstall: false, projectRoot }).catch(() => null);
     const environment = await ensureEnvironment({ autoInstall: false, projectRoot });
     if (uv) {

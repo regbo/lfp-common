@@ -8,7 +8,9 @@ export const DEFAULT_PYTHON_RANGE = '>=3.10.0 <4.0.0';
 export const DEFAULT_PIP_RANGE = '>=20.3.0';
 export const DEFAULT_MANAGED_PYTHON = '3.12';
 export const DEFAULT_UV_VERSION = '0.13.6';
-export const DEFAULT_UV_RANGE = `>=${DEFAULT_UV_VERSION} <1.0.0`;
+// External uv only needs to support the command and isolation flags Pyfig uses.
+// Keep that compatibility floor separate from the newer version Pyfig installs.
+export const DEFAULT_UV_RANGE = '>=0.10.0 <1.0.0';
 
 const DEFAULT_PROBE_TIMEOUT_MS = 10_000;
 const DEFAULT_INSTALL_TIMEOUT_MS = 10 * 60_000;

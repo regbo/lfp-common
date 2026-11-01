@@ -373,8 +373,10 @@ async function ensureUvResolved(options: ResolvedPyfigOptions): Promise<UvInfo> 
 }
 
 async function findAvailableUv(options: ResolvedPyfigOptions): Promise<UvInfo | null> {
-  const system = await findUv(options);
-  if (system) return system;
+  // Prefer a configured or PATH uv that passes the compatibility probe. The
+  // managed cache is a fallback, even when its pinned version is newer.
+  const external = await findUv(options);
+  if (external) return external;
   const managed = probeUv(uvExecutable(options), options);
   return managed?.version === options.uvVersion ? managed : null;
 }
