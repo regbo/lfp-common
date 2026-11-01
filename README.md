@@ -1,8 +1,8 @@
 # pyfig
 
-`pyfig` prepares uv and a compatible Python virtual environment from Bun or Node.js. It prefers a valid uv already on the system, reuses a compatible venv, and searches system Python with downloads disabled before considering any managed Python download.
+`pyfig` prepares uv and compatible Python venvs from Bun or Node.js. It prefers a valid uv already on the system and searches system Python with downloads disabled before considering a managed Python download.
 
-Pyfig never invokes standalone `pip`, never writes `pyproject.toml` or requirements files, and never creates a project-root `.venv`. When no compatible venv exists, its private environment is `<project-root>/node_modules/.pyfig/venv`.
+Pyfig never invokes standalone `pip`, never writes `pyproject.toml` or requirements files, and never creates a project-root `.venv`. Dependency-free callers can reuse a compatible active or project-root venv. A caller that declares dependencies gets a content-addressed private venv under `<project-root>/node_modules/.pyfig/venvs/`, so independent libraries cannot replace or downgrade each other's environments.
 
 ## Install
 
@@ -13,31 +13,31 @@ bun add pyfig
 ## Use
 
 ```ts
-import { createPyfig } from 'pyfig';
+import { createPyEnvironment } from 'pyfig';
 
-const pyfig = createPyfig({
+const pyenv = createPyEnvironment({
+  dependencies: ['requests>=2.32'],
+  extras: ['database'],
   requiresPython: '>=3.11,<4',
   requiresUv: '>=0.10,<1',
   requireEmbedding: true,
   requireGil: true,
 });
 
-const environment = await pyfig.prepare(
-  ['requests>=2.32'],
-  { extras: ['database'] },
-);
+const environment = await pyenv.prepare();
 
 console.log(environment.uv);
 console.log(environment.python);
 console.log(environment.managed);
+console.log(environment.venvId);
 
-await pyfig.uv(
+await pyenv.uv(
   ['run', '--', 'python', 'script.py'],
   { stdio: 'inherit' },
 );
 ```
 
-`prepare()` accepts PEP 508 dependency specifiers plus optional `extras`, `groups`, or `allExtras`. If the project has a `pyproject.toml`, uv resolves that read-only input together with a temporary dependency file. Pyfig installs the resolved result with `uv pip install -r`, which preserves unrelated packages. Temporary inputs are created outside the repository and removed afterward.
+`dependencies` accepts PEP 508 specifiers. `extras`, `groups`, and `allExtras` select dependency sections from an existing `pyproject.toml`. Configuration is bound when `createPyEnvironment()` is called, so `prepare()`, `uv()`, and `uvSync()` always target the same venv. Temporary resolution inputs are created outside the repository and removed afterward.
 
 The same uv-only surface handles direct commands:
 
@@ -62,12 +62,13 @@ Pyfig uses this order:
 
 1. A compatible configured or `PATH` uv.
 2. Pyfig's cached, checksum-verified uv.
-3. A compatible explicitly configured venv, active `VIRTUAL_ENV`, root `.venv`, or Pyfig-owned venv.
-4. Every installed system Python reported by uv, with downloads disabled, until one passes all capability checks.
+3. For dependency-free callers, a compatible explicitly configured venv, active `VIRTUAL_ENV`, or root `.venv`.
+4. A compatible base interpreter from those venvs, then every installed system Python reported by uv with downloads disabled.
 5. An already-cached uv-managed Python that passes the same checks.
 6. A managed Python download, only when installation policy allows it.
+7. An existing hashed venv for the exact interpreter and resolved dependencies, or a new venv below `node_modules/.pyfig/venvs`.
 
-An explicit `python` option is strict: an unavailable or incompatible interpreter is an error. Incompatible external venvs are preserved and skipped. Only an incompatible environment under `node_modules/.pyfig/venv` may be rebuilt.
+An explicit `python` option is strict: an unavailable or incompatible interpreter is an error. Without dependencies, an explicitly configured compatible venv can be reused. With dependencies, its base interpreter is used for a private venv. Incompatible external venvs are always preserved. Only an incomplete or damaged Pyfig-managed venv may be rebuilt.
 
 ![Pyfig prefers existing uv, compatible venvs, and system Python before managed downloads](docs/diagrams/python-selection.png)
 
@@ -78,13 +79,13 @@ Native consumers can set `requireEmbedding: true` to require CPython, `Python.h`
 ## Runtime dependency resolution
 
 ```ts
-await pyfig.prepare(
-  ['orjson>=3.10', 'httpx[http2]'],
-  {
-    extras: ['postgres'],
-    groups: ['runtime'],
-  },
-);
+const pyenv = createPyEnvironment({
+  dependencies: ['orjson>=3.10', 'httpx[http2]'],
+  extras: ['postgres'],
+  groups: ['runtime'],
+});
+
+await pyenv.prepare();
 ```
 
 Resolution follows the equivalent of:
@@ -92,15 +93,25 @@ Resolution follows the equivalent of:
 ```sh
 uv pip compile pyproject.toml /temporary/runtime-dependencies.txt \
   --extra postgres --group runtime \
-  --python /selected/venv/python \
+  --python /selected/base/python \
+  --no-header --no-annotate --generate-hashes \
   --output-file /temporary/resolved-dependencies.txt
 
+uv venv --python /selected/base/python \
+  node_modules/.pyfig/venvs/cpython-3.12.7-0123456789abcdef0123
+
 uv pip install \
-  --python /selected/venv/python \
+  --python /hashed/venv/python \
   -r /temporary/resolved-dependencies.txt
 ```
 
-When no `pyproject.toml` exists, only the temporary dependency input is compiled. Extras and dependency groups require an existing `pyproject.toml`. Pyfig does not use `uv add` or `uv pip sync`: the former would edit project metadata, while the latter could remove unrelated packages from the venv.
+The venv identity includes the exact base interpreter, platform, architecture, GIL/ABI properties, and SHA-256 of uv's hash-pinned resolution. Equivalent declarations can share one venv; a different resolution creates another. The metadata file inside each venv is written last and acts as its publication marker.
+
+When no `pyproject.toml` exists, only the temporary dependency input is compiled. Extras and dependency groups require an existing `pyproject.toml`. Pyfig does not use `uv add` or `uv pip sync`, so it neither edits project metadata nor removes packages from an externally owned venv.
+
+Raw `pyenv.uv(['pip', ...])` remains an intentional low-level escape hatch. It can mutate the selected venv after publication and bypass the content-addressing guarantee. Use constructor-level `dependencies` when isolation and repeatability matter.
+
+Separate venvs work for subprocesses and isolated workers. Native libraries that initialize CPython in the same JavaScript process must use one combined compatible dependency set or move each interpreter into a separate worker process; two venv directories cannot provide two independent process-global CPython runtimes.
 
 ![Runtime dependencies are resolved in temporary files before installation](docs/diagrams/runtime-dependencies.png)
 
@@ -121,12 +132,12 @@ Set `projectRoot` explicitly in reusable libraries and unusual workspace layouts
 
 | Export | Responsibility |
 | --- | --- |
-| `createPyfig(options)` | Create a scoped client with memoized base preparation. |
-| `client.prepare(dependencies?, options?)` | Select a venv and optionally resolve/install runtime dependencies. |
-| `client.pythonInfo()` | Return the selected interpreter and embedding metadata. |
-| `client.uvInfo()` | Return the selected uv executable and version. |
-| `client.uv()` / `client.uvSync()` | Spawn uv and pin pip/run commands to the selected venv. |
-| `ensureEnvironment(options?, dependencies?, dependencyOptions?)` | Standalone preparation API. |
+| `createPyEnvironment(options)` | Bind one immutable venv configuration and memoize its preparation. |
+| `pyenv.prepare()` | Resolve and prepare that configuration's exact venv. |
+| `pyenv.pythonInfo()` | Return the selected interpreter and embedding metadata. |
+| `pyenv.uvInfo()` | Return the selected uv executable and version. |
+| `pyenv.uv()` / `pyenv.uvSync()` | Spawn uv and pin pip/run commands to the same venv. |
+| `ensureEnvironment(options?)` | Standalone preparation API using the same options. |
 | `ensureUv(options?)` | Prefer existing uv, otherwise bootstrap verified uv when allowed. |
 | `uvSpawn()` / `uvSpawnSync()` | Standalone uv spawn API. |
 | `resolveProjectRoot(start?)` | Resolve the nearest Git root without reading manifests. |
@@ -143,6 +154,10 @@ When embedding files are available, `PythonInfo.embedding.stableAbiLibraryPath` 
 
 | API option | Environment variable | Default |
 | --- | --- | --- |
+| `dependencies` | — | `[]` |
+| `extras` | — | `[]` |
+| `groups` | — | `[]` |
+| `allExtras` | — | `false` |
 | `python` | `PYFIG_PYTHON` | uv discovery |
 | `requiresPython` | `PYFIG_REQUIRES_PYTHON` | `>=3.10,<4` |
 | `managedPython` | `PYFIG_MANAGED_PYTHON` | `3.12` |
@@ -169,6 +184,7 @@ bunx --bun pyfig
 bunx --bun pyfig --check
 bunx --bun pyfig --requires-python '>=3.12,<3.14'
 bunx --bun pyfig --requires-uv '>=0.12,<1'
+bunx --bun pyfig --dependency 'requests>=2.32' --extra database
 bunx --bun pyfig --require-embedding --require-gil
 bunx --bun pyfig --project-root /path/to/repository
 bunx --bun pyfig --json
@@ -180,7 +196,7 @@ bunx --bun pyfig --json
 
 Pyfig resolves a compatible uv release from Astral's GitHub releases, downloads that exact archive over HTTPS, verifies its adjacent SHA-256 checksum, validates the staged executable version, and atomically publishes it in Pyfig's cache. A compatible cached executable is probed locally without a network request. Release metadata is cached on disk for 24 hours; stale metadata is refreshed under a Loqkit lock and remains available as a fallback when GitHub's API is temporarily unavailable. Set `GITHUB_TOKEN` or `GH_TOKEN` to authenticate release discovery on CI and other rate-limited hosts. Pyfig does not execute installer scripts or modify shell profiles.
 
-Provisioning mutations use Loqkit's layered in-memory, worker, native-file-lock-when-available, and portable-file coordination with capability checks before and after acquisition. Compatible managed uv executables are cached by resolved version; Loqkit coordinates both the `requiresUv` policy lookup and exact release publication. uv supplies its own target-environment lock for installs. Base client preparation is memoized; dependency preparation is intentionally rerun so uv can cheaply verify current inputs through its shared cache.
+Provisioning mutations use Loqkit's layered in-memory, worker, native-file-lock-when-available, and portable-file coordination with capability checks before and after acquisition. Compatible managed uv executables are cached by resolved version; Loqkit coordinates both the `requiresUv` policy lookup and exact release publication. Each hashed venv has its own provisioning key. Creation, installation, and validation finish before the venv metadata marker is published. Preparation is memoized within one `pyenv`; separate processes converge through the same resolved identity and Loqkit lock.
 
 ## Platform support
 

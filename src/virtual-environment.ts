@@ -1,10 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-export const VIRTUAL_ENV_DIRECTORY_NAME = path.join('node_modules', '.pyfig', 'venv');
+export const VIRTUAL_ENV_ROOT_NAME = path.join('node_modules', '.pyfig', 'venvs');
 
-export function virtualEnvironmentDirectory(projectRoot: string): string {
-  return path.join(projectRoot, VIRTUAL_ENV_DIRECTORY_NAME);
+export function virtualEnvironmentRoot(projectRoot: string): string {
+  return path.join(projectRoot, VIRTUAL_ENV_ROOT_NAME);
+}
+
+export function virtualEnvironmentDirectory(projectRoot: string, venvDirectory: string): string {
+  return path.join(virtualEnvironmentRoot(projectRoot), venvDirectory);
 }
 
 /** Existing application environments are eligible for read-only reuse. */

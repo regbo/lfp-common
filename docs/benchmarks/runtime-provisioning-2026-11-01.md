@@ -2,6 +2,8 @@
 
 Date: 2026-11-01. Pyfig source: `v0.4.0` (`6b77101`). Warm samples: three fresh Bun processes per scenario.
 
+This is a historical report for the single-venv layout measured at that tag. Current releases use content-addressed paths below `node_modules/.pyfig/venvs/`; the timings and mutation counts below have not been relabeled as measurements of the newer layout.
+
 ## Summary
 
 Pyfig reused every compatible environment and preferred system Python in every scenario where it was available. All new environments were created at `node_modules/.pyfig/venv`. No `pyproject.toml`, requirements file, package manifest, or project-root `.venv` was created or edited by Pyfig.
@@ -16,7 +18,7 @@ Each scenario used a new directory under the operating system's temporary direct
 
 Two timings are reported:
 
-- **API**: elapsed time around `createPyfig(...).prepare(...)` inside the worker.
+- **API**: elapsed time around the environment factory's `prepare()` call inside the worker.
 - **Process**: Bun startup, module loading, and preparation. Dependency import verification is excluded from this value.
 
 The dependency scenario first created an empty private venv outside the timed section, then installed `idna==3.10`. A separate `import idna` check succeeded after every measured install but is excluded from both reported timings.
@@ -124,7 +126,7 @@ Three additional fresh-project checks used these immutable package versions:
 
 The same guarded call against `urllib3>=2.2,<3` failed during `uv pip compile`. The complete `uv pip freeze` output was identical before and after; urllib3 stayed at 2.8.0, botocore was absent, idna remained installed, and the project file was unchanged. This confirms that the compile-before-install path rejects an unsatisfiable addition without partially mutating the environment.
 
-Raw `client.uvSync(['pip', 'install', 'botocore==1.34.0'])` behaved differently. It installed botocore and downgraded urllib3 to 2.0.7 even though that violates the project's `urllib3>=2.2,<3` declaration. `uv pip check` still passed because it validates installed distribution metadata, not `pyproject.toml` constraints. The project file was not edited, but the environment no longer matched it.
+Raw `pyenv.uvSync(['pip', 'install', 'botocore==1.34.0'])` behaved differently. It installed botocore and downgraded urllib3 to 2.0.7 even though that violates the project's `urllib3>=2.2,<3` declaration. `uv pip check` still passed because it validates installed distribution metadata, not `pyproject.toml` constraints. The project file was not edited, but the environment no longer matched it.
 
 The project-aware runtime-dependency API is therefore `prepare(dependencies)`. Direct `uv pip install` is intentionally a low-level escape hatch: Pyfig pins it to the selected interpreter but does not reinterpret the command or apply project constraints. Consumers that want preflight guarantees should use `prepare()`; consumers that deliberately choose raw uv retain uv's native behavior.
 

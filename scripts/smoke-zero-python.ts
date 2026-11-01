@@ -34,9 +34,12 @@ try {
   if (!environment.python.embedding || environment.python.gilDisabled) {
     throw new Error('Managed Python did not satisfy the embedding ABI requirements.');
   }
-  if (path.resolve(environment.python.virtualEnvironment ?? '') !==
-      path.join(projectRoot, 'node_modules', '.pyfig', 'venv')) {
-    throw new Error('Managed Python was not installed into the repository virtual environment.');
+  const venv = path.resolve(environment.python.virtualEnvironment ?? '');
+  const venvRoot = path.join(projectRoot, 'node_modules', '.pyfig', 'venvs');
+  const relative = path.relative(venvRoot, venv);
+  if (!environment.venvId || relative === '..' || relative.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(relative)) {
+    throw new Error('Managed Python was not installed into a hashed repository venv.');
   }
   console.log(`Zero-Python bootstrap verified: ${environment.python.executable}`);
 } finally {

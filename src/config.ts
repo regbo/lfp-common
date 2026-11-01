@@ -29,6 +29,14 @@ const envPathsFunction = (() => {
 })();
 
 export interface PyfigOptions {
+  /** PEP 508 runtime dependencies resolved into this environment's private venv. */
+  dependencies?: readonly string[];
+  /** Optional-dependency extras read from an existing pyproject.toml. */
+  extras?: readonly string[];
+  /** Dependency groups read from an existing pyproject.toml. */
+  groups?: readonly string[];
+  /** Include every optional-dependency extra from an existing pyproject.toml. */
+  allExtras?: boolean;
   /** Exact interpreter path that an existing or newly created venv must derive from. */
   python?: string;
   /** PEP 440 Python version specifier, matching pyproject.toml requires-python. */
@@ -66,6 +74,10 @@ export interface PyfigOptions {
 }
 
 export interface ResolvedPyfigOptions {
+  dependencies: readonly string[];
+  extras: readonly string[];
+  groups: readonly string[];
+  allExtras: boolean;
   python: string;
   requiresPython: string;
   managedPython: string;
@@ -132,8 +144,19 @@ export function resolveOptions(options: PyfigOptions = {}): ResolvedPyfigOptions
     ? path.resolve(configuredProjectRoot)
     : resolveProjectRoot(env['INIT_CWD'] ?? process.cwd());
   const autoInstall = options.autoInstall ?? parseBoolean(env['PYFIG_AUTO_INSTALL'], true);
+  const dependencies = normalizeDependencies(options.dependencies ?? []);
+  const extras = normalizeNames('extra', options.extras ?? []);
+  const groups = normalizeNames('dependency group', options.groups ?? []);
+  const allExtras = options.allExtras ?? false;
+  if (allExtras && extras.length > 0) {
+    throw new TypeError('allExtras cannot be combined with explicit extras.');
+  }
 
   return {
+    dependencies,
+    extras,
+    groups,
+    allExtras,
     python: options.python ?? env['PYFIG_PYTHON'] ?? '',
     requiresPython,
     managedPython,
@@ -153,6 +176,13 @@ export function resolveOptions(options: PyfigOptions = {}): ResolvedPyfigOptions
     coordinationTimeoutMs,
     env,
   };
+}
+
+export function hasDependencyProfile(
+  options: Pick<ResolvedPyfigOptions, 'dependencies' | 'extras' | 'groups' | 'allExtras'>,
+): boolean {
+  return options.dependencies.length > 0 || options.extras.length > 0 ||
+    options.groups.length > 0 || options.allExtras;
 }
 
 /** Keep uv data private while preferring a compatible system interpreter. */
@@ -206,4 +236,24 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
   if (/^(1|true|yes|on)$/iu.test(value)) return true;
   if (/^(0|false|no|off)$/iu.test(value)) return false;
   throw new TypeError(`Invalid boolean value: ${value}`);
+}
+
+function normalizeDependencies(dependencies: readonly string[]): string[] {
+  const normalized = dependencies.map((dependency) => dependency.trim());
+  for (const dependency of normalized) {
+    if (!dependency || /[\0\r\n]/u.test(dependency)) {
+      throw new TypeError(`Invalid runtime dependency: ${JSON.stringify(dependency)}`);
+    }
+  }
+  return [...new Set(normalized)].sort();
+}
+
+function normalizeNames(kind: string, names: readonly string[]): string[] {
+  const normalized = names.map((name) => name.trim().toLowerCase().replace(/[-_.]+/gu, '-'));
+  for (const name of normalized) {
+    if (!name || !/^[a-z0-9][a-z0-9-]*$/u.test(name)) {
+      throw new TypeError(`Invalid ${kind}: ${JSON.stringify(name)}`);
+    }
+  }
+  return [...new Set(normalized)].sort();
 }

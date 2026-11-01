@@ -5,6 +5,10 @@ import { Command } from 'commander';
 import { ensureEnvironment } from './provision.js';
 
 interface CliOptions {
+  dependencies: string[];
+  extras: string[];
+  groups: string[];
+  allExtras: boolean;
   python?: string;
   requiresPython?: string;
   requiresUv?: string;
@@ -23,8 +27,12 @@ const packageVersion = (JSON.parse(
 
 const program = new Command()
   .name('pyfig')
-  .description('Prepare uv and a compatible Python environment for runtime dependencies.')
+  .description('Prepare uv and an isolated Python venv.')
   .version(packageVersion)
+  .option('--dependency <specifier>', 'PEP 508 runtime dependency; repeatable', collect, [])
+  .option('--extra <name>', 'pyproject optional-dependency extra; repeatable', collect, [])
+  .option('--group <name>', 'pyproject dependency group; repeatable', collect, [])
+  .option('--all-extras', 'include every pyproject optional-dependency extra', false)
   .option('--python <path>', 'Python executable to check first')
   .option('--requires-python <specifier>', 'accepted Python PEP 440 specifier')
   .option('--managed-python <request>', 'Python version request passed to uv')
@@ -37,6 +45,10 @@ const program = new Command()
   .option('--json', 'print machine-readable JSON', false)
   .action(async (cli: CliOptions) => {
     const environment = await ensureEnvironment({
+      dependencies: cli.dependencies,
+      extras: cli.extras,
+      groups: cli.groups,
+      allExtras: cli.allExtras,
       python: cli.python,
       requiresPython: cli.requiresPython,
       managedPython: cli.managedPython,
@@ -58,6 +70,7 @@ const program = new Command()
     console.log(`Python ${environment.python.version}: ${environment.python.executable}`);
     console.log(`uv ${environment.uv.version}: ${environment.uv.executable}`);
     console.log(`Environment: ${environment.managed ? 'Pyfig-managed' : 'existing'}`);
+    if (environment.venvId) console.log(`Venv: ${environment.venvId}`);
   });
 
 program.parseAsync().catch((error: unknown) => {
@@ -65,3 +78,7 @@ program.parseAsync().catch((error: unknown) => {
   console.error(`pyfig: ${message}`);
   process.exitCode = 1;
 });
+
+function collect(value: string, previous: string[]): string[] {
+  return [...previous, value];
+}

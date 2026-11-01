@@ -11,16 +11,12 @@ import {
   ensureEnvironment,
   ensureUv,
   type PythonEnvironment,
-  type RuntimeDependencyOptions,
 } from './provision.js';
 import { uvSpawn, uvSpawnSync } from './runners.js';
 
 /** A scoped uv-first API with one consistent environment policy. */
-export interface PyfigClient {
-  prepare(
-    dependencies?: readonly string[],
-    options?: RuntimeDependencyOptions,
-  ): Promise<PythonEnvironment>;
+export interface PyEnvironmentClient {
+  prepare(): Promise<PythonEnvironment>;
   pythonInfo(): Promise<PythonInfo>;
   uvInfo(): Promise<UvInfo>;
   uv(args?: readonly string[], options?: SpawnOptions): Promise<ChildProcess>;
@@ -31,21 +27,19 @@ export interface PyfigClient {
 }
 
 /** Bind configuration once so consumers cannot accidentally diverge between calls. */
-export function createPyfig(options: PyfigOptions = {}): PyfigClient {
+export function createPyEnvironment(options: PyfigOptions = {}): PyEnvironmentClient {
   const scopedOptions: PyfigOptions = {
     ...options,
+    dependencies: options.dependencies ? [...options.dependencies] : undefined,
+    extras: options.extras ? [...options.extras] : undefined,
+    groups: options.groups ? [...options.groups] : undefined,
     env: options.env ? { ...options.env } : undefined,
   };
-  const baseEnvironment = memoize(() => ensureEnvironment(scopedOptions));
+  const environment = memoize(() => ensureEnvironment(scopedOptions));
   const uvInfo = memoize(() => ensureUv(scopedOptions));
   return {
-    prepare: (dependencies = [], dependencyOptions = {}) => dependencies.length === 0 &&
-      !dependencyOptions.allExtras &&
-      (dependencyOptions.extras?.length ?? 0) === 0 &&
-      (dependencyOptions.groups?.length ?? 0) === 0
-      ? baseEnvironment()
-      : ensureEnvironment(scopedOptions, dependencies, dependencyOptions),
-    pythonInfo: async () => (await baseEnvironment()).python,
+    prepare: environment,
+    pythonInfo: async () => (await environment()).python,
     uvInfo,
     uv: (args = [], spawnOptions = {}) => uvSpawn(args, spawnOptions, scopedOptions),
     uvSync: (args = [], spawnOptions = {}) => uvSpawnSync(args, spawnOptions, scopedOptions),

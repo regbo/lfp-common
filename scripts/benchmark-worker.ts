@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { createPyfig, type PyfigOptions } from '../src/index.ts';
+import { createPyEnvironment, type PyfigOptions } from '../src/index.ts';
 
 interface BenchmarkRequest {
   cacheDir: string;
@@ -24,21 +24,22 @@ if (!encodedRequest) throw new Error('PYFIG_BENCHMARK_REQUEST is required.');
 const request = JSON.parse(encodedRequest) as BenchmarkRequest;
 const options: PyfigOptions = {
   cacheDir: request.cacheDir,
+  dependencies: request.dependencies,
   managedPython: request.managedPython,
   projectRoot: request.projectRoot,
   requiresPython: request.requiresPython,
 };
 
-const client = createPyfig(options);
+const pyenv = createPyEnvironment(options);
 const started = performance.now();
-const environment = await client.prepare(request.dependencies ?? []);
+const environment = await pyenv.prepare();
 const apiMs = performance.now() - started;
 
 let verificationMs = 0;
 if (request.verifyModules?.length) {
   const verificationStarted = performance.now();
   const imports = request.verifyModules.map((name) => `import ${name}`).join('; ');
-  const result = client.uvSync(
+  const result = pyenv.uvSync(
     ['run', '--', 'python', '-c', imports],
     { encoding: 'utf8' },
   );

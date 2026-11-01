@@ -5,16 +5,22 @@ flowchart TD
     D -->|No| Z["Fail without changing the system"]
     D -->|Yes| E["Install checksum-verified uv"]
     E --> C
-    C --> F{"Compatible venv exists?"}
-    F -->|Yes| G["Reuse existing venv"]
-    F -->|No| H["Search system Python with downloads disabled"]
-    H --> I{"requires-python and capability checks pass?"}
-    I -->|Yes| J["Create node_modules/.pyfig/venv"]
+    C --> F{"Runtime dependencies declared?"}
+    F -->|No| G{"Compatible external venv exists?"}
+    G -->|Yes| N["Return existing venv"]
+    G -->|No| H["Find compatible base Python"]
+    F -->|Yes| H
+    H --> I{"System Python passes every capability check?"}
+    I -->|Yes| O["Resolve dependencies and hash exact venv contents"]
     I -->|No| K{"Compatible managed Python cached?"}
-    K -->|Yes| J
+    K -->|Yes| O
     K -->|No| L{"Python installation allowed?"}
     L -->|No| Z
     L -->|Yes| M["Install managed Python with uv"]
-    M --> J
-    J --> N["Return uv and selected Python metadata"]
-    G --> N
+    M --> O
+    O --> P{"Complete matching hashed venv exists?"}
+    P -->|Yes| Q["Reuse hashed venv"]
+    P -->|No| R["Create node_modules/.pyfig/venvs/hash"]
+    R --> S["Install exact resolution and publish venv metadata"]
+    Q --> T["Return uv and Python metadata"]
+    S --> T

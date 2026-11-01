@@ -20,11 +20,19 @@ import { unzipSync } from 'fflate';
 import * as tar from 'tar';
 import { EnvHttpProxyAgent, fetch } from 'undici';
 import {
+  hasDependencyProfile,
   resolveOptions,
   uvEnvironment,
   type PyfigOptions,
   type ResolvedPyfigOptions,
 } from './config.js';
+import {
+  createVenvIdentity,
+  requirementsDigest,
+  venvMatches,
+  writeVenvMetadata,
+  type VenvIdentity,
+} from './venv-identity.js';
 import { withProvisioningLock } from './provision-lock.js';
 import { sanitizeUvEnvironment, uvCommandEnvironment } from './package-target.js';
 import {
@@ -51,17 +59,15 @@ import {
 export interface PythonEnvironment {
   python: PythonInfo;
   uv: UvInfo;
-  /** True when the environment lives in node_modules/.pyfig/venv. */
+  /** True when the venv lives below node_modules/.pyfig/venvs. */
   managed: boolean;
+  /** Full content identity for managed venvs; null for an externally owned venv. */
+  venvId: string | null;
 }
 
-export interface RuntimeDependencyOptions {
-  /** Optional-dependency extras read from an existing pyproject.toml. */
-  extras?: readonly string[];
-  /** Include every optional-dependency extra from an existing pyproject.toml. */
-  allExtras?: boolean;
-  /** Dependency groups read from an existing pyproject.toml. */
-  groups?: readonly string[];
+interface RuntimeResolution {
+  content: string;
+  sha256: string;
 }
 
 /** Ensure a compatible uv executable, preferring an existing installation. */
@@ -70,45 +76,42 @@ export async function ensureUv(options: PyfigOptions = {}): Promise<UvInfo> {
 }
 
 /**
- * Select a compatible environment and optionally add runtime dependencies.
- * Project dependency files are inputs only and are never changed.
+ * Select an external dependency-free venv or a private content-addressed venv.
+ * Project dependency files are read-only resolution inputs.
  */
 export async function ensureEnvironment(
   options: PyfigOptions = {},
-  dependencies: readonly string[] = [],
-  dependencyOptions: RuntimeDependencyOptions = {},
 ): Promise<PythonEnvironment> {
   const resolved = resolveOptions(options);
-  const normalized = normalizeDependencies(dependencies);
-  const selections = normalizeDependencyOptions(dependencyOptions);
   const uv = await ensureUvResolved(resolved);
-  const python = await ensureVirtualEnvironmentResolved(resolved, uv);
-  if (normalized.length > 0 || selections.extras.length > 0 ||
-      selections.groups.length > 0 || selections.allExtras) {
-    await installRuntimeDependencies(uv, python, normalized, selections, resolved);
+  if (!hasDependencyProfile(resolved)) {
+    const external = await findReusableExternalEnvironment(resolved);
+    if (external) {
+      return { managed: false, python: external, uv, venvId: null };
+    }
   }
-  return {
-    python,
-    uv,
-    managed: isManagedEnvironment(python, resolved),
-  };
+  const basePython = await ensureBasePythonResolved(uv, resolved);
+  const resolution = await resolveRuntimeDependencies(uv, basePython, resolved);
+  const venv = createVenvIdentity(basePython, resolution.sha256);
+  const python = await ensureManagedVenv(uv, basePython, venv, resolution, resolved);
+  return { managed: true, python, uv, venvId: venv.id };
 }
 
-async function ensureVirtualEnvironmentResolved(
-  options: ResolvedPyfigOptions,
+async function ensureManagedVenv(
   uv: UvInfo,
+  basePython: PythonInfo,
+  venv: VenvIdentity,
+  resolution: RuntimeResolution,
+  options: ResolvedPyfigOptions,
 ): Promise<PythonInfo> {
-  const existing = await findReusableEnvironment(options);
-  if (existing) return existing;
-
-  const directory = virtualEnvironmentDirectory(options.projectRoot);
+  const directory = virtualEnvironmentDirectory(options.projectRoot, venv.directoryName);
   const check = async (): Promise<PythonInfo | null> => {
+    if (!await venvMatches(directory, venv)) return null;
     const candidate = await inspectVirtualEnvironment(directory, options);
-    return candidate && pythonSatisfiesPolicy(candidate, options) &&
-      await virtualEnvironmentMatchesConfiguredPython(candidate, options)
-      ? candidate
-      : null;
+    return candidate && pythonSatisfiesPolicy(candidate, options) ? candidate : null;
   };
+  const existing = await check();
+  if (existing) return existing;
   if (!options.createVirtualEnvironment) {
     throw new Error(
       `No compatible environment is available and creation is disabled. ` +
@@ -116,42 +119,48 @@ async function ensureVirtualEnvironmentResolved(
     );
   }
 
-  const basePython = await ensureBasePythonResolved(uv, options);
   return withProvisioningLock({
     key: `venv:${canonicalPath(directory)}`,
     timeoutMs: options.coordinationTimeoutMs,
     check,
     mutate: async () => {
-      // Only Pyfig's private path is replaceable. Active and repository-root
-      // environments are preserved when incompatible.
       await rm(directory, { recursive: true, force: true });
       await mkdir(path.dirname(directory), { recursive: true });
-      await runAsync(
-        uv.executable,
-        [
-          'venv',
-          '--no-project',
-          '--no-config',
-          '--no-python-downloads',
-          '--python',
-          basePython.executable,
-          directory,
-        ],
-        isolatedUvEnvironment(options),
-        options.installTimeoutMs,
-      );
-      const installed = await check();
-      if (!installed) {
-        throw new Error(
-          `uv created ${directory}, but its Python does not satisfy the requested capabilities.`,
+      try {
+        await runAsync(
+          uv.executable,
+          [
+            'venv',
+            '--no-project',
+            '--no-config',
+            '--no-python-downloads',
+            '--python',
+            basePython.executable,
+            directory,
+          ],
+          isolatedUvEnvironment(options),
+          options.installTimeoutMs,
         );
+        const created = await inspectVirtualEnvironment(directory, options);
+        if (!created || !pythonSatisfiesPolicy(created, options)) {
+          throw new Error(
+            `uv created ${directory}, but its Python does not satisfy the requested capabilities.`,
+          );
+        }
+        await installResolvedDependencies(uv, created, resolution, options);
+        await writeVenvMetadata(directory, venv);
+        const installed = await check();
+        if (!installed) throw new Error(`Pyfig could not validate environment ${directory}.`);
+        return installed;
+      } catch (error) {
+        await rm(directory, { recursive: true, force: true });
+        throw error;
       }
-      return installed;
     },
   });
 }
 
-async function findReusableEnvironment(
+async function findReusableExternalEnvironment(
   options: ResolvedPyfigOptions,
 ): Promise<PythonInfo | null> {
   if (options.python) {
@@ -162,15 +171,9 @@ async function findReusableEnvironment(
     if (configured.virtualEnvironment) return configured;
   }
 
-  for (const directory of [
-    ...externalVirtualEnvironmentDirectories(options.projectRoot, options.env),
-    virtualEnvironmentDirectory(options.projectRoot),
-  ]) {
+  for (const directory of externalVirtualEnvironmentDirectories(options.projectRoot, options.env)) {
     const info = await inspectVirtualEnvironment(directory, options);
-    if (info && pythonSatisfiesPolicy(info, options) &&
-        await virtualEnvironmentMatchesConfiguredPython(info, options)) {
-      return info;
-    }
+    if (info && pythonSatisfiesPolicy(info, options)) return info;
   }
   return null;
 }
@@ -189,6 +192,9 @@ async function ensureBasePythonResolved(
     if (base && pythonSatisfiesPolicy(base, options)) return base;
     throw incompatibleConfiguredPython(options);
   }
+
+  const externalBase = await findExternalBasePython(options);
+  if (externalBase) return externalBase;
 
   // Corporate and offline hosts get a strict system-only pass before Pyfig
   // considers any already-managed interpreter or network installation.
@@ -221,6 +227,18 @@ async function ensureBasePythonResolved(
       return installed;
     },
   });
+}
+
+async function findExternalBasePython(
+  options: ResolvedPyfigOptions,
+): Promise<PythonInfo | null> {
+  for (const directory of externalVirtualEnvironmentDirectories(options.projectRoot, options.env)) {
+    const environment = await inspectVirtualEnvironment(directory, options);
+    if (!environment || !pythonSatisfiesPolicy(environment, options)) continue;
+    const base = await probePython({ executable: environment.baseExecutable, args: [] }, options);
+    if (base && !base.virtualEnvironment && pythonSatisfiesPolicy(base, options)) return base;
+  }
+  return null;
 }
 
 async function findPythonWithUv(
@@ -305,71 +323,92 @@ async function inspectVirtualEnvironment(
   return info?.virtualEnvironment && pathsEqual(info.virtualEnvironment, directory) ? info : null;
 }
 
-async function installRuntimeDependencies(
+async function resolveRuntimeDependencies(
   uv: UvInfo,
   python: PythonInfo,
-  dependencies: readonly string[],
-  dependencyOptions: Required<RuntimeDependencyOptions>,
+  options: ResolvedPyfigOptions,
+): Promise<RuntimeResolution> {
+  if (!hasDependencyProfile(options)) {
+    return { content: '', sha256: requirementsDigest('') };
+  }
+  const temporary = await mkdtemp(path.join(os.tmpdir(), 'pyfig-resolution-'));
+  try {
+    const additions = path.join(temporary, 'runtime-dependencies.txt');
+    const output = path.join(temporary, 'resolved-dependencies.txt');
+    const pyproject = path.join(options.projectRoot, 'pyproject.toml');
+    const hasPyproject = fs.existsSync(pyproject);
+    if (!hasPyproject && (
+      options.extras.length > 0 || options.groups.length > 0 || options.allExtras
+    )) {
+      throw new Error('Runtime extras and groups require an existing pyproject.toml.');
+    }
+    const sources = hasPyproject ? [pyproject] : [];
+    if (options.dependencies.length > 0) {
+      await writeFile(additions, `${options.dependencies.join('\n')}\n`, 'utf8');
+      sources.push(additions);
+    }
+    const selectionArgs = [
+      ...options.extras.flatMap((extra) => ['--extra', extra]),
+      ...options.groups.flatMap((group) => ['--group', group]),
+      ...(options.allExtras ? ['--all-extras'] : []),
+    ];
+    await runAsync(
+      uv.executable,
+      [
+        'pip', 'compile', '--no-config', '--no-header', '--no-annotate',
+        '--generate-hashes', '--python', python.executable, ...selectionArgs,
+        ...sources, '--output-file', output,
+      ],
+      isolatedUvEnvironment(options),
+      options.installTimeoutMs,
+      undefined,
+      options.projectRoot,
+    );
+    const content = normalizeResolution(await readFile(output, 'utf8'));
+    return { content, sha256: requirementsDigest(content) };
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+}
+
+async function installResolvedDependencies(
+  uv: UvInfo,
+  python: PythonInfo,
+  resolution: RuntimeResolution,
   options: ResolvedPyfigOptions,
 ): Promise<void> {
+  if (!resolution.content) return;
   if (!python.virtualEnvironment) {
     throw new Error('Runtime dependency installation requires a virtual environment.');
   }
-  await withProvisioningLock({
-    key: `dependencies:${canonicalPath(python.virtualEnvironment)}`,
-    timeoutMs: options.coordinationTimeoutMs,
-    check: async () => null,
-    mutate: async () => {
-      const temporary = await mkdtemp(path.join(os.tmpdir(), 'pyfig-dependencies-'));
-      try {
-        const additions = path.join(temporary, 'runtime-dependencies.txt');
-        const resolved = path.join(temporary, 'resolved-dependencies.txt');
-        const pyproject = path.join(options.projectRoot, 'pyproject.toml');
-        const hasPyproject = fs.existsSync(pyproject);
-        if (!hasPyproject && (
-          dependencyOptions.extras.length > 0 ||
-          dependencyOptions.groups.length > 0 ||
-          dependencyOptions.allExtras
-        )) {
-          throw new Error('Runtime extras and groups require an existing pyproject.toml.');
-        }
-        const sources = hasPyproject ? [pyproject] : [];
-        if (dependencies.length > 0) {
-          await writeFile(additions, `${dependencies.join('\n')}\n`, 'utf8');
-          sources.push(additions);
-        }
-        const selectionArgs = [
-          ...dependencyOptions.extras.flatMap((extra) => ['--extra', extra]),
-          ...dependencyOptions.groups.flatMap((group) => ['--group', group]),
-          ...(dependencyOptions.allExtras ? ['--all-extras'] : []),
-        ];
-        await runAsync(
-          uv.executable,
-          [
-            'pip', 'compile', '--no-config', '--python', python.executable, ...selectionArgs,
-            ...sources, '--output-file', resolved,
-          ],
-          targetUvEnvironment(options, python),
-          options.installTimeoutMs,
-          undefined,
-          options.projectRoot,
-        );
-        // install preserves unrelated packages; sync would remove anything not
-        // represented in this temporary resolution.
-        await runAsync(
-          uv.executable,
-          ['pip', 'install', '--no-config', '--python', python.executable, '-r', resolved],
-          targetUvEnvironment(options, python),
-          options.installTimeoutMs,
-          undefined,
-          options.projectRoot,
-        );
-      } finally {
-        await rm(temporary, { recursive: true, force: true });
-      }
-      return true;
-    },
-  });
+  const temporary = await mkdtemp(path.join(os.tmpdir(), 'pyfig-install-'));
+  try {
+    const requirements = path.join(temporary, 'resolved-dependencies.txt');
+    await writeFile(requirements, resolution.content, { encoding: 'utf8', flag: 'wx' });
+    await runAsync(
+      uv.executable,
+      ['pip', 'install', '--no-config', '--python', python.executable, '-r', requirements],
+      targetUvEnvironment(options, python),
+      options.installTimeoutMs,
+      undefined,
+      options.projectRoot,
+    );
+    await runAsync(
+      uv.executable,
+      ['pip', 'check', '--no-config', '--python', python.executable],
+      targetUvEnvironment(options, python),
+      options.installTimeoutMs,
+      undefined,
+      options.projectRoot,
+    );
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+}
+
+function normalizeResolution(content: string): string {
+  const normalized = content.replace(/\r\n/gu, '\n').trimEnd();
+  return normalized ? `${normalized}\n` : '';
 }
 
 async function ensureUvResolved(options: ResolvedPyfigOptions): Promise<UvInfo> {
@@ -430,47 +469,6 @@ async function findManagedUv(options: ResolvedPyfigOptions): Promise<UvInfo | nu
   return null;
 }
 
-function normalizeDependencies(dependencies: readonly string[]): string[] {
-  const normalized = dependencies.map((dependency) => dependency.trim());
-  for (const dependency of normalized) {
-    if (!dependency || /[\0\r\n]/u.test(dependency)) {
-      throw new TypeError(`Invalid runtime dependency: ${JSON.stringify(dependency)}`);
-    }
-  }
-  return [...new Set(normalized)];
-}
-
-function normalizeDependencyOptions(
-  options: RuntimeDependencyOptions,
-): Required<RuntimeDependencyOptions> {
-  const extras = normalizeNames('extra', options.extras ?? []);
-  const groups = normalizeNames('dependency group', options.groups ?? []);
-  if (options.allExtras && extras.length > 0) {
-    throw new TypeError('allExtras cannot be combined with explicit extras.');
-  }
-  return { extras, groups, allExtras: options.allExtras ?? false };
-}
-
-function normalizeNames(kind: string, names: readonly string[]): string[] {
-  const normalized = names.map((name) => name.trim());
-  for (const name of normalized) {
-    if (!name || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(name)) {
-      throw new TypeError(`Invalid ${kind}: ${JSON.stringify(name)}`);
-    }
-  }
-  return [...new Set(normalized)];
-}
-
-function isManagedEnvironment(
-  python: PythonInfo,
-  options: ResolvedPyfigOptions,
-): boolean {
-  return Boolean(python.virtualEnvironment) && pathsEqual(
-    python.virtualEnvironment as string,
-    virtualEnvironmentDirectory(options.projectRoot),
-  );
-}
-
 function isolatedUvEnvironment(options: ResolvedPyfigOptions): NodeJS.ProcessEnv {
   return sanitizeUvEnvironment(uvEnvironment(options));
 }
@@ -504,22 +502,6 @@ function missingPythonMessage(options: ResolvedPyfigOptions, reason: string): st
     ? ' with compatible CPython headers, library, architecture, and GIL ABI'
     : '';
   return `No Python satisfies requires-python ${options.requiresPython}${embedding}; ${reason}.`;
-}
-
-async function virtualEnvironmentMatchesConfiguredPython(
-  virtualEnvironment: PythonInfo,
-  options: ResolvedPyfigOptions,
-): Promise<boolean> {
-  if (!options.python) return true;
-  const configured = await probePython({ executable: options.python, args: [] }, options);
-  if (!configured || !pythonSatisfiesPolicy(configured, options)) return false;
-  if (configured.virtualEnvironment && pathsEqual(configured.executable, virtualEnvironment.executable)) {
-    return true;
-  }
-  const configuredBase = configured.virtualEnvironment
-    ? configured.baseExecutable
-    : configured.executable;
-  return pathsEqual(configuredBase, virtualEnvironment.baseExecutable);
 }
 
 interface UvRelease {

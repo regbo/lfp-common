@@ -4,8 +4,8 @@ export {
   DEFAULT_REQUIRES_UV,
 } from './config.js';
 export type { PyfigOptions } from './config.js';
-export { createPyfig } from './client.js';
-export type { PyfigClient } from './client.js';
+export { createPyEnvironment } from './client.js';
+export type { PyEnvironmentClient } from './client.js';
 export { resolveProjectRoot } from './project-root.js';
 export type {
   PythonEmbeddingInfo,
@@ -16,7 +16,7 @@ export {
   ensureEnvironment,
   ensureUv,
 } from './provision.js';
-export type { PythonEnvironment, RuntimeDependencyOptions } from './provision.js';
+export type { PythonEnvironment } from './provision.js';
 export {
   uvSpawn,
   uvSpawnSync,

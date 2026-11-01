@@ -47,7 +47,7 @@ type Snapshot = Map<string, SnapshotEntry>;
 
 interface ScenarioDefinition {
   description: string;
-  kind: 'empty' | 'existing-root-venv' | 'seed-private-venv';
+  kind: 'empty' | 'existing-root-venv' | 'warm-toolchain';
   managedPython?: string;
   name: string;
   requiresPython?: string;
@@ -145,7 +145,7 @@ async function benchmarkScenario(
       { capture: true, env: childEnvironment },
     );
     setup = { wallMs: performance.now() - started };
-  } else if (definition.kind === 'seed-private-venv') {
+  } else if (definition.kind === 'warm-toolchain') {
     setup = runWorker({ ...request, dependencies: [], verifyModules: [] }, childEnvironment);
   }
 
@@ -297,8 +297,8 @@ function definitionsFor(suite: BenchmarkSuite): ScenarioDefinition[] {
     uv,
   });
   const addDependency = (uv: 'existing' | 'missing', name: string): ScenarioDefinition => ({
-    description: 'Private venv is seeded outside timing; install idna, then repeat the same request.',
-    kind: 'seed-private-venv',
+    description: 'uv, Python, and an empty venv are warmed outside timing; create the idna venv.',
+    kind: 'warm-toolchain',
     name,
     dependencies: ['idna==3.10'],
     uv,
