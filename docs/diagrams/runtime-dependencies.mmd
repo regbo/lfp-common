@@ -1,8 +1,8 @@
 flowchart TD
-    A["prepare runtime requirements"] --> B["Create temporary requirements input"]
+    A["prepare runtime dependencies"] --> B["Create temporary dependency input"]
     B --> C{"pyproject.toml exists?"}
     C -->|Yes| D["Read project dependencies and selected extras"]
-    C -->|No| E["Use temporary requirements only"]
+    C -->|No| E["Use temporary dependencies only"]
     D --> F["uv pip compile to a temporary resolved file"]
     E --> F
     F --> G{"Resolution succeeds?"}

@@ -1,6 +1,7 @@
 import semver from 'semver';
 import type { ResolvedPyfigOptions } from './config.js';
 import { resolveExecutable, run, type CommandSpec } from './process.js';
+import { isValidPythonVersion, pythonVersionSatisfies } from './python-version.js';
 
 export interface PythonInfo {
   executable: string;
@@ -82,7 +83,15 @@ if os.path.isfile(header_path) and library_path:
     }
 
 release_level = sys.version_info.releaselevel
-release_suffix = "" if release_level == "final" else f"-{release_level}.{sys.version_info.serial}"
+release_suffixes = {
+    "alpha": "a",
+    "beta": "b",
+    "candidate": "rc",
+    "final": "",
+}
+release_suffix = release_suffixes[release_level]
+if release_suffix:
+    release_suffix += str(sys.version_info.serial)
 
 print(json.dumps({
     "executable": sys.executable,
@@ -103,11 +112,11 @@ print(json.dumps({
 }))
 `;
 
-export function pythonSatisfiesRequirements(
+export function pythonSatisfiesPolicy(
   python: PythonInfo,
-  options: Pick<ResolvedPyfigOptions, 'pythonRange' | 'requireEmbedding' | 'requireGil'>,
+  options: Pick<ResolvedPyfigOptions, 'requiresPython' | 'requireEmbedding' | 'requireGil'>,
 ): boolean {
-  return semver.satisfies(python.version, options.pythonRange) &&
+  return pythonVersionSatisfies(python.version, options.requiresPython) &&
     (!options.requireEmbedding || (
       python.implementation === 'cpython' &&
       python.embedding !== null &&
@@ -130,7 +139,7 @@ export async function probePython(
       options.probeTimeoutMs,
     );
     const info = JSON.parse(stdout.trim()) as PythonInfo;
-    return semver.valid(info.version) ? info : null;
+    return isValidPythonVersion(info.version) ? info : null;
   } catch {
     return null;
   }

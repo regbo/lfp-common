@@ -16,7 +16,7 @@ bun add pyfig
 import { createPyfig } from 'pyfig';
 
 const pyfig = createPyfig({
-  pythonRange: '>=3.11.0 <4.0.0',
+  requiresPython: '>=3.11,<4',
   requireEmbedding: true,
   requireGil: true,
 });
@@ -36,7 +36,7 @@ await pyfig.uv(
 );
 ```
 
-`prepare()` accepts runtime requirement strings plus optional `extras`, `groups`, or `allExtras`. If the project has a `pyproject.toml`, uv resolves that read-only input together with a temporary requirements file. Pyfig installs the resolved result with `uv pip install -r`, which preserves unrelated packages. Temporary inputs are created outside the repository and removed afterward.
+`prepare()` accepts PEP 508 dependency specifiers plus optional `extras`, `groups`, or `allExtras`. If the project has a `pyproject.toml`, uv resolves that read-only input together with a temporary dependency file. Pyfig installs the resolved result with `uv pip install -r`, which preserves unrelated packages. Temporary inputs are created outside the repository and removed afterward.
 
 The same uv-only surface handles direct commands:
 
@@ -89,19 +89,19 @@ await pyfig.prepare(
 Resolution follows the equivalent of:
 
 ```sh
-uv pip compile pyproject.toml /temporary/runtime-requirements.txt \
+uv pip compile pyproject.toml /temporary/runtime-dependencies.txt \
   --extra postgres --group runtime \
   --python /selected/venv/python \
-  --output-file /temporary/resolved-requirements.txt
+  --output-file /temporary/resolved-dependencies.txt
 
 uv pip install \
   --python /selected/venv/python \
-  -r /temporary/resolved-requirements.txt
+  -r /temporary/resolved-dependencies.txt
 ```
 
-When no `pyproject.toml` exists, only the temporary requirements input is compiled. Extras and dependency groups require an existing `pyproject.toml`. Pyfig does not use `uv add` or `uv pip sync`: the former would edit project metadata, while the latter could remove unrelated packages from the venv.
+When no `pyproject.toml` exists, only the temporary dependency input is compiled. Extras and dependency groups require an existing `pyproject.toml`. Pyfig does not use `uv add` or `uv pip sync`: the former would edit project metadata, while the latter could remove unrelated packages from the venv.
 
-![Runtime requirements are resolved in temporary files before installation](docs/diagrams/runtime-dependencies.png)
+![Runtime dependencies are resolved in temporary files before installation](docs/diagrams/runtime-dependencies.png)
 
 [Mermaid source](docs/diagrams/runtime-dependencies.mmd)
 
@@ -121,11 +121,11 @@ Set `projectRoot` explicitly in reusable libraries and unusual workspace layouts
 | Export | Responsibility |
 | --- | --- |
 | `createPyfig(options)` | Create a scoped client with memoized base preparation. |
-| `client.prepare(requirements?, options?)` | Select a venv and optionally resolve/install runtime dependencies. |
+| `client.prepare(dependencies?, options?)` | Select a venv and optionally resolve/install runtime dependencies. |
 | `client.pythonInfo()` | Return the selected interpreter and embedding metadata. |
 | `client.uvInfo()` | Return the selected uv executable and version. |
 | `client.uv()` / `client.uvSync()` | Spawn uv and pin pip/run commands to the selected venv. |
-| `ensureEnvironment(options?, requirements?, dependencyOptions?)` | Standalone preparation API. |
+| `ensureEnvironment(options?, dependencies?, dependencyOptions?)` | Standalone preparation API. |
 | `ensureUv(options?)` | Prefer existing uv, otherwise bootstrap verified uv when allowed. |
 | `uvSpawn()` / `uvSpawnSync()` | Standalone uv spawn API. |
 | `resolveProjectRoot(start?)` | Resolve the nearest Git root without reading manifests. |
@@ -136,10 +136,12 @@ The package exposes matching ESM and CommonJS entry points. Probe, download, loc
 
 Precedence is API or CLI option, environment variable, then default.
 
+`requiresPython` uses the same PEP 440 specifier syntax as `[project].requires-python` in `pyproject.toml`. Comma-separated clauses, compatible releases (`~=`), exclusions (`!=`), wildcard equality (`==3.12.*`), arbitrary equality (`===`), and pre-release versions are supported. For example: `>=3.10,!=3.12.*,<4`.
+
 | API option | Environment variable | Default |
 | --- | --- | --- |
 | `python` | `PYFIG_PYTHON` | uv discovery |
-| `pythonRange` | `PYFIG_PYTHON_RANGE` | `>=3.10.0 <4.0.0` |
+| `requiresPython` | `PYFIG_REQUIRES_PYTHON` | `>=3.10,<4` |
 | `managedPython` | `PYFIG_MANAGED_PYTHON` | `3.12` |
 | `uvVersion` | `PYFIG_UV_VERSION` | `0.13.6` |
 | `uvRange` | `PYFIG_UV_RANGE` | `>=0.10.0 <1.0.0` |
@@ -163,7 +165,7 @@ Set `PYFIG_UV` to choose an explicit uv executable. Set `PYFIG_AUTO_INSTALL=0` o
 ```sh
 bunx --bun pyfig
 bunx --bun pyfig --check
-bunx --bun pyfig --python-range '>=3.12.0 <3.14.0'
+bunx --bun pyfig --requires-python '>=3.12,<3.14'
 bunx --bun pyfig --require-embedding --require-gil
 bunx --bun pyfig --project-root /path/to/repository
 bunx --bun pyfig --json
@@ -179,7 +181,7 @@ Provisioning mutations use Loqkit's layered in-memory, worker, native-file-lock-
 
 ## Platform support
 
-Pyfig bootstraps uv on x64 and arm64 Windows, macOS, and Linux. Linux uses Astral's static musl artifact, which also runs on glibc. Node.js 22 through 26 and Bun 1.2+ are supported. Other JavaScript runtimes may work when they provide compatible Node built-ins and process semantics.
+Pyfig bootstraps uv on x64 and arm64 Windows, macOS, and Linux. Linux uses Astral's static musl artifact, which also runs on glibc. Node.js 22.11+ on the 22.x line, Node.js 24.10 through 26.x, and Bun 1.2+ are supported. Other JavaScript runtimes may work when they provide compatible Node built-ins and process semantics.
 
 ## Publishing
 

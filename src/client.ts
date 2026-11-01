@@ -18,7 +18,7 @@ import { uvSpawn, uvSpawnSync } from './runners.js';
 /** A scoped uv-first API with one consistent environment policy. */
 export interface PyfigClient {
   prepare(
-    requirements?: readonly string[],
+    dependencies?: readonly string[],
     options?: RuntimeDependencyOptions,
   ): Promise<PythonEnvironment>;
   pythonInfo(): Promise<PythonInfo>;
@@ -39,12 +39,12 @@ export function createPyfig(options: PyfigOptions = {}): PyfigClient {
   const baseEnvironment = memoize(() => ensureEnvironment(scopedOptions));
   const uvInfo = memoize(() => ensureUv(scopedOptions));
   return {
-    prepare: (requirements = [], dependencyOptions = {}) => requirements.length === 0 &&
+    prepare: (dependencies = [], dependencyOptions = {}) => dependencies.length === 0 &&
       !dependencyOptions.allExtras &&
       (dependencyOptions.extras?.length ?? 0) === 0 &&
       (dependencyOptions.groups?.length ?? 0) === 0
       ? baseEnvironment()
-      : ensureEnvironment(scopedOptions, requirements, dependencyOptions),
+      : ensureEnvironment(scopedOptions, dependencies, dependencyOptions),
     pythonInfo: async () => (await baseEnvironment()).python,
     uvInfo,
     uv: (args = [], spawnOptions = {}) => uvSpawn(args, spawnOptions, scopedOptions),

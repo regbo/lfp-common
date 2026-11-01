@@ -2,8 +2,9 @@ import path from 'node:path';
 import * as envPaths from 'env-paths';
 import semver from 'semver';
 import { resolveProjectRoot } from './project-root.js';
+import { isValidPythonSpecifier, pythonVersionSatisfies } from './python-version.js';
 
-export const DEFAULT_PYTHON_RANGE = '>=3.10.0 <4.0.0';
+export const DEFAULT_REQUIRES_PYTHON = '>=3.10,<4';
 export const DEFAULT_MANAGED_PYTHON = '3.12';
 export const DEFAULT_UV_VERSION = '0.13.6';
 // External uv only needs to support the command and isolation flags Pyfig uses.
@@ -29,8 +30,8 @@ const envPathsFunction = (() => {
 export interface PyfigOptions {
   /** Exact interpreter path that an existing or newly created venv must derive from. */
   python?: string;
-  /** Accepted Python language-version range. */
-  pythonRange?: string;
+  /** PEP 440 Python version specifier, matching pyproject.toml requires-python. */
+  requiresPython?: string;
   /** uv Python request used only when no compatible interpreter exists. */
   managedPython?: string;
   /** Exact uv release installed into Pyfig's private cache. */
@@ -41,7 +42,7 @@ export interface PyfigOptions {
   requireEmbedding?: boolean;
   /** Reject free-threaded CPython builds when the consumer requires the GIL ABI. */
   requireGil?: boolean;
-  /** Backward-compatible default for the three specific setup policies. */
+  /** Shared default for the three specific setup policies. */
   autoInstall?: boolean;
   /** Allow uv to install a managed Python when no compatible interpreter exists. */
   installPython?: boolean;
@@ -67,7 +68,7 @@ export interface PyfigOptions {
 
 export interface ResolvedPyfigOptions {
   python: string;
-  pythonRange: string;
+  requiresPython: string;
   managedPython: string;
   uvVersion: string;
   uvRange: string;
@@ -90,15 +91,16 @@ export function resolveOptions(options: PyfigOptions = {}): ResolvedPyfigOptions
   // Snapshot the environment so callers cannot change an in-flight policy by
   // mutating process.env or a reused options object after resolution.
   const env = { ...(options.env ?? process.env) };
-  const pythonRange = options.pythonRange ?? env['PYFIG_PYTHON_RANGE'] ?? DEFAULT_PYTHON_RANGE;
+  const requiresPython = options.requiresPython ??
+    env['PYFIG_REQUIRES_PYTHON'] ?? DEFAULT_REQUIRES_PYTHON;
   const uvRange = options.uvRange ?? env['PYFIG_UV_RANGE'] ?? DEFAULT_UV_RANGE;
-  assertRange('Python', pythonRange);
+  assertPythonSpecifier(requiresPython);
   assertRange('uv', uvRange);
 
   const managedPython = options.managedPython ??
     env['PYFIG_MANAGED_PYTHON'] ?? DEFAULT_MANAGED_PYTHON;
   const uvVersion = options.uvVersion ?? env['PYFIG_UV_VERSION'] ?? DEFAULT_UV_VERSION;
-  assertManagedPythonRequest(managedPython, pythonRange);
+  assertManagedPythonRequest(managedPython, requiresPython);
   assertUvVersion(uvVersion, uvRange);
 
   const probeTimeoutMs = resolveDuration(
@@ -137,7 +139,7 @@ export function resolveOptions(options: PyfigOptions = {}): ResolvedPyfigOptions
 
   return {
     python: options.python ?? env['PYFIG_PYTHON'] ?? '',
-    pythonRange,
+    requiresPython,
     managedPython,
     uvVersion,
     uvRange,
@@ -184,15 +186,21 @@ function assertUvVersion(version: string, range: string): void {
   }
 }
 
-function assertManagedPythonRequest(request: string, pythonRange: string): void {
+function assertPythonSpecifier(specifier: string): void {
+  if (!isValidPythonSpecifier(specifier)) {
+    throw new TypeError(`Invalid requires-python PEP 440 specifier: ${specifier}`);
+  }
+}
+
+function assertManagedPythonRequest(request: string, requiresPython: string): void {
   if (!request || /[\\/\0\r\n]/u.test(request) || request.includes('..')) {
     throw new TypeError(`Invalid managed Python request: ${request}`);
   }
   if (/^\d+\.\d+(?:\.\d+)?$/u.test(request)) {
     const normalized = request.split('.').length === 2 ? `${request}.0` : request;
-    if (!semver.satisfies(normalized, pythonRange)) {
+    if (!pythonVersionSatisfies(normalized, requiresPython)) {
       throw new TypeError(
-        `Managed Python ${request} cannot satisfy configured range ${pythonRange}.`,
+        `Managed Python ${request} cannot satisfy requires-python ${requiresPython}.`,
       );
     }
   }

@@ -5,6 +5,7 @@ import {
   copyFile,
   mkdir,
   mkdtemp,
+  readFile,
   readdir,
   rename,
   rm,
@@ -15,7 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import extractZip from 'extract-zip';
+import { unzipSync } from 'fflate';
 import * as tar from 'tar';
 import { EnvHttpProxyAgent, fetch } from 'undici';
 import {
@@ -30,7 +31,7 @@ import {
   findUv,
   probePython,
   probeUv,
-  pythonSatisfiesRequirements,
+  pythonSatisfiesPolicy,
   type PythonInfo,
   type UvInfo,
 } from './probes.js';
@@ -65,22 +66,22 @@ export async function ensureUv(options: PyfigOptions = {}): Promise<UvInfo> {
 }
 
 /**
- * Select a compatible environment and optionally add runtime requirements.
+ * Select a compatible environment and optionally add runtime dependencies.
  * Project dependency files are inputs only and are never changed.
  */
 export async function ensureEnvironment(
   options: PyfigOptions = {},
-  requirements: readonly string[] = [],
+  dependencies: readonly string[] = [],
   dependencyOptions: RuntimeDependencyOptions = {},
 ): Promise<PythonEnvironment> {
   const resolved = resolveOptions(options);
-  const normalized = normalizeRequirements(requirements);
+  const normalized = normalizeDependencies(dependencies);
   const selections = normalizeDependencyOptions(dependencyOptions);
   const uv = await ensureUvResolved(resolved);
   const python = await ensureVirtualEnvironmentResolved(resolved, uv);
   if (normalized.length > 0 || selections.extras.length > 0 ||
       selections.groups.length > 0 || selections.allExtras) {
-    await installRuntimeRequirements(uv, python, normalized, selections, resolved);
+    await installRuntimeDependencies(uv, python, normalized, selections, resolved);
   }
   return {
     python,
@@ -99,7 +100,7 @@ async function ensureVirtualEnvironmentResolved(
   const directory = virtualEnvironmentDirectory(options.projectRoot);
   const check = async (): Promise<PythonInfo | null> => {
     const candidate = await inspectVirtualEnvironment(directory, options);
-    return candidate && pythonSatisfiesRequirements(candidate, options) &&
+    return candidate && pythonSatisfiesPolicy(candidate, options) &&
       await virtualEnvironmentMatchesConfiguredPython(candidate, options)
       ? candidate
       : null;
@@ -151,7 +152,7 @@ async function findReusableEnvironment(
 ): Promise<PythonInfo | null> {
   if (options.python) {
     const configured = await probePython({ executable: options.python, args: [] }, options);
-    if (!configured || !pythonSatisfiesRequirements(configured, options)) {
+    if (!configured || !pythonSatisfiesPolicy(configured, options)) {
       throw incompatibleConfiguredPython(options);
     }
     if (configured.virtualEnvironment) return configured;
@@ -162,7 +163,7 @@ async function findReusableEnvironment(
     virtualEnvironmentDirectory(options.projectRoot),
   ]) {
     const info = await inspectVirtualEnvironment(directory, options);
-    if (info && pythonSatisfiesRequirements(info, options) &&
+    if (info && pythonSatisfiesPolicy(info, options) &&
         await virtualEnvironmentMatchesConfiguredPython(info, options)) {
       return info;
     }
@@ -176,12 +177,12 @@ async function ensureBasePythonResolved(
 ): Promise<PythonInfo> {
   if (options.python) {
     const configured = await probePython({ executable: options.python, args: [] }, options);
-    if (!configured || !pythonSatisfiesRequirements(configured, options)) {
+    if (!configured || !pythonSatisfiesPolicy(configured, options)) {
       throw incompatibleConfiguredPython(options);
     }
     if (!configured.virtualEnvironment) return configured;
     const base = await probePython({ executable: configured.baseExecutable, args: [] }, options);
-    if (base && pythonSatisfiesRequirements(base, options)) return base;
+    if (base && pythonSatisfiesPolicy(base, options)) return base;
     throw incompatibleConfiguredPython(options);
   }
 
@@ -241,7 +242,7 @@ async function findPythonWithUv(
         options.probeTimeoutMs,
       );
       const info = await probePython({ executable: stdout.trim(), args: [] }, options);
-      if (info && pythonSatisfiesRequirements(info, options)) return info;
+      if (info && pythonSatisfiesPolicy(info, options)) return info;
     } catch {
       // Continue through the generic and configured version requests.
     }
@@ -270,7 +271,7 @@ async function findPythonWithUv(
     const candidates = installedPythonPaths(stdout);
     for (const executable of candidates) {
       const info = await probePython({ executable, args: [] }, options);
-      if (info && !info.virtualEnvironment && pythonSatisfiesRequirements(info, options)) {
+      if (info && !info.virtualEnvironment && pythonSatisfiesPolicy(info, options)) {
         return info;
       }
     }
@@ -300,10 +301,10 @@ async function inspectVirtualEnvironment(
   return info?.virtualEnvironment && pathsEqual(info.virtualEnvironment, directory) ? info : null;
 }
 
-async function installRuntimeRequirements(
+async function installRuntimeDependencies(
   uv: UvInfo,
   python: PythonInfo,
-  requirements: readonly string[],
+  dependencies: readonly string[],
   dependencyOptions: Required<RuntimeDependencyOptions>,
   options: ResolvedPyfigOptions,
 ): Promise<void> {
@@ -315,10 +316,10 @@ async function installRuntimeRequirements(
     timeoutMs: options.coordinationTimeoutMs,
     check: async () => null,
     mutate: async () => {
-      const temporary = await mkdtemp(path.join(os.tmpdir(), 'pyfig-requirements-'));
+      const temporary = await mkdtemp(path.join(os.tmpdir(), 'pyfig-dependencies-'));
       try {
-        const additions = path.join(temporary, 'runtime-requirements.txt');
-        const resolved = path.join(temporary, 'resolved-requirements.txt');
+        const additions = path.join(temporary, 'runtime-dependencies.txt');
+        const resolved = path.join(temporary, 'resolved-dependencies.txt');
         const pyproject = path.join(options.projectRoot, 'pyproject.toml');
         const hasPyproject = fs.existsSync(pyproject);
         if (!hasPyproject && (
@@ -329,8 +330,8 @@ async function installRuntimeRequirements(
           throw new Error('Runtime extras and groups require an existing pyproject.toml.');
         }
         const sources = hasPyproject ? [pyproject] : [];
-        if (requirements.length > 0) {
-          await writeFile(additions, `${requirements.join('\n')}\n`, 'utf8');
+        if (dependencies.length > 0) {
+          await writeFile(additions, `${dependencies.join('\n')}\n`, 'utf8');
           sources.push(additions);
         }
         const selectionArgs = [
@@ -402,11 +403,11 @@ async function findAvailableUv(options: ResolvedPyfigOptions): Promise<UvInfo | 
   return managed?.version === options.uvVersion ? managed : null;
 }
 
-function normalizeRequirements(requirements: readonly string[]): string[] {
-  const normalized = requirements.map((requirement) => requirement.trim());
-  for (const requirement of normalized) {
-    if (!requirement || /[\0\r\n]/u.test(requirement)) {
-      throw new TypeError(`Invalid runtime requirement: ${JSON.stringify(requirement)}`);
+function normalizeDependencies(dependencies: readonly string[]): string[] {
+  const normalized = dependencies.map((dependency) => dependency.trim());
+  for (const dependency of normalized) {
+    if (!dependency || /[\0\r\n]/u.test(dependency)) {
+      throw new TypeError(`Invalid runtime dependency: ${JSON.stringify(dependency)}`);
     }
   }
   return [...new Set(normalized)];
@@ -466,7 +467,8 @@ function targetUvEnvironment(
 function incompatibleConfiguredPython(options: ResolvedPyfigOptions): Error {
   return new Error(
     `Configured Python ${options.python} is unavailable or does not satisfy ` +
-    `${options.pythonRange}${options.requireEmbedding ? ' with CPython embedding files' : ''}.`,
+    `requires-python ${options.requiresPython}` +
+    `${options.requireEmbedding ? ' with CPython embedding files' : ''}.`,
   );
 }
 
@@ -474,7 +476,7 @@ function missingPythonMessage(options: ResolvedPyfigOptions, reason: string): st
   const embedding = options.requireEmbedding
     ? ' with compatible CPython headers, library, architecture, and GIL ABI'
     : '';
-  return `No Python satisfies ${options.pythonRange}${embedding}; ${reason}.`;
+  return `No Python satisfies requires-python ${options.requiresPython}${embedding}; ${reason}.`;
 }
 
 async function virtualEnvironmentMatchesConfiguredPython(
@@ -483,7 +485,7 @@ async function virtualEnvironmentMatchesConfiguredPython(
 ): Promise<boolean> {
   if (!options.python) return true;
   const configured = await probePython({ executable: options.python, args: [] }, options);
-  if (!configured || !pythonSatisfiesRequirements(configured, options)) return false;
+  if (!configured || !pythonSatisfiesPolicy(configured, options)) return false;
   if (configured.virtualEnvironment && pathsEqual(configured.executable, virtualEnvironment.executable)) {
     return true;
   }
@@ -524,15 +526,38 @@ async function installUv(
 
     const extracted = path.join(temporary, 'extracted');
     await mkdir(extracted, { recursive: true });
-    if (asset.endsWith('.zip')) await extractZip(archive, { dir: extracted });
-    else await tar.x({ file: archive, cwd: extracted, strict: true });
-    const source = await findFile(extracted, process.platform === 'win32' ? 'uv.exe' : 'uv');
+    const source = await extractUvExecutable(archive, asset, extracted);
     if (!source) throw new Error(`uv archive did not contain the expected executable: ${asset}`);
     await publishUvAtomically(source, installDir, options);
   } finally {
     await dispatcher?.close();
     await rm(temporary, { recursive: true, force: true });
   }
+}
+
+async function extractUvExecutable(
+  archive: string,
+  asset: string,
+  destination: string,
+): Promise<string | null> {
+  const executableName = process.platform === 'win32' ? 'uv.exe' : 'uv';
+  if (!asset.endsWith('.zip')) {
+    await tar.x({ file: archive, cwd: destination, strict: true });
+    return findFile(destination, executableName);
+  }
+
+  // ZIP entry paths are never written to disk. Extract only uv's bytes and
+  // publish them at a path controlled by Pyfig, which prevents Zip Slip and
+  // symlink entries from redirecting writes outside the temporary directory.
+  const entries = unzipSync(await readFile(archive), {
+    filter: ({ name }) => path.posix.basename(name.replaceAll('\\', '/')) === executableName,
+  });
+  const matches = Object.entries(entries)
+    .filter(([name]) => path.posix.basename(name.replaceAll('\\', '/')) === executableName);
+  if (matches.length !== 1 || !matches[0]) return null;
+  const source = path.join(destination, executableName);
+  await writeFile(source, matches[0][1], { flag: 'wx' });
+  return source;
 }
 
 async function publishUvAtomically(

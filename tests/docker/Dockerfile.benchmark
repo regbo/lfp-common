@@ -1,0 +1,25 @@
+FROM oven/bun:1-alpine AS benchmark-base
+
+WORKDIR /app
+
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile
+
+COPY tsconfig.json tsconfig.scripts.json ./
+COPY src ./src
+COPY scripts ./scripts
+
+FROM benchmark-base AS zero
+CMD ["bun", "run", "scripts/benchmark-runtime.ts", "--suite", "docker-zero"]
+
+FROM benchmark-base AS system-python
+RUN apk add --no-cache python3-dev
+CMD ["bun", "run", "scripts/benchmark-runtime.ts", "--suite", "docker-system-python"]
+
+FROM benchmark-base AS uv-only
+RUN apk add --no-cache uv
+CMD ["bun", "run", "scripts/benchmark-runtime.ts", "--suite", "docker-uv-only"]
+
+FROM benchmark-base AS full
+RUN apk add --no-cache python3-dev uv
+CMD ["bun", "run", "scripts/benchmark-runtime.ts", "--suite", "docker-full"]

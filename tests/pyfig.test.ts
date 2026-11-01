@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import semver from 'semver';
 import {
-  DEFAULT_PYTHON_RANGE,
+  DEFAULT_REQUIRES_PYTHON,
   DEFAULT_UV_RANGE,
   DEFAULT_UV_VERSION,
   createPyfig,
@@ -16,7 +16,8 @@ import {
   uvSpawnSync,
 } from '../src/index.ts';
 import { resolveOptions } from '../src/config.ts';
-import { pythonSatisfiesRequirements, type PythonInfo } from '../src/probes.ts';
+import { pythonSatisfiesPolicy, type PythonInfo } from '../src/probes.ts';
+import { isValidPythonSpecifier, pythonVersionSatisfies } from '../src/python-version.ts';
 import { buildUvCommand } from '../src/runners.ts';
 
 let temporaryRoot = '';
@@ -33,35 +34,46 @@ afterAll(async () => {
 });
 
 describe('pyfig', () => {
-  test('uses valid Python and uv compatibility ranges', () => {
-    expect(semver.validRange(DEFAULT_PYTHON_RANGE)).not.toBeNull();
-    expect(semver.satisfies('3.10.0', DEFAULT_PYTHON_RANGE)).toBe(true);
-    expect(semver.satisfies('4.0.0', DEFAULT_PYTHON_RANGE)).toBe(false);
+  test('uses PEP 440 requires-python and a SemVer uv range', () => {
+    expect(isValidPythonSpecifier(DEFAULT_REQUIRES_PYTHON)).toBe(true);
+    expect(pythonVersionSatisfies('3.10.0', DEFAULT_REQUIRES_PYTHON)).toBe(true);
+    expect(pythonVersionSatisfies('4.0.0', DEFAULT_REQUIRES_PYTHON)).toBe(false);
+    expect(pythonVersionSatisfies('3.11.9', '~=3.11.0')).toBe(true);
+    expect(pythonVersionSatisfies('3.12.7', '==3.12.*')).toBe(true);
+    expect(pythonVersionSatisfies('3.12.7', '>=3.10,!=3.12.*,<4')).toBe(false);
+    expect(pythonVersionSatisfies('3.14rc2', '>=3.14rc1,<3.15')).toBe(true);
+    expect(pythonVersionSatisfies('3.11.9', '===3.11.9')).toBe(true);
+    expect(pythonVersionSatisfies('1!3.11.9', '==1!3.11.9')).toBe(true);
+    expect(pythonVersionSatisfies('3.11.9.post1', '==3.11.9.post1')).toBe(true);
+    expect(pythonVersionSatisfies('3.14.dev2', '==3.14.dev2')).toBe(true);
+    expect(pythonVersionSatisfies('3.11.9+vendor.1', '==3.11.9+vendor.1')).toBe(true);
     expect(semver.satisfies('0.10.0', DEFAULT_UV_RANGE)).toBe(true);
     expect(semver.satisfies('0.9.9', DEFAULT_UV_RANGE)).toBe(false);
     expect(semver.satisfies(DEFAULT_UV_VERSION, DEFAULT_UV_RANGE)).toBe(true);
   });
 
   test('centralizes configuration and explicitly prefers system Python', () => {
-    const env = { PYFIG_PYTHON_RANGE: '>=3.11.0 <3.12.0', INIT_CWD: projectRoot };
+    const env = { PYFIG_REQUIRES_PYTHON: '>=3.11,<3.12', INIT_CWD: projectRoot };
     const options = resolveOptions({
-      pythonRange: '>=3.12.0 <3.13.0',
+      requiresPython: '==3.12.*',
       env,
     });
-    env.PYFIG_PYTHON_RANGE = '>=3.10.0';
-    expect(options.pythonRange).toBe('>=3.12.0 <3.13.0');
+    env.PYFIG_REQUIRES_PYTHON = '>=3.10';
+    expect(options.requiresPython).toBe('==3.12.*');
     expect(options.projectRoot).toBe(projectRoot);
     expect(resolveOptions({ env: { PYFIG_AUTO_INSTALL: '0' } }).installPython).toBe(false);
   });
 
   test('rejects invalid setup configuration before probing', () => {
-    expect(() => resolveOptions({ pythonRange: 'nope' })).toThrow('Invalid Python SemVer range');
+    expect(() => resolveOptions({ requiresPython: 'nope' })).toThrow(
+      'Invalid requires-python PEP 440 specifier',
+    );
     expect(() => resolveOptions({ uvVersion: '../uv' })).toThrow('Invalid exact uv version');
     expect(() => resolveOptions({ installTimeoutMs: 0 })).toThrow('positive integer');
     expect(() => resolveOptions({
       managedPython: '3.9',
-      pythonRange: '>=3.10.0 <4.0.0',
-    })).toThrow('cannot satisfy configured range');
+      requiresPython: '>=3.10,<4',
+    })).toThrow('cannot satisfy requires-python');
   });
 
   test('does not infer ownership from package.json or pyproject.toml', async () => {
@@ -81,7 +93,7 @@ describe('pyfig', () => {
     expect(path.resolve(environment.python.virtualEnvironment ?? '')).toBe(
       path.join(root, 'node_modules', '.pyfig', 'venv'),
     );
-    expect(semver.satisfies(environment.python.version, DEFAULT_PYTHON_RANGE)).toBe(true);
+    expect(pythonVersionSatisfies(environment.python.version, DEFAULT_REQUIRES_PYTHON)).toBe(true);
   }, 60_000);
 
   test('reuses a compatible repository venv instead of creating another', async () => {
@@ -168,7 +180,7 @@ describe('pyfig', () => {
     expect(path.resolve(String(synchronous.stdout).trim())).toBe(path.resolve(expected));
   }, 60_000);
 
-  test('leaves project inputs unchanged while installing runtime requirements', async () => {
+  test('leaves project inputs unchanged while installing runtime dependencies', async () => {
     const root = path.join(temporaryRoot, 'runtime-dependencies');
     const pyproject = path.join(root, 'pyproject.toml');
     const requirements = path.join(root, 'requirements.txt');
@@ -200,18 +212,28 @@ describe('pyfig', () => {
   test('validates native embedding requirements', () => {
     const python = pythonFixture({ embedding: null });
     const embeddingOptions = resolveOptions({ requireEmbedding: true, projectRoot });
-    expect(pythonSatisfiesRequirements(python, embeddingOptions)).toBe(false);
-    expect(pythonSatisfiesRequirements(
+    expect(pythonSatisfiesPolicy(python, embeddingOptions)).toBe(false);
+    expect(pythonSatisfiesPolicy(
       { ...python, implementation: 'pypy' },
       embeddingOptions,
     )).toBe(false);
+
+    const prereleaseOptions = resolveOptions({
+      managedPython: '3.14',
+      projectRoot,
+      requiresPython: '>=3.14rc1,<3.15',
+    });
+    expect(pythonSatisfiesPolicy(
+      pythonFixture({ minor: 14, patch: 0, releaseLevel: 'candidate', version: '3.14rc2' }),
+      prereleaseOptions,
+    )).toBe(true);
   });
 
   test('keeps the root API uv-centric', async () => {
     const api = await import('../src/index.ts');
     expect(Object.keys(api).sort()).toEqual([
       'DEFAULT_MANAGED_PYTHON',
-      'DEFAULT_PYTHON_RANGE',
+      'DEFAULT_REQUIRES_PYTHON',
       'DEFAULT_UV_RANGE',
       'DEFAULT_UV_VERSION',
       'createPyfig',
@@ -223,7 +245,7 @@ describe('pyfig', () => {
     ]);
   });
 
-  test('memoizes preparation without requirements', async () => {
+  test('memoizes preparation without dependencies', async () => {
     const root = path.join(temporaryRoot, 'memoized-environment');
     await mkdir(root, { recursive: true });
     const client = createPyfig({ projectRoot: root });

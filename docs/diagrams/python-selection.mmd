@@ -8,7 +8,7 @@ flowchart TD
     C --> F{"Compatible venv exists?"}
     F -->|Yes| G["Reuse existing venv"]
     F -->|No| H["Search system Python with downloads disabled"]
-    H --> I{"Version and capability checks pass?"}
+    H --> I{"requires-python and capability checks pass?"}
     I -->|Yes| J["Create node_modules/.pyfig/venv"]
     I -->|No| K{"Compatible managed Python cached?"}
     K -->|Yes| J

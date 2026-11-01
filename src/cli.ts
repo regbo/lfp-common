@@ -6,7 +6,7 @@ import { ensureEnvironment } from './provision.js';
 
 interface CliOptions {
   python?: string;
-  pythonRange?: string;
+  requiresPython?: string;
   managedPython?: string;
   uvVersion?: string;
   uvRange?: string;
@@ -27,7 +27,7 @@ const program = new Command()
   .description('Prepare uv and a compatible Python environment for runtime dependencies.')
   .version(packageVersion)
   .option('--python <path>', 'Python executable to check first')
-  .option('--python-range <range>', 'accepted Python SemVer range')
+  .option('--requires-python <specifier>', 'accepted Python PEP 440 specifier')
   .option('--managed-python <request>', 'Python version request passed to uv')
   .option('--uv-version <version>', 'pinned uv installer version')
   .option('--uv-range <range>', 'accepted system uv SemVer range')
@@ -40,7 +40,7 @@ const program = new Command()
   .action(async (cli: CliOptions) => {
     const environment = await ensureEnvironment({
       python: cli.python,
-      pythonRange: cli.pythonRange,
+      requiresPython: cli.requiresPython,
       managedPython: cli.managedPython,
       uvVersion: cli.uvVersion,
       uvRange: cli.uvRange,
