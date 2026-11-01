@@ -190,6 +190,18 @@ Virtual-environment creation, uv installation, and managed Python installation s
 
 Long child operations are asynchronous so the filesystem lease heartbeat remains live. uv supplies the separate target-venv lock for package mutations. Resolution results are memoized for a short, configurable interval and revalidated against executable paths before reuse.
 
+## Publishing
+
+Pyfig publishes only from a `v<package-version>` Git tag through `.github/workflows/publish.yml`. The workflow validates the exact tag, rejects a version already present on npm, builds and audits one tarball, and publishes that same archive through npm Trusted Publishing with provenance. It uses the GitHub `npm` environment and does not accept an npm token.
+
+Before pushing a release tag, commit the matching `package.json` version and run:
+
+```sh
+bun install --frozen-lockfile
+bun run verify
+bun run release:check -- v0.3.0
+```
+
 ## Development
 
 ```sh

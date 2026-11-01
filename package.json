@@ -1,6 +1,6 @@
 {
   "name": "pyfig",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Provision a repo-local Python venv with uv-first tooling and locked fallbacks.",
   "type": "module",
   "main": "./dist/cjs/index.js",
@@ -27,6 +27,8 @@
     "test:zero-python": "bun run scripts/smoke-zero-python.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "verify": "bun run typecheck && bun test",
+    "release:check": "bun run scripts/check-release.ts",
+    "release:audit": "bun run scripts/audit-package.ts",
     "prepack": "bun run verify && bun run build"
   },
   "keywords": [
@@ -48,8 +50,11 @@
   },
   "homepage": "https://github.com/regbo/pyfig#readme",
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org"
   },
+  "packageManager": "bun@1.4.4",
   "sideEffects": false,
   "engines": {
     "node": ">=22.0.0 <=26.x",

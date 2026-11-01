@@ -17,5 +17,6 @@
 | `sync-resolver` | `src/sync-resolver.ts` | Perform async preparation behind synchronous caller APIs using `process.execPath`. | Synchronous runners |
 | CLI | `src/cli.ts` | Expose validated preparation and check-only policy through Commander. | End users |
 | CJS builder | `scripts/build-cjs.ts` | Bundle the public and sync-helper CommonJS entry points. | Package build |
+| Release validation | `scripts/check-release.ts`, `scripts/audit-package.ts` | Match tags to versions, reject existing registry versions, and audit the exact npm archive. | Trusted npm publishing workflow |
 
 Keep discovery side-effect free in `probes.ts`, mutations in `provision.ts`, and all lock ordering in `coordination.ts`.
