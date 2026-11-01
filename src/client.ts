@@ -10,33 +10,19 @@ import type { PythonInfo, UvInfo } from './probes.js';
 import {
   ensureEnvironment,
   ensureUv,
-  ensureVirtualEnvironment,
   type PythonEnvironment,
+  type RuntimeDependencyOptions,
 } from './provision.js';
-import {
-  pipSpawn,
-  pipSpawnSync,
-  pythonSpawn,
-  pythonSpawnSync,
-  uvSpawn,
-  uvSpawnSync,
-} from './runners.js';
+import { uvSpawn, uvSpawnSync } from './runners.js';
 
-/** A scoped Pyfig API that keeps one policy object consistent across every operation. */
+/** A scoped uv-first API with one consistent environment policy. */
 export interface PyfigClient {
-  prepare(): Promise<PythonEnvironment>;
+  prepare(
+    requirements?: readonly string[],
+    options?: RuntimeDependencyOptions,
+  ): Promise<PythonEnvironment>;
   pythonInfo(): Promise<PythonInfo>;
   uvInfo(): Promise<UvInfo>;
-  python(args?: readonly string[], options?: SpawnOptions): Promise<ChildProcess>;
-  pythonSync(
-    args?: readonly string[],
-    options?: SpawnSyncOptions,
-  ): ReturnType<typeof spawnSync>;
-  pip(args?: readonly string[], options?: SpawnOptions): Promise<ChildProcess>;
-  pipSync(
-    args?: readonly string[],
-    options?: SpawnSyncOptions,
-  ): ReturnType<typeof spawnSync>;
   uv(args?: readonly string[], options?: SpawnOptions): Promise<ChildProcess>;
   uvSync(
     args?: readonly string[],
@@ -50,17 +36,17 @@ export function createPyfig(options: PyfigOptions = {}): PyfigClient {
     ...options,
     env: options.env ? { ...options.env } : undefined,
   };
-  const prepare = memoize(() => ensureEnvironment(scopedOptions));
-  const pythonInfo = memoize(() => ensureVirtualEnvironment(scopedOptions));
+  const baseEnvironment = memoize(() => ensureEnvironment(scopedOptions));
   const uvInfo = memoize(() => ensureUv(scopedOptions));
   return {
-    prepare,
-    pythonInfo,
+    prepare: (requirements = [], dependencyOptions = {}) => requirements.length === 0 &&
+      !dependencyOptions.allExtras &&
+      (dependencyOptions.extras?.length ?? 0) === 0 &&
+      (dependencyOptions.groups?.length ?? 0) === 0
+      ? baseEnvironment()
+      : ensureEnvironment(scopedOptions, requirements, dependencyOptions),
+    pythonInfo: async () => (await baseEnvironment()).python,
     uvInfo,
-    python: (args = [], spawnOptions = {}) => pythonSpawn(args, spawnOptions, scopedOptions),
-    pythonSync: (args = [], spawnOptions = {}) => pythonSpawnSync(args, spawnOptions, scopedOptions),
-    pip: (args = [], spawnOptions = {}) => pipSpawn(args, spawnOptions, scopedOptions),
-    pipSync: (args = [], spawnOptions = {}) => pipSpawnSync(args, spawnOptions, scopedOptions),
     uv: (args = [], spawnOptions = {}) => uvSpawn(args, spawnOptions, scopedOptions),
     uvSync: (args = [], spawnOptions = {}) => uvSpawnSync(args, spawnOptions, scopedOptions),
   };

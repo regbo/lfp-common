@@ -1,0 +1,12 @@
+flowchart TD
+    A["prepare runtime requirements"] --> B["Create temporary requirements input"]
+    B --> C{"pyproject.toml exists?"}
+    C -->|Yes| D["Read project dependencies and selected extras"]
+    C -->|No| E["Use temporary requirements only"]
+    D --> F["uv pip compile to a temporary resolved file"]
+    E --> F
+    F --> G{"Resolution succeeds?"}
+    G -->|No| H["Stop; venv and project files stay unchanged"]
+    G -->|Yes| I["uv pip install -r resolved file"]
+    I --> J["Keep unrelated installed packages"]
+    J --> K["Delete temporary files"]

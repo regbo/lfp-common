@@ -1,0 +1,20 @@
+flowchart TD
+    A["Prepare environment"] --> B{"Compatible uv already available?"}
+    B -->|Yes| C["Use existing uv"]
+    B -->|No| D{"uv installation allowed?"}
+    D -->|No| Z["Fail without changing the system"]
+    D -->|Yes| E["Install checksum-verified uv"]
+    E --> C
+    C --> F{"Compatible venv exists?"}
+    F -->|Yes| G["Reuse existing venv"]
+    F -->|No| H["Search system Python with downloads disabled"]
+    H --> I{"Version and capability checks pass?"}
+    I -->|Yes| J["Create node_modules/.pyfig/venv"]
+    I -->|No| K{"Compatible managed Python cached?"}
+    K -->|Yes| J
+    K -->|No| L{"Python installation allowed?"}
+    L -->|No| Z
+    L -->|Yes| M["Install managed Python with uv"]
+    M --> J
+    J --> N["Return uv and selected Python metadata"]
+    G --> N

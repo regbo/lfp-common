@@ -34,10 +34,8 @@ try {
   if (!environment.python.embedding || environment.python.gilDisabled) {
     throw new Error('Managed Python did not satisfy the embedding ABI requirements.');
   }
-  if (environment.packageManager.pythonExecutable !== environment.python.executable) {
-    throw new Error('Package management did not target the selected managed Python.');
-  }
-  if (path.resolve(environment.python.virtualEnvironment ?? '') !== path.join(projectRoot, '.venv')) {
+  if (path.resolve(environment.python.virtualEnvironment ?? '') !==
+      path.join(projectRoot, 'node_modules', '.pyfig', 'venv')) {
     throw new Error('Managed Python was not installed into the repository virtual environment.');
   }
   console.log(`Zero-Python bootstrap verified: ${environment.python.executable}`);

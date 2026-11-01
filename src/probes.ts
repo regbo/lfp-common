@@ -1,8 +1,6 @@
-import path from 'node:path';
 import semver from 'semver';
 import type { ResolvedPyfigOptions } from './config.js';
 import { resolveExecutable, run, type CommandSpec } from './process.js';
-import { activateVirtualEnvironment } from './virtual-environment.js';
 
 export interface PythonInfo {
   executable: string;
@@ -29,15 +27,6 @@ export interface PythonEmbeddingInfo {
   libraryDirectory: string;
   libraryName: string;
   libraryKind: 'import' | 'shared' | 'static';
-}
-
-export interface PackageManagerInfo {
-  kind: 'pip' | 'uv';
-  executable: string;
-  prefixArgs: string[];
-  version: string;
-  pythonExecutable: string;
-  virtualEnvironment: string;
 }
 
 export interface UvInfo {
@@ -114,31 +103,6 @@ print(json.dumps({
 }))
 `;
 
-export async function findPython(options: ResolvedPyfigOptions): Promise<PythonInfo | null> {
-  const candidates: CommandSpec[] = [];
-  if (options.python) candidates.push({ executable: options.python, args: [] });
-  if (process.platform === 'win32') {
-    candidates.push(
-      { executable: 'python', args: [] },
-      { executable: 'python3', args: [] },
-      { executable: 'py', args: ['-3'] },
-    );
-  } else {
-    candidates.push(
-      ...['python3.15', 'python3.14', 'python3.13', 'python3.12', 'python3.11', 'python3.10']
-        .map((executable) => ({ executable, args: [] })),
-      { executable: 'python3', args: [] },
-      { executable: 'python', args: [] },
-    );
-  }
-
-  for (const candidate of candidates) {
-    const info = await probePython(candidate, options);
-    if (info && pythonSatisfiesRequirements(info, options)) return info;
-  }
-  return null;
-}
-
 export function pythonSatisfiesRequirements(
   python: PythonInfo,
   options: Pick<ResolvedPyfigOptions, 'pythonRange' | 'requireEmbedding' | 'requireGil'>,
@@ -172,78 +136,6 @@ export async function probePython(
   }
 }
 
-export async function findPip(
-  python: PythonInfo,
-  options: ResolvedPyfigOptions,
-): Promise<PackageManagerInfo | null> {
-  if (!python.virtualEnvironment) {
-    throw new Error('pip discovery requires a virtual-environment Python interpreter.');
-  }
-  const activeEnv = activateVirtualEnvironment(
-    options.env,
-    python.virtualEnvironment,
-    python.executable,
-  );
-  try {
-    const { stdout } = run(
-      python.executable,
-      ['-m', 'pip', '--version'],
-      activeEnv,
-      options.probeTimeoutMs,
-    );
-    const details = parsePipVersionOutput(stdout);
-    const version = normalizeVersion(details?.version);
-    if (!version || !semver.satisfies(version, options.pipRange)) return null;
-    if (!details || !pipBelongsToPython(details, python)) return null;
-    return {
-      kind: 'pip',
-      executable: python.executable,
-      prefixArgs: ['-m', 'pip'],
-      version,
-      pythonExecutable: python.executable,
-      virtualEnvironment: python.virtualEnvironment,
-    };
-  } catch {
-    return null;
-  }
-}
-
-export interface PipVersionDetails {
-  version: string;
-  location: string;
-  pythonMajor: number;
-  pythonMinor: number;
-}
-
-export function parsePipVersionOutput(output: string): PipVersionDetails | null {
-  const match = output.trim().match(
-    /^pip\s+(\S+)\s+from\s+(.+?)\s+\(python\s+(\d+)\.(\d+)(?:\.\d+)?\)$/iu,
-  );
-  if (!match?.[1] || !match[2] || !match[3] || !match[4]) return null;
-  return {
-    version: match[1],
-    location: match[2],
-    pythonMajor: Number.parseInt(match[3], 10),
-    pythonMinor: Number.parseInt(match[4], 10),
-  };
-}
-
-export function pipBelongsToPython(
-  pip: PipVersionDetails,
-  python: PythonInfo,
-): boolean {
-  if (pip.pythonMajor !== python.major || pip.pythonMinor !== python.minor) return false;
-
-  const prefix = normalizePathForComparison(path.resolve(python.prefix));
-  const location = normalizePathForComparison(path.resolve(pip.location));
-  const relative = path.relative(prefix, location);
-  return relative === '' || (
-    relative !== '..' &&
-    !relative.startsWith(`..${path.sep}`) &&
-    !path.isAbsolute(relative)
-  );
-}
-
 export async function findUv(options: ResolvedPyfigOptions): Promise<UvInfo | null> {
   const configured = options.env['PYFIG_UV'] ?? 'uv';
   const executable = await resolveExecutable(configured, options.env);
@@ -267,10 +159,6 @@ export function probeUv(
 function normalizeVersion(value: string | undefined): string | null {
   if (!value) return null;
   return semver.valid(value) ?? semver.coerce(value)?.version ?? null;
-}
-
-function normalizePathForComparison(value: string): string {
-  return process.platform === 'win32' ? value.toLowerCase() : value;
 }
 
 function pythonArchitectureMatchesRuntime(python: PythonInfo): boolean {

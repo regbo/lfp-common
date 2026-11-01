@@ -1,31 +1,17 @@
 import { readFileSync } from 'node:fs';
 import type { ResolvedPyfigOptions } from './config.js';
-import {
-  ensureEnvironment,
-  ensurePython,
-  ensureUv,
-  ensureVirtualEnvironment,
-} from './provision.js';
+import { ensureEnvironment, ensureUv } from './provision.js';
 
 interface SyncResolutionRequest {
-  target: 'python' | 'venv' | 'environment' | 'uv' | 'uv-pip';
+  target: 'environment' | 'uv';
   options: ResolvedPyfigOptions;
 }
 
 async function main(): Promise<void> {
   const request = JSON.parse(readFileSync(0, 'utf8')) as SyncResolutionRequest;
-  const result = request.target === 'python'
-    ? await ensurePython(request.options)
-    : request.target === 'venv'
-      ? await ensureVirtualEnvironment(request.options)
-    : request.target === 'uv'
-      ? await ensureUv(request.options)
-      : request.target === 'uv-pip'
-        ? {
-            uv: await ensureUv(request.options),
-            python: await ensureVirtualEnvironment(request.options),
-          }
-        : await ensureEnvironment(request.options);
+  const result = request.target === 'uv'
+    ? await ensureUv(request.options)
+    : await ensureEnvironment(request.options);
   process.stdout.write(JSON.stringify(result));
 }
 

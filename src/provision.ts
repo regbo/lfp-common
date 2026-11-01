@@ -8,6 +8,7 @@ import {
   readdir,
   rename,
   rm,
+  writeFile,
 } from 'node:fs/promises';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -24,20 +25,19 @@ import {
   type ResolvedPyfigOptions,
 } from './config.js';
 import { withProvisioningLock } from './provision-lock.js';
+import { sanitizeUvEnvironment, uvCommandEnvironment } from './package-target.js';
 import {
-  findPip,
-  findPython,
   findUv,
   probePython,
   probeUv,
   pythonSatisfiesRequirements,
-  type PackageManagerInfo,
   type PythonInfo,
   type UvInfo,
 } from './probes.js';
 import { runAsync } from './process.js';
 import {
   canonicalPath,
+  externalVirtualEnvironmentDirectories,
   pathsEqual,
   virtualEnvironmentDirectory,
   virtualEnvironmentPythonExecutable,
@@ -45,87 +45,100 @@ import {
 
 export interface PythonEnvironment {
   python: PythonInfo;
-  packageManager: PackageManagerInfo;
+  uv: UvInfo;
+  /** True when the environment lives in node_modules/.pyfig/venv. */
+  managed: boolean;
 }
 
-export async function ensurePython(options: PyfigOptions = {}): Promise<PythonInfo> {
-  const resolved = resolveOptions(options);
-  return ensurePythonResolved(resolved);
+export interface RuntimeDependencyOptions {
+  /** Optional-dependency extras read from an existing pyproject.toml. */
+  extras?: readonly string[];
+  /** Include every optional-dependency extra from an existing pyproject.toml. */
+  allExtras?: boolean;
+  /** Dependency groups read from an existing pyproject.toml. */
+  groups?: readonly string[];
 }
 
-export async function ensurePip(
-  options: PyfigOptions = {},
-  python?: PythonInfo,
-): Promise<PackageManagerInfo> {
-  const resolved = resolveOptions(options);
-  const selectedPython = python?.virtualEnvironment
-    ? python
-    : await ensureVirtualEnvironmentResolved(resolved);
-  return ensurePipResolved(selectedPython, resolved);
-}
-
-export async function ensureVirtualEnvironment(options: PyfigOptions = {}): Promise<PythonInfo> {
-  const resolved = resolveOptions(options);
-  return ensureVirtualEnvironmentResolved(resolved);
-}
-
+/** Ensure a compatible uv executable, preferring an existing installation. */
 export async function ensureUv(options: PyfigOptions = {}): Promise<UvInfo> {
-  const resolved = resolveOptions(options);
-  return ensureUvResolved(resolved);
+  return ensureUvResolved(resolveOptions(options));
 }
 
-export async function ensureEnvironment(options: PyfigOptions = {}): Promise<PythonEnvironment> {
+/**
+ * Select a compatible environment and optionally add runtime requirements.
+ * Project dependency files are inputs only and are never changed.
+ */
+export async function ensureEnvironment(
+  options: PyfigOptions = {},
+  requirements: readonly string[] = [],
+  dependencyOptions: RuntimeDependencyOptions = {},
+): Promise<PythonEnvironment> {
   const resolved = resolveOptions(options);
-  const python = await ensureVirtualEnvironmentResolved(resolved);
-  const packageManager = await ensurePipResolved(python, resolved);
-  return { python, packageManager };
+  const normalized = normalizeRequirements(requirements);
+  const selections = normalizeDependencyOptions(dependencyOptions);
+  const uv = await ensureUvResolved(resolved);
+  const python = await ensureVirtualEnvironmentResolved(resolved, uv);
+  if (normalized.length > 0 || selections.extras.length > 0 ||
+      selections.groups.length > 0 || selections.allExtras) {
+    await installRuntimeRequirements(uv, python, normalized, selections, resolved);
+  }
+  return {
+    python,
+    uv,
+    managed: isManagedEnvironment(python, resolved),
+  };
 }
 
 async function ensureVirtualEnvironmentResolved(
   options: ResolvedPyfigOptions,
+  uv: UvInfo,
 ): Promise<PythonInfo> {
+  const existing = await findReusableEnvironment(options);
+  if (existing) return existing;
+
   const directory = virtualEnvironmentDirectory(options.projectRoot);
   const check = async (): Promise<PythonInfo | null> => {
-    const existing = await inspectVirtualEnvironment(directory, options);
-    if (!existing) return null;
-    if (pythonSatisfiesRequirements(existing, options) &&
-        await virtualEnvironmentMatchesConfiguredPython(existing, options)) {
-      return existing;
-    }
-    throw incompatibleVirtualEnvironmentError(directory, existing, options);
+    const candidate = await inspectVirtualEnvironment(directory, options);
+    return candidate && pythonSatisfiesRequirements(candidate, options) &&
+      await virtualEnvironmentMatchesConfiguredPython(candidate, options)
+      ? candidate
+      : null;
   };
-
-  const existing = await check();
-  if (existing) return existing;
   if (!options.createVirtualEnvironment) {
     throw new Error(
-      `No virtual environment at ${directory} satisfies the Python requirements; ` +
-      'virtual-environment creation is disabled.',
+      `No compatible environment is available and creation is disabled. ` +
+      `Pyfig would create ${directory}.`,
     );
   }
 
-  // Base discovery happens before taking the venv lock, keeping the global lock
-  // order Python -> uv -> venv consistent across callers.
-  const basePython = await ensurePythonResolved(options);
-  const preferredUv = await findAvailableUv(options) ??
-    (options.installUv ? await ensureUvResolved(options) : null);
+  const basePython = await ensureBasePythonResolved(uv, options);
   return withProvisioningLock({
     key: `venv:${canonicalPath(directory)}`,
     timeoutMs: options.coordinationTimeoutMs,
     check,
     mutate: async () => {
-      await mkdir(directory, { recursive: true });
-      const entries = await readdir(directory);
-      const hasVenvConfiguration = fs.existsSync(path.join(directory, 'pyvenv.cfg'));
-      if (entries.length > 0 && !hasVenvConfiguration) {
-        throw new Error(`Refusing to replace non-virtual-environment contents at ${directory}.`);
-      }
-
-      await createVirtualEnvironment(directory, basePython, preferredUv, options);
-      const installed = await inspectVirtualEnvironment(directory, options);
-      if (!installed || !pythonSatisfiesRequirements(installed, options)) {
+      // Only Pyfig's private path is replaceable. Active and repository-root
+      // environments are preserved when incompatible.
+      await rm(directory, { recursive: true, force: true });
+      await mkdir(path.dirname(directory), { recursive: true });
+      await runAsync(
+        uv.executable,
+        [
+          'venv',
+          '--no-project',
+          '--no-config',
+          '--no-python-downloads',
+          '--python',
+          basePython.executable,
+          directory,
+        ],
+        isolatedUvEnvironment(options),
+        options.installTimeoutMs,
+      );
+      const installed = await check();
+      if (!installed) {
         throw new Error(
-          `Python created ${directory}, but it does not satisfy the requested runtime capabilities.`,
+          `uv created ${directory}, but its Python does not satisfy the requested capabilities.`,
         );
       }
       return installed;
@@ -133,56 +146,149 @@ async function ensureVirtualEnvironmentResolved(
   });
 }
 
-async function createVirtualEnvironment(
-  directory: string,
-  basePython: PythonInfo,
-  preferredUv: UvInfo | null,
+async function findReusableEnvironment(
   options: ResolvedPyfigOptions,
-): Promise<void> {
-  if (preferredUv) {
-    try {
-      await createVirtualEnvironmentWithUv(preferredUv, directory, basePython, options);
-      return;
-    } catch {
-      // A usable Python may still provide its standard-library venv module.
+): Promise<PythonInfo | null> {
+  if (options.python) {
+    const configured = await probePython({ executable: options.python, args: [] }, options);
+    if (!configured || !pythonSatisfiesRequirements(configured, options)) {
+      throw incompatibleConfiguredPython(options);
+    }
+    if (configured.virtualEnvironment) return configured;
+  }
+
+  for (const directory of [
+    ...externalVirtualEnvironmentDirectories(options.projectRoot, options.env),
+    virtualEnvironmentDirectory(options.projectRoot),
+  ]) {
+    const info = await inspectVirtualEnvironment(directory, options);
+    if (info && pythonSatisfiesRequirements(info, options) &&
+        await virtualEnvironmentMatchesConfiguredPython(info, options)) {
+      return info;
     }
   }
-
-  try {
-    await runAsync(
-      basePython.executable,
-      ['-m', 'venv', directory],
-      withoutActiveVirtualEnvironment(options.env),
-      options.installTimeoutMs,
-    );
-    return;
-  } catch (systemVenvError) {
-    if (preferredUv || !options.installUv) throw systemVenvError;
-  }
-  throw new Error('Python could not create a virtual environment and uv installation is disabled.');
+  return null;
 }
 
-async function createVirtualEnvironmentWithUv(
+async function ensureBasePythonResolved(
   uv: UvInfo,
-  directory: string,
-  basePython: PythonInfo,
   options: ResolvedPyfigOptions,
-): Promise<void> {
-  await runAsync(
-    uv.executable,
-    [
-      'venv',
+): Promise<PythonInfo> {
+  if (options.python) {
+    const configured = await probePython({ executable: options.python, args: [] }, options);
+    if (!configured || !pythonSatisfiesRequirements(configured, options)) {
+      throw incompatibleConfiguredPython(options);
+    }
+    if (!configured.virtualEnvironment) return configured;
+    const base = await probePython({ executable: configured.baseExecutable, args: [] }, options);
+    if (base && pythonSatisfiesRequirements(base, options)) return base;
+    throw incompatibleConfiguredPython(options);
+  }
+
+  // Corporate and offline hosts get a strict system-only pass before Pyfig
+  // considers any already-managed interpreter or network installation.
+  const system = await findPythonWithUv(uv, options, 'system');
+  if (system) return system;
+  const cachedManaged = await findPythonWithUv(uv, options, 'managed');
+  if (cachedManaged) return cachedManaged;
+  if (!options.installPython) {
+    throw new Error(missingPythonMessage(options, 'managed Python installation is disabled'));
+  }
+
+  return withProvisioningLock({
+    key: `python:${canonicalPath(path.join(options.cacheDir, 'python'))}`,
+    timeoutMs: options.coordinationTimeoutMs,
+    check: () => findPythonWithUv(uv, options, 'managed'),
+    mutate: async () => {
+      await runAsync(
+        uv.executable,
+        ['python', 'install', '--no-config', options.managedPython],
+        isolatedUvEnvironment(options),
+        options.installTimeoutMs,
+      );
+      const installed = await findPythonWithUv(uv, options, 'managed');
+      if (!installed) {
+        throw new Error(missingPythonMessage(
+          options,
+          `uv installed ${options.managedPython}, but it remains incompatible`,
+        ));
+      }
+      return installed;
+    },
+  });
+}
+
+async function findPythonWithUv(
+  uv: UvInfo,
+  options: ResolvedPyfigOptions,
+  source: 'system' | 'managed',
+): Promise<PythonInfo | null> {
+  for (const request of ['', options.managedPython]) {
+    const args = [
+      'python',
+      'find',
       '--no-project',
       '--no-config',
       '--no-python-downloads',
-      '--allow-existing',
-      '--python',
-      basePython.executable,
-      directory,
-    ],
-    uvEnvironment(options),
-    options.installTimeoutMs,
-  );
+      source === 'system' ? '--system' : '--managed-python',
+    ];
+    if (request) args.push(request);
+    try {
+      const { stdout } = await runAsync(
+        uv.executable,
+        args,
+        explicitPythonSourceEnvironment(options),
+        options.probeTimeoutMs,
+      );
+      const info = await probePython({ executable: stdout.trim(), args: [] }, options);
+      if (info && pythonSatisfiesRequirements(info, options)) return info;
+    } catch {
+      // Continue through the generic and configured version requests.
+    }
+  }
+
+  // `uv python find` returns one match. That match can lack development
+  // headers even when another installed interpreter satisfies every requested
+  // capability, so inspect uv's complete installed-only inventory before
+  // moving from system Python to managed Python or from cache to download.
+  try {
+    const { stdout } = await runAsync(
+      uv.executable,
+      [
+        'python',
+        'list',
+        '--no-config',
+        '--no-python-downloads',
+        '--only-installed',
+        '--output-format',
+        'json',
+        source === 'system' ? '--no-managed-python' : '--managed-python',
+      ],
+      explicitPythonSourceEnvironment(options),
+      options.probeTimeoutMs,
+    );
+    const candidates = installedPythonPaths(stdout);
+    for (const executable of candidates) {
+      const info = await probePython({ executable, args: [] }, options);
+      if (info && !info.virtualEnvironment && pythonSatisfiesRequirements(info, options)) {
+        return info;
+      }
+    }
+  } catch {
+    // Older compatible uv releases can still use the find-based fallback.
+  }
+  return null;
+}
+
+function installedPythonPaths(output: string): string[] {
+  const parsed = JSON.parse(output) as unknown;
+  if (!Array.isArray(parsed)) return [];
+  const paths = parsed.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object' || !('path' in entry)) return [];
+    const candidate = (entry as { path?: unknown }).path;
+    return typeof candidate === 'string' && candidate ? [candidate] : [];
+  });
+  return [...new Map(paths.map((candidate) => [canonicalPath(candidate), candidate])).values()];
 }
 
 async function inspectVirtualEnvironment(
@@ -194,109 +300,71 @@ async function inspectVirtualEnvironment(
   return info?.virtualEnvironment && pathsEqual(info.virtualEnvironment, directory) ? info : null;
 }
 
-async function ensurePythonResolved(options: ResolvedPyfigOptions): Promise<PythonInfo> {
-  const existing = await discoverPython(options);
-  if (existing) return existing;
-  if (!options.installPython) {
-    const capability = options.requireEmbedding
-      ? ' with compatible CPython development headers, architecture, and a linkable library'
-      : '';
-    throw new Error(
-      `No Python interpreter satisfies ${options.pythonRange}${capability}; ` +
-      'managed Python installation is disabled.',
-    );
+async function installRuntimeRequirements(
+  uv: UvInfo,
+  python: PythonInfo,
+  requirements: readonly string[],
+  dependencyOptions: Required<RuntimeDependencyOptions>,
+  options: ResolvedPyfigOptions,
+): Promise<void> {
+  if (!python.virtualEnvironment) {
+    throw new Error('Runtime dependency installation requires a virtual environment.');
   }
-
-  return withProvisioningLock({
-    key: `python:${canonicalPath(path.join(options.cacheDir, 'python'))}`,
+  await withProvisioningLock({
+    key: `dependencies:${canonicalPath(python.virtualEnvironment)}`,
     timeoutMs: options.coordinationTimeoutMs,
-    check: () => discoverPython(options),
+    check: async () => null,
     mutate: async () => {
-      const uv = await ensureUvResolved(options);
-      const uvEnv = uvEnvironment(options);
-      await runAsync(
-        uv.executable,
-        ['python', 'install', '--no-config', options.managedPython],
-        uvEnv,
-        options.installTimeoutMs,
-      );
-      const installed = await findPythonWithUv(uv, options);
-      if (!installed) {
-        throw new Error(
-          `uv installed Python ${options.managedPython}, but it does not satisfy the requested ` +
-          'runtime capabilities.',
+      const temporary = await mkdtemp(path.join(os.tmpdir(), 'pyfig-requirements-'));
+      try {
+        const additions = path.join(temporary, 'runtime-requirements.txt');
+        const resolved = path.join(temporary, 'resolved-requirements.txt');
+        const pyproject = path.join(options.projectRoot, 'pyproject.toml');
+        const hasPyproject = fs.existsSync(pyproject);
+        if (!hasPyproject && (
+          dependencyOptions.extras.length > 0 ||
+          dependencyOptions.groups.length > 0 ||
+          dependencyOptions.allExtras
+        )) {
+          throw new Error('Runtime extras and groups require an existing pyproject.toml.');
+        }
+        const sources = hasPyproject ? [pyproject] : [];
+        if (requirements.length > 0) {
+          await writeFile(additions, `${requirements.join('\n')}\n`, 'utf8');
+          sources.push(additions);
+        }
+        const selectionArgs = [
+          ...dependencyOptions.extras.flatMap((extra) => ['--extra', extra]),
+          ...dependencyOptions.groups.flatMap((group) => ['--group', group]),
+          ...(dependencyOptions.allExtras ? ['--all-extras'] : []),
+        ];
+        await runAsync(
+          uv.executable,
+          [
+            'pip', 'compile', '--no-config', '--python', python.executable, ...selectionArgs,
+            ...sources, '--output-file', resolved,
+          ],
+          targetUvEnvironment(options, python),
+          options.installTimeoutMs,
+          undefined,
+          options.projectRoot,
         );
+        // install preserves unrelated packages; sync would remove anything not
+        // represented in this temporary resolution.
+        await runAsync(
+          uv.executable,
+          ['pip', 'install', '--no-config', '--python', python.executable, '-r', resolved],
+          targetUvEnvironment(options, python),
+          options.installTimeoutMs,
+          undefined,
+          options.projectRoot,
+        );
+      } finally {
+        await rm(temporary, { recursive: true, force: true });
       }
-      return installed;
+      return true;
     },
   });
-}
-
-async function discoverPython(options: ResolvedPyfigOptions): Promise<PythonInfo | null> {
-  if (options.python) {
-    const configured = await probePython({ executable: options.python, args: [] }, options);
-    if (configured && pythonSatisfiesRequirements(configured, options)) return configured;
-    throw new Error(
-      `Configured Python ${options.python} is unavailable or does not satisfy ${options.pythonRange}.`,
-    );
-  }
-
-  const existingUv = await findAvailableUv(options);
-  if (existingUv) {
-    const uvPython = await findPythonWithUv(existingUv, options);
-    if (uvPython) return uvPython;
-  }
-  return findPython({ ...options, python: '' });
-}
-
-async function findPythonWithUv(
-  uv: UvInfo,
-  options: ResolvedPyfigOptions,
-): Promise<PythonInfo | null> {
-  const requests = [undefined, options.managedPython] as const;
-  for (const requestedPython of requests) {
-    const args = [
-      'python',
-      'find',
-      '--no-project',
-      '--no-config',
-      '--managed-python',
-      '--no-python-downloads',
-    ];
-    if (requestedPython) args.push(requestedPython);
-    try {
-      const { stdout } = await runAsync(
-        uv.executable,
-        args,
-        uvEnvironment(options),
-        options.probeTimeoutMs,
-      );
-      const info = await probePython({ executable: stdout.trim(), args: [] }, options);
-      if (info && pythonSatisfiesRequirements(info, options)) return info;
-    } catch {
-      // Continue through the configured request and then normal system discovery.
-    }
-  }
-  return null;
-}
-
-async function ensurePipResolved(
-  python: PythonInfo,
-  options: ResolvedPyfigOptions,
-): Promise<PackageManagerInfo> {
-  const existingUv = await findAvailableUv(options);
-  if (existingUv) return uvPackageManager(existingUv, python);
-
-  // Default package operations always use uv, which supplies its own robust
-  // target-venv lock. python -m pip remains a read-only fallback for check-only setups.
-  if (options.installUv) return uvPackageManager(await ensureUvResolved(options), python);
-
-  const existingPip = await findPip(python, options);
-  if (existingPip) return existingPip;
-  throw new Error(
-    `The virtual environment's python -m pip does not satisfy ${options.pipRange}; ` +
-    'uv installation is disabled.',
-  );
 }
 
 async function ensureUvResolved(options: ResolvedPyfigOptions): Promise<UvInfo> {
@@ -328,12 +396,101 @@ async function ensureUvResolved(options: ResolvedPyfigOptions): Promise<UvInfo> 
 }
 
 async function findAvailableUv(options: ResolvedPyfigOptions): Promise<UvInfo | null> {
-  // Prefer a configured or PATH uv that passes the compatibility probe. The
-  // managed cache is a fallback, even when its pinned version is newer.
   const external = await findUv(options);
   if (external) return external;
   const managed = probeUv(uvExecutable(options), options);
   return managed?.version === options.uvVersion ? managed : null;
+}
+
+function normalizeRequirements(requirements: readonly string[]): string[] {
+  const normalized = requirements.map((requirement) => requirement.trim());
+  for (const requirement of normalized) {
+    if (!requirement || /[\0\r\n]/u.test(requirement)) {
+      throw new TypeError(`Invalid runtime requirement: ${JSON.stringify(requirement)}`);
+    }
+  }
+  return [...new Set(normalized)];
+}
+
+function normalizeDependencyOptions(
+  options: RuntimeDependencyOptions,
+): Required<RuntimeDependencyOptions> {
+  const extras = normalizeNames('extra', options.extras ?? []);
+  const groups = normalizeNames('dependency group', options.groups ?? []);
+  if (options.allExtras && extras.length > 0) {
+    throw new TypeError('allExtras cannot be combined with explicit extras.');
+  }
+  return { extras, groups, allExtras: options.allExtras ?? false };
+}
+
+function normalizeNames(kind: string, names: readonly string[]): string[] {
+  const normalized = names.map((name) => name.trim());
+  for (const name of normalized) {
+    if (!name || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(name)) {
+      throw new TypeError(`Invalid ${kind}: ${JSON.stringify(name)}`);
+    }
+  }
+  return [...new Set(normalized)];
+}
+
+function isManagedEnvironment(
+  python: PythonInfo,
+  options: ResolvedPyfigOptions,
+): boolean {
+  return Boolean(python.virtualEnvironment) && pathsEqual(
+    python.virtualEnvironment as string,
+    virtualEnvironmentDirectory(options.projectRoot),
+  );
+}
+
+function isolatedUvEnvironment(options: ResolvedPyfigOptions): NodeJS.ProcessEnv {
+  return sanitizeUvEnvironment(uvEnvironment(options));
+}
+
+/** Explicit --system/--managed-python selectors cannot be combined with uv's preference setting. */
+function explicitPythonSourceEnvironment(
+  options: ResolvedPyfigOptions,
+): NodeJS.ProcessEnv {
+  const env = isolatedUvEnvironment(options);
+  delete env['UV_PYTHON_PREFERENCE'];
+  return env;
+}
+
+function targetUvEnvironment(
+  options: ResolvedPyfigOptions,
+  python: PythonInfo,
+): NodeJS.ProcessEnv {
+  return uvCommandEnvironment(uvEnvironment(options), python);
+}
+
+function incompatibleConfiguredPython(options: ResolvedPyfigOptions): Error {
+  return new Error(
+    `Configured Python ${options.python} is unavailable or does not satisfy ` +
+    `${options.pythonRange}${options.requireEmbedding ? ' with CPython embedding files' : ''}.`,
+  );
+}
+
+function missingPythonMessage(options: ResolvedPyfigOptions, reason: string): string {
+  const embedding = options.requireEmbedding
+    ? ' with compatible CPython headers, library, architecture, and GIL ABI'
+    : '';
+  return `No Python satisfies ${options.pythonRange}${embedding}; ${reason}.`;
+}
+
+async function virtualEnvironmentMatchesConfiguredPython(
+  virtualEnvironment: PythonInfo,
+  options: ResolvedPyfigOptions,
+): Promise<boolean> {
+  if (!options.python) return true;
+  const configured = await probePython({ executable: options.python, args: [] }, options);
+  if (!configured || !pythonSatisfiesRequirements(configured, options)) return false;
+  if (configured.virtualEnvironment && pathsEqual(configured.executable, virtualEnvironment.executable)) {
+    return true;
+  }
+  const configuredBase = configured.virtualEnvironment
+    ? configured.baseExecutable
+    : configured.executable;
+  return pathsEqual(configuredBase, virtualEnvironment.baseExecutable);
 }
 
 function uvInstallDirectory(options: ResolvedPyfigOptions): string {
@@ -341,36 +498,7 @@ function uvInstallDirectory(options: ResolvedPyfigOptions): string {
 }
 
 function uvExecutable(options: ResolvedPyfigOptions): string {
-  return path.join(
-    uvInstallDirectory(options),
-    process.platform === 'win32' ? 'uv.exe' : 'uv',
-  );
-}
-
-function uvPackageManager(uv: UvInfo, python: PythonInfo): PackageManagerInfo {
-  if (!python.virtualEnvironment) {
-    throw new Error('uv pip commands require a virtual-environment Python interpreter.');
-  }
-  return {
-    kind: 'uv',
-    executable: uv.executable,
-    prefixArgs: ['pip'],
-    version: uv.version,
-    pythonExecutable: python.executable,
-    virtualEnvironment: python.virtualEnvironment,
-  };
-}
-
-function withoutActiveVirtualEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const result = { ...env };
-  for (const key of Object.keys(result)) {
-    const normalized = key.toUpperCase();
-    if (normalized === 'CONDA_PREFIX' || normalized === 'VIRTUAL_ENV' ||
-        normalized === 'PYTHONHOME') {
-      delete result[key];
-    }
-  }
-  return result;
+  return path.join(uvInstallDirectory(options), process.platform === 'win32' ? 'uv.exe' : 'uv');
 }
 
 async function installUv(
@@ -383,12 +511,7 @@ async function installUv(
   const dispatcher = proxyDispatcher(options.env);
   try {
     const archive = path.join(temporary, asset);
-    await download(
-      `${baseUrl}/${asset}`,
-      archive,
-      options.downloadTimeoutMs,
-      dispatcher,
-    );
+    await download(`${baseUrl}/${asset}`, archive, options.downloadTimeoutMs, dispatcher);
     const expected = (await downloadText(
       `${baseUrl}/${asset}.sha256`,
       options.downloadTimeoutMs,
@@ -403,7 +526,6 @@ async function installUv(
     await mkdir(extracted, { recursive: true });
     if (asset.endsWith('.zip')) await extractZip(archive, { dir: extracted });
     else await tar.x({ file: archive, cwd: extracted, strict: true });
-
     const source = await findFile(extracted, process.platform === 'win32' ? 'uv.exe' : 'uv');
     if (!source) throw new Error(`uv archive did not contain the expected executable: ${asset}`);
     await publishUvAtomically(source, installDir, options);
@@ -447,7 +569,6 @@ function uvAsset(): string {
   if (!architecture) throw new Error(`uv bootstrap does not support architecture ${process.arch}.`);
   if (process.platform === 'win32') return `uv-${architecture}-pc-windows-msvc.zip`;
   if (process.platform === 'darwin') return `uv-${architecture}-apple-darwin.tar.gz`;
-  // Astral's musl artifacts are fully static and run on both musl and glibc Linux.
   if (process.platform === 'linux') return `uv-${architecture}-unknown-linux-musl.tar.gz`;
   throw new Error(`uv bootstrap does not support platform ${process.platform}.`);
 }
@@ -525,34 +646,4 @@ async function findFile(directory: string, name: string): Promise<string | null>
     }
   }
   return null;
-}
-
-function incompatibleVirtualEnvironmentError(
-  directory: string,
-  python: PythonInfo,
-  options: ResolvedPyfigOptions,
-): Error {
-  const capabilities = options.requireEmbedding
-    ? ' or lacks compatible CPython embedding headers, library, or architecture'
-    : '';
-  return new Error(
-    `The existing virtual environment at ${directory} uses Python ${python.version}, ` +
-    `which does not satisfy ${options.pythonRange}${capabilities}.`,
-  );
-}
-
-async function virtualEnvironmentMatchesConfiguredPython(
-  virtualEnvironment: PythonInfo,
-  options: ResolvedPyfigOptions,
-): Promise<boolean> {
-  if (!options.python) return true;
-  const configured = await probePython({ executable: options.python, args: [] }, options);
-  if (!configured || !pythonSatisfiesRequirements(configured, options)) return false;
-  if (configured.virtualEnvironment && pathsEqual(configured.executable, virtualEnvironment.executable)) {
-    return true;
-  }
-  const configuredBase = configured.virtualEnvironment
-    ? configured.baseExecutable
-    : configured.executable;
-  return pathsEqual(configuredBase, virtualEnvironment.baseExecutable);
 }

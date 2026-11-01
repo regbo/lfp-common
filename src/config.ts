@@ -4,7 +4,6 @@ import semver from 'semver';
 import { resolveProjectRoot } from './project-root.js';
 
 export const DEFAULT_PYTHON_RANGE = '>=3.10.0 <4.0.0';
-export const DEFAULT_PIP_RANGE = '>=20.3.0';
 export const DEFAULT_MANAGED_PYTHON = '3.12';
 export const DEFAULT_UV_VERSION = '0.13.6';
 // External uv only needs to support the command and isolation flags Pyfig uses.
@@ -32,8 +31,6 @@ export interface PyfigOptions {
   python?: string;
   /** Accepted Python language-version range. */
   pythonRange?: string;
-  /** Accepted python -m pip version when uv installation is disabled. */
-  pipRange?: string;
   /** uv Python request used only when no compatible interpreter exists. */
   managedPython?: string;
   /** Exact uv release installed into Pyfig's private cache. */
@@ -50,11 +47,11 @@ export interface PyfigOptions {
   installPython?: boolean;
   /** Allow Pyfig to install its pinned, checksum-verified uv executable. */
   installUv?: boolean;
-  /** Allow creation of the repository-root .venv. */
+  /** Allow creation of Pyfig's private environment under node_modules. */
   createVirtualEnvironment?: boolean;
   /** Private cache root for uv, managed Python, downloads, and coordination. */
   cacheDir?: string;
-  /** Repository root that owns the single `.venv`. */
+  /** Repository root that owns node_modules/.pyfig. */
   projectRoot?: string;
   /** Maximum duration of one executable capability probe. */
   probeTimeoutMs?: number;
@@ -71,7 +68,6 @@ export interface PyfigOptions {
 export interface ResolvedPyfigOptions {
   python: string;
   pythonRange: string;
-  pipRange: string;
   managedPython: string;
   uvVersion: string;
   uvRange: string;
@@ -95,10 +91,8 @@ export function resolveOptions(options: PyfigOptions = {}): ResolvedPyfigOptions
   // mutating process.env or a reused options object after resolution.
   const env = { ...(options.env ?? process.env) };
   const pythonRange = options.pythonRange ?? env['PYFIG_PYTHON_RANGE'] ?? DEFAULT_PYTHON_RANGE;
-  const pipRange = options.pipRange ?? env['PYFIG_PIP_RANGE'] ?? DEFAULT_PIP_RANGE;
   const uvRange = options.uvRange ?? env['PYFIG_UV_RANGE'] ?? DEFAULT_UV_RANGE;
   assertRange('Python', pythonRange);
-  assertRange('pip', pipRange);
   assertRange('uv', uvRange);
 
   const managedPython = options.managedPython ??
@@ -138,13 +132,12 @@ export function resolveOptions(options: PyfigOptions = {}): ResolvedPyfigOptions
   const configuredProjectRoot = options.projectRoot ?? env['PYFIG_PROJECT_ROOT'];
   const projectRoot = configuredProjectRoot
     ? path.resolve(configuredProjectRoot)
-    : resolveProjectRoot();
+    : resolveProjectRoot(env['INIT_CWD'] ?? process.cwd());
   const autoInstall = options.autoInstall ?? parseBoolean(env['PYFIG_AUTO_INSTALL'], true);
 
   return {
     python: options.python ?? env['PYFIG_PYTHON'] ?? '',
     pythonRange,
-    pipRange,
     managedPython,
     uvVersion,
     uvRange,
@@ -165,12 +158,14 @@ export function resolveOptions(options: PyfigOptions = {}): ResolvedPyfigOptions
   };
 }
 
-/** Keep uv-managed Python and cache data inside pyfig's configured cache root. */
+/** Keep uv data private while preferring a compatible system interpreter. */
 export function uvEnvironment(options: ResolvedPyfigOptions): NodeJS.ProcessEnv {
   return {
     ...options.env,
     UV_PYTHON_INSTALL_DIR: path.join(options.cacheDir, 'python'),
     UV_CACHE_DIR: path.join(options.cacheDir, 'uv-cache'),
+    UV_PYTHON_PREFERENCE: 'system',
+    UV_NO_CONFIG: '1',
   };
 }
 

@@ -1,10 +1,13 @@
-import os from 'node:os';
-import type { PackageManagerInfo, PythonInfo } from './probes.js';
+import type { PythonInfo } from './probes.js';
 import { activateVirtualEnvironment } from './virtual-environment.js';
 
-const TARGET_CHANGING_OPTIONS = new Set([
+const TARGET_OPTIONS = new Set([
+  '--active',
   '--config-file',
+  '--directory',
+  '--isolated',
   '--prefix',
+  '--project',
   '--python',
   '--root',
   '--system',
@@ -12,11 +15,8 @@ const TARGET_CHANGING_OPTIONS = new Set([
   '--user',
 ]);
 
-const TARGET_CHANGING_SHORT_OPTIONS = new Set(['-p', '-t']);
-
 const TARGET_ENVIRONMENT_VARIABLES = new Set([
   'CONDA_PREFIX',
-  'PIP_CONFIG_FILE',
   'PIP_PREFIX',
   'PIP_PYTHON',
   'PIP_ROOT',
@@ -25,105 +25,71 @@ const TARGET_ENVIRONMENT_VARIABLES = new Set([
   'PYTHONHOME',
   'PYTHONUSERBASE',
   'UV_CONFIG_FILE',
+  'UV_PROJECT',
   'UV_PROJECT_ENVIRONMENT',
-  'UV_PREFIX',
   'UV_PYTHON',
+  'UV_PREFIX',
   'UV_ROOT',
   'UV_SYSTEM_PYTHON',
   'UV_TARGET',
 ]);
 
-/** Reject package-manager arguments that can escape the selected repository venv. */
-export function assertSafePackageArguments(args: readonly string[]): void {
-  for (const argument of args) {
-    if (argument === '--') break;
-    const [name] = argument.split('=', 1);
-    if (name && TARGET_CHANGING_OPTIONS.has(name)) {
-      throw new Error(
-        `${name} is not allowed because Pyfig package commands are pinned to the repository .venv.`,
-      );
-    }
-    const shortName = argument.slice(0, 2);
-    if (TARGET_CHANGING_SHORT_OPTIONS.has(shortName)) {
-      throw new Error(
-        `${shortName} is not allowed because Pyfig package commands are pinned to the repository .venv.`,
-      );
-    }
-  }
+export function uvCommandNeedsEnvironment(args: readonly string[]): boolean {
+  return args[0] === 'pip' || args[0] === 'run';
 }
 
-/** Build a package-manager environment whose target cannot be inherited or configured elsewhere. */
-export function packageManagerEnvironment(
-  env: NodeJS.ProcessEnv,
-  packageManager: PackageManagerInfo,
-): NodeJS.ProcessEnv {
-  const active = sanitizedTargetEnvironment(env);
-  const activated = activateVirtualEnvironment(
-    active,
-    packageManager.virtualEnvironment,
-    packageManager.pythonExecutable,
-  );
-  return packageManager.kind === 'uv'
-    ? {
-        ...activated,
-        UV_NO_CONFIG: '1',
-        UV_PYTHON: packageManager.pythonExecutable,
-      }
-    : {
-        ...activated,
-        PIP_CONFIG_FILE: os.devNull,
-        PIP_REQUIRE_VIRTUALENV: '1',
-        PYTHONNOUSERSITE: '1',
-      };
-}
-
-/** Apply the same strict target policy to a direct `uv pip` invocation. */
-export function uvPipEnvironment(
-  env: NodeJS.ProcessEnv,
+/** Pin uv pip and uv run to the environment selected by Pyfig. */
+export function targetUvArguments(
+  args: readonly string[],
   python: PythonInfo,
-): NodeJS.ProcessEnv {
+): string[] {
   if (!python.virtualEnvironment) {
-    throw new Error('uv pip commands require the repository virtual environment.');
+    throw new Error('Targeted uv commands require a virtual environment.');
   }
+  assertNoTargetOverride(args);
+  if (args[0] === 'run') {
+    return ['run', '--no-project', '--python', python.executable, ...args.slice(1)];
+  }
+  if (args[0] === 'pip' && args[1]) {
+    return ['pip', args[1], '--python', python.executable, ...args.slice(2)];
+  }
+  return [...args];
+}
+
+export function uvCommandEnvironment(
+  env: NodeJS.ProcessEnv,
+  python?: PythonInfo,
+): NodeJS.ProcessEnv {
+  const sanitized = sanitizeUvEnvironment(env);
+  if (!python?.virtualEnvironment) return sanitized;
   return {
     ...activateVirtualEnvironment(
-      sanitizedTargetEnvironment(env),
+      sanitized,
       python.virtualEnvironment,
       python.executable,
     ),
-    UV_NO_CONFIG: '1',
     UV_PYTHON: python.executable,
   };
 }
 
-/** Package installation and removal must use uv so its target-environment lock is authoritative. */
-export function assertMutationUsesUv(
-  packageManager: PackageManagerInfo,
-  args: readonly string[],
-): void {
-  if (packageManager.kind === 'pip' && isPackageMutation(args)) {
-    throw new Error(
-      'Package mutation requires uv so the repository environment is locked across processes. ' +
-      'Enable uv installation or use a read-only pip command.',
-    );
-  }
-}
-
-export function isPackageMutation(args: readonly string[]): boolean {
-  return args.some((argument) =>
-    argument === 'install' || argument === 'sync' || argument === 'uninstall');
-}
-
-export function isUvPipCommand(args: readonly string[]): boolean {
-  const separator = args.indexOf('--');
-  const commandArguments = separator === -1 ? args : args.slice(0, separator);
-  return commandArguments.includes('pip');
-}
-
-function sanitizedTargetEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+/** Remove inherited values that could redirect uv away from an explicit target. */
+export function sanitizeUvEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const sanitized = { ...env };
   for (const key of Object.keys(sanitized)) {
     if (TARGET_ENVIRONMENT_VARIABLES.has(key.toUpperCase())) delete sanitized[key];
   }
   return sanitized;
+}
+
+function assertNoTargetOverride(args: readonly string[]): void {
+  for (const argument of args.slice(1)) {
+    if (argument === '--') return;
+    const [name] = argument.split('=', 1);
+    if (name && TARGET_OPTIONS.has(name)) {
+      throw new Error(`${name} cannot override the environment selected by Pyfig.`);
+    }
+    if (argument === '-p' || argument.startsWith('-p=') || /^-p[^-]/u.test(argument)) {
+      throw new Error('-p cannot override the environment selected by Pyfig.');
+    }
+  }
 }

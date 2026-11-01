@@ -1,10 +1,21 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-export const VIRTUAL_ENV_DIRECTORY_NAME = '.venv';
+export const VIRTUAL_ENV_DIRECTORY_NAME = path.join('node_modules', '.pyfig', 'venv');
 
 export function virtualEnvironmentDirectory(projectRoot: string): string {
   return path.join(projectRoot, VIRTUAL_ENV_DIRECTORY_NAME);
+}
+
+/** Existing application environments are eligible for read-only reuse. */
+export function externalVirtualEnvironmentDirectories(
+  projectRoot: string,
+  env: NodeJS.ProcessEnv,
+): string[] {
+  const candidates = [env['VIRTUAL_ENV'], path.join(projectRoot, '.venv')]
+    .filter((value): value is string => Boolean(value))
+    .map((value) => path.resolve(value));
+  return [...new Map(candidates.map((value) => [canonicalPath(value), value])).values()];
 }
 
 export function virtualEnvironmentPythonExecutable(virtualEnvironment: string): string {

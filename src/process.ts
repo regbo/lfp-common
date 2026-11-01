@@ -51,10 +51,12 @@ export async function runAsync(
   env: NodeJS.ProcessEnv,
   timeoutMs: number,
   signal?: AbortSignal,
+  cwd?: string,
 ): Promise<RunResult> {
   return new Promise<RunResult>((resolve, reject) => {
     const child = spawn(executable, args, {
       env,
+      cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
     });
