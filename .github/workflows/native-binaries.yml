@@ -105,7 +105,9 @@ jobs:
         run: npm install --no-save --ignore-scripts --package-lock=false --no-audit --no-fund node-gyp@13.1.0
 
       - name: Build TypeScript
-        run: npm run build:ts
+        # Invoke the portable build script directly because the host-native
+        # matrix intentionally installs dependencies with npm on every runner.
+        run: node scripts/build-typescript.js
 
       - name: Build native addon
         run: node scripts/build-native.js
