@@ -2,6 +2,8 @@
 
 Typed memoization and layered locking for JavaScript runtimes.
 
+Loqkit publishes matching ESM and CommonJS entry points.
+
 ## Locking
 
 ```ts

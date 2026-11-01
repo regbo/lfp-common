@@ -49,6 +49,8 @@ export async function auditArchive(
       "LICENSE",
       "README.md",
       "package.json",
+      "release/cjs/index.js",
+      "release/cjs/package.json",
       "release/index.d.ts",
       "release/index.js",
     ]) {

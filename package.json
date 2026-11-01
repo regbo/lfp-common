@@ -13,10 +13,12 @@
   "type": "module",
   "packageManager": "bun@1.4.4",
   "sideEffects": false,
+  "main": "./release/cjs/index.js",
   "exports": {
     ".": {
       "types": "./release/index.d.ts",
-      "import": "./release/index.js"
+      "import": "./release/index.js",
+      "require": "./release/cjs/index.js"
     }
   },
   "types": "./release/index.d.ts",
@@ -26,7 +28,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && bun scripts/build-cjs.ts",
     "check": "bun run typecheck && bun test && bun run build",
     "prepack": "bun scripts/prepack.ts",
     "release": "bun scripts/release.ts",
