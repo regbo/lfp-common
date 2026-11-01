@@ -26,23 +26,13 @@ for command_name in node python python3 uv; do
   fi
 done
 
-mkdir -p /work/pyfig /work/pynect
-tar -C /source/pyfig \
-  --exclude=.git --exclude=.venv --exclude=build --exclude=dist --exclude=node_modules \
-  -cf - . | tar -C /work/pyfig -xf -
+mkdir -p /work/pynect
 tar -C /source/pynect \
   --exclude=.git --exclude=.venv --exclude=build --exclude=dist --exclude=node_modules \
   -cf - . | tar -C /work/pynect -xf -
 
-cd /work/pyfig
-bun install --ignore-scripts
-bun run build
-bun run test:zero-python
-
 cd /work/pynect
-bun install --ignore-scripts
-rm -rf /work/pynect/node_modules/pyfig
-ln -s /work/pyfig /work/pynect/node_modules/pyfig
+bun install --frozen-lockfile
 bun run build:ts
 test ! -f /work/pynect/build/Release/pynect_addon.node
 bun run test:python-boundary

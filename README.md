@@ -344,11 +344,11 @@ See [SECURITY.md](./SECURITY.md) before exposing imports or call patterns to unt
 ## Development
 
 ```sh
-bun install --ignore-scripts
+bun install --frozen-lockfile
 bun run verify
 ```
 
-`verify` type-checks, rebuilds the addon, and runs the shared-interpreter smoke test. `scripts/docker-zero-python.sh` is the clean-container reproduction: it starts from the official Bun image, asserts that Node.js, Python, and uv are absent, installs only the C++ toolchain, then verifies Pyfig bootstrap, lazy native compilation through Bun, and the full Pynect native boundary. The separate `Native binaries` workflow runs for native or Python-boundary changes and can also be started manually.
+`verify` type-checks, rebuilds the addon, and runs the shared-interpreter smoke test. `scripts/docker-zero-python.sh` is the clean-container reproduction: it starts from the official Bun image, asserts that Node.js, Python, and uv are absent, installs the registry-published Pyfig dependency plus only the C++ toolchain, then verifies Pyfig bootstrap, lazy native compilation through Bun, and the full Pynect native boundary. The separate `Native binaries` workflow runs for native or Python-boundary changes and can also be started manually.
 
 ### Publishing
 

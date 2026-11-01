@@ -6,9 +6,8 @@
 import path from 'path';
 import { Logger } from '../utils/Logger';
 import {
+  createPynectPyfig,
   ensurePynectPython,
-  loadPyfig,
-  pynectPyfigOptions,
   type PynectPythonOptions,
   type SelectedPython,
 } from './PyfigAdapter';
@@ -104,8 +103,8 @@ export class PythonDetector {
   /** Probe through Pyfig; never executes the supplied interpreter directly. */
   probe(executablePath: string): PythonInfo | null {
     if (!executablePath) return null;
-    const pyfig = loadPyfig();
-    const result = pyfig.pythonSpawnSync(
+    const client = createPynectPyfig(this.selectionOptions(executablePath));
+    const result = client.pythonSync(
       ['-c', PROBE_SCRIPT],
       {
         encoding: 'utf8',
@@ -113,7 +112,6 @@ export class PythonDetector {
         maxBuffer: 1024 * 1024,
         env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' },
       },
-      pynectPyfigOptions(this.selectionOptions(executablePath)),
     );
     const stdout = outputText(result.stdout);
     if (result.status !== 0 || result.error || !stdout.trim()) return null;
@@ -146,10 +144,10 @@ export class PythonDetector {
     const script = modules
       .map(module => `try:\n    import ${module}\nexcept ImportError:\n    print("MISSING:${module}")`)
       .join('\n');
-    const result = loadPyfig().pythonSpawnSync(
+    const client = createPynectPyfig(this.selectionOptions(executable));
+    const result = client.pythonSync(
       ['-c', script],
       { encoding: 'utf8', timeout: this.options.timeout, maxBuffer: 1024 * 256 },
-      pynectPyfigOptions(this.selectionOptions(executable)),
     );
     if (result.status !== 0 || result.error) return [...modules];
     return outputText(result.stdout)

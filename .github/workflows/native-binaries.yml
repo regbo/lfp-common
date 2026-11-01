@@ -133,16 +133,9 @@ jobs:
         with:
           path: pynect
 
-      - name: Check out Pyfig
-        uses: actions/checkout@v6
-        with:
-          repository: regbo/pyfig
-          path: pyfig
-
       - name: Verify bootstrap and native boundary without Node or Python
         run: |
           docker run --rm \
-            --mount "type=bind,source=${GITHUB_WORKSPACE}/pyfig,target=/source/pyfig,readonly" \
             --mount "type=bind,source=${GITHUB_WORKSPACE}/pynect,target=/source/pynect,readonly" \
             oven/bun:1-debian \
             sh /source/pynect/scripts/docker-zero-python.sh

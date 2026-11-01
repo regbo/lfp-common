@@ -1,14 +1,13 @@
 'use strict';
 
 const path = require('path');
-const { ensurePynectEnvironment, loadPyfig } = require('./pyfig');
+const { ensurePynectEnvironment } = require('./pyfig');
 
 const ROOT = path.resolve(__dirname, '..');
 
 async function main() {
-  const { environment, pyfigOptions } = await ensurePynectEnvironment({ projectRoot: ROOT });
+  const { client, environment } = await ensurePynectEnvironment({ projectRoot: ROOT });
   const { python } = environment;
-  const pyfig = loadPyfig();
   const expected = normalize(python.executable);
   const pynect = require('../dist');
 
@@ -19,33 +18,30 @@ async function main() {
   if (!probed) throw new Error('PythonDetector could not probe the selected repository Python.');
   assertSamePython(probed.executable, expected, 'PythonDetector.probe');
 
-  const selected = pyfig.pythonSpawnSync(
+  const selected = client.pythonSync(
     ['-c', 'import sys; print(sys.executable)'],
     { encoding: 'utf8' },
-    pyfigOptions,
   );
-  assertSuccess(selected, 'pythonSpawnSync');
-  assertSamePython(selected.stdout.trim(), expected, 'pythonSpawnSync');
+  assertSuccess(selected, 'PyfigClient.pythonSync');
+  assertSamePython(selected.stdout.trim(), expected, 'PyfigClient.pythonSync');
 
-  const pip = pyfig.pipSpawnSync(['list', '--format', 'json'], { encoding: 'utf8' }, pyfigOptions);
-  assertSuccess(pip, 'pipSpawnSync');
+  const pip = client.pipSync(['list', '--format', 'json'], { encoding: 'utf8' });
+  assertSuccess(pip, 'PyfigClient.pipSync');
 
-  const uvPip = pyfig.uvSpawnSync(
+  const uvPip = client.uvSync(
     ['pip', 'list', '--format', 'json'],
     { encoding: 'utf8' },
-    pyfigOptions,
   );
-  assertSuccess(uvPip, 'uvSpawnSync pip');
+  assertSuccess(uvPip, 'PyfigClient.uvSync pip');
 
-  const inspector = pyfig.pythonSpawnSync(
+  const inspector = client.pythonSync(
     [path.join(ROOT, 'python', 'type_inspector.py'), 'json'],
     { encoding: 'utf8' },
-    pyfigOptions,
   );
   assertSuccess(inspector, 'codegen inspector');
   JSON.parse(inspector.stdout);
 
-  const worker = pyfig.pythonSpawnSync(
+  const worker = client.pythonSync(
     [path.join(ROOT, 'python', 'isolated_worker.py')],
     {
       encoding: 'utf8',
@@ -62,7 +58,6 @@ async function main() {
         PYNECT_DISPATCHER_CONFIG: '{}',
       },
     },
-    pyfigOptions,
   );
   assertSuccess(worker, 'isolated worker');
   const workerResult = JSON.parse(worker.stdout.trim());

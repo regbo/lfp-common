@@ -33,7 +33,7 @@ import * as fs   from 'fs';
 import * as path from 'path';
 import { Logger } from '../utils/Logger';
 import { assertPythonPackageSpec, isPythonModuleName } from './executables';
-import { loadPyfig, pynectPyfigOptions } from './PyfigAdapter';
+import { createPynectPyfig, type PynectPyfigClient } from './PyfigAdapter';
 
 const logger = new Logger('PackageInstaller');
 
@@ -304,12 +304,11 @@ function sleep(ms: number): Promise<void> {
 // PackageInstaller
 
 export class PackageInstaller extends EventEmitter {
-  private readonly _python: string;
   private readonly _opts:   Required<PackageInstallerOptions>;
+  private readonly _pyfig: PynectPyfigClient;
 
   constructor(options: PackageInstallerOptions) {
     super();
-    this._python = options.pythonExecutable;
     this._opts = {
       pythonExecutable: options.pythonExecutable,
       indexUrl:         options.indexUrl         ?? '',
@@ -323,6 +322,11 @@ export class PackageInstaller extends EventEmitter {
       quiet:            options.quiet             !== false,
       upgrade:          options.upgrade           ?? false,
     };
+    this._pyfig = createPynectPyfig({
+      projectRoot: this._opts.cwd,
+      pythonPath: options.pythonExecutable,
+      env: this._opts.env,
+    });
   }
 
   // Public API
@@ -425,11 +429,11 @@ export class PackageInstaller extends EventEmitter {
     const args = ['uninstall', '-y', ...packages];
     logger.info(`Uninstalling: ${packages.join(', ')}`);
 
-    const result = loadPyfig().pipSpawnSync(args, {
+    const result = this._pyfig.pipSync(args, {
       encoding: 'utf8',
       cwd:      this._opts.cwd,
       env:      { ...process.env, ...this._opts.env },
-    }, this._pyfigOptions());
+    });
 
     if (result.status !== 0) {
       throw new Error(`pip uninstall failed:\n${result.stderr}`);
@@ -449,10 +453,10 @@ export class PackageInstaller extends EventEmitter {
    */
   getVersion(packageName: string): string | null {
     const args = ['show', '--quiet', packageName];
-    const r = loadPyfig().pipSpawnSync(args, {
+    const r = this._pyfig.pipSync(args, {
       encoding: 'utf8',
       env:      { ...process.env, ...this._opts.env },
-    }, this._pyfigOptions());
+    });
     const stdout = String(r.stdout ?? '');
     if (r.status !== 0 || !stdout) {return null;}
     const match = stdout.match(/^Version:\s*(.+)$/m);
@@ -464,10 +468,10 @@ export class PackageInstaller extends EventEmitter {
    */
   getMetadata(packageName: string): PackageMetadata | null {
     const args = ['show', packageName];
-    const r = loadPyfig().pipSpawnSync(args, {
+    const r = this._pyfig.pipSync(args, {
       encoding: 'utf8',
       env:      { ...process.env, ...this._opts.env },
-    }, this._pyfigOptions());
+    });
     const stdout = String(r.stdout ?? '');
     if (r.status !== 0 || !stdout) {return null;}
     return this._parsePipShow(stdout);
@@ -478,10 +482,10 @@ export class PackageInstaller extends EventEmitter {
    */
   listInstalled(): Array<{ name: string; version: string }> {
     const args = ['list', '--format=json'];
-    const r = loadPyfig().pipSpawnSync(args, {
+    const r = this._pyfig.pipSync(args, {
       encoding: 'utf8',
       env:      { ...process.env, ...this._opts.env },
-    }, this._pyfigOptions());
+    });
     const stdout = String(r.stdout ?? '');
     if (r.status !== 0 || !stdout) {return [];}
     try {
@@ -510,11 +514,11 @@ export class PackageInstaller extends EventEmitter {
   async upgradePip(): Promise<void> {
     logger.info('Upgrading pip...');
     const args = ['install', '--upgrade', 'pip'];
-    const r = loadPyfig().pipSpawnSync(args, {
+    const r = this._pyfig.pipSync(args, {
       encoding: 'utf8',
       cwd:      this._opts.cwd,
       env:      { ...process.env, ...this._opts.env },
-    }, this._pyfigOptions());
+    });
     if (r.status !== 0) {
       logger.warn(`pip self-upgrade failed (non-fatal):\n${r.stderr}`);
     }
@@ -531,10 +535,10 @@ export class PackageInstaller extends EventEmitter {
     const topLevel = importName.split('.')[0]!;
     if (!isPythonModuleName(topLevel)) return false;
     const code = `import importlib; importlib.import_module(${JSON.stringify(topLevel)})`;
-    const r = loadPyfig().pythonSpawnSync(['-c', code], {
+    const r = this._pyfig.pythonSync(['-c', code], {
       encoding: 'utf8',
       env:      { ...process.env, ...this._opts.env },
-    }, this._pyfigOptions());
+    });
     return r.status === 0;
   }
 
@@ -635,11 +639,11 @@ export class PackageInstaller extends EventEmitter {
    * Spawn pip and collect output.
    */
   private async _runPip(args: string[]): Promise<{ exitCode: number; stdout: string }> {
-    const proc = await loadPyfig().pipSpawn(args, {
+    const proc = await this._pyfig.pip(args, {
         cwd:     this._opts.cwd,
         env:     { ...process.env, ...this._opts.env },
         stdio:   ['ignore', 'pipe', 'pipe'],
-      }, this._pyfigOptions());
+      });
 
     return new Promise((resolve) => {
       let stdout = '';
@@ -655,14 +659,6 @@ export class PackageInstaller extends EventEmitter {
         clearTimeout(timer);
         resolve({ exitCode: code ?? 1, stdout });
       });
-    });
-  }
-
-  private _pyfigOptions(): object {
-    return pynectPyfigOptions({
-      projectRoot: this._opts.cwd,
-      pythonPath: this._python,
-      env: this._opts.env,
     });
   }
 

@@ -1,6 +1,6 @@
 # Utility map
 
-- `scripts/pyfig.js`: shared build-time and runtime policy adapter; requires an embeddable, GIL-enabled Pyfig Python in the repository `.venv`.
+- `scripts/pyfig.js`: shared build-time and runtime policy adapter; creates the scoped Pyfig client used for every Python, pip, and uv operation and requires an embeddable, GIL-enabled repository `.venv`.
 - `scripts/ensure-native.js`: check-lock-check native builder invoked through the active JavaScript runtime when no addon can be loaded.
 - `src/native/NativeAddonLoader.ts`: exact-Python local-addon loader and lazy build boundary; validates `build/pynect-python.json` and relaunches `process.execPath`, never a hard-coded Node executable.
 - `scripts/python-provisioner.js`: compatibility wrapper around `scripts/pyfig.js`.

@@ -6,13 +6,7 @@ const fs = require('fs');
 let cachedPyfig;
 
 const REQUIRED_PYFIG_FUNCTIONS = [
-  'ensureEnvironment',
-  'ensureVirtualEnvironment',
-  'pipSpawn',
-  'pipSpawnSync',
-  'pythonSpawn',
-  'pythonSpawnSync',
-  'uvSpawnSync',
+  'createPyfig',
 ];
 
 function loadPyfig() {
@@ -96,25 +90,26 @@ function assertEmbeddable(python) {
   return python;
 }
 
+function createPynectPyfig(options = {}) {
+  return loadPyfig().createPyfig(pynectPyfigOptions(options));
+}
+
 async function ensurePynectPython(options = {}) {
-  const pyfig = loadPyfig();
-  const pyfigOptions = pynectPyfigOptions(options);
-  const python = assertEmbeddable(await pyfig.ensureVirtualEnvironment(pyfigOptions));
-  return { python, pyfigOptions };
+  const client = createPynectPyfig(options);
+  const python = assertEmbeddable(await client.pythonInfo());
+  return { client, python };
 }
 
 async function ensurePynectEnvironment(options = {}) {
-  const pyfig = loadPyfig();
-  const pyfigOptions = pynectPyfigOptions(options);
-  const environment = await pyfig.ensureEnvironment(pyfigOptions);
+  const client = createPynectPyfig(options);
+  const environment = await client.prepare();
   assertEmbeddable(environment.python);
-  return { environment, pyfigOptions };
+  return { client, environment };
 }
 
 module.exports = {
+  createPynectPyfig,
   ensurePynectEnvironment,
   ensurePynectPython,
-  loadPyfig,
   projectRoot,
-  pynectPyfigOptions,
 };
