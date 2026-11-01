@@ -110,8 +110,7 @@ describe("withLock", () => {
       const run = () =>
         withLock(
           { resource: "layered" },
-          async ({ acquired, lock, state }) => {
-            expect(acquired).toBe(true);
+          async ({ lock, state }) => {
             expect(state).toBe("executed");
             expect(lock.scope).toEqual(["memory", "worker", "file"]);
             expect(lock.type).toBe("composite");
@@ -164,9 +163,9 @@ describe("withLock", () => {
 
     expect(result.value).toBe("done");
     expect(result.context).toMatchObject({
-      acquired: true,
       state: "executed",
     });
+    expect("acquired" in result.context).toBe(false);
     expect(result.context).toBe(actionContext);
     expect(checks).toBe(2);
   });
@@ -195,7 +194,6 @@ describe("withLock", () => {
   test("accepts the predicate as an options field", async () => {
     let checks = 0;
     let actions = 0;
-    const acquiredPhases: boolean[] = [];
     const states: string[] = [];
 
     const result = await withLock(
@@ -206,9 +204,8 @@ describe("withLock", () => {
       },
       {
         scope: "memory",
-        predicate: ({ acquired, resource, state }) => {
+        predicate: ({ resource, state }) => {
           checks += 1;
-          acquiredPhases.push(acquired);
           states.push(state);
           return resource === "options-predicate";
         },
@@ -219,7 +216,6 @@ describe("withLock", () => {
     expect(result.context.state).toBe("executed");
     expect(checks).toBe(2);
     expect(actions).toBe(1);
-    expect(acquiredPhases).toEqual([false, true]);
     expect(states).toEqual(["predicate-before", "predicate-after"]);
   });
 
@@ -227,7 +223,6 @@ describe("withLock", () => {
     const key = "post-check-failure";
     let actions = 0;
     let nestedActions = 0;
-    let observedAcquired: boolean | undefined;
     let observedState: string | undefined;
 
     const result = await withLock(
@@ -238,9 +233,8 @@ describe("withLock", () => {
       {
         key,
         scope: "memory",
-        predicate: ({ acquired }) => !acquired,
-        onCheckFailed: async ({ acquired, resource, state }) => {
-          observedAcquired = acquired;
+        predicate: ({ state }) => state === "predicate-before",
+        onCheckFailed: async ({ resource, state }) => {
           observedState = state;
           expect(resource).toBe(key);
 
@@ -257,10 +251,9 @@ describe("withLock", () => {
 
     expect(result.value).toBeUndefined();
     expect(result.context).toMatchObject({
-      acquired: true,
       state: "predicate-after",
     });
-    expect(observedAcquired).toBe(true);
+    expect("acquired" in result.context).toBe(false);
     expect(observedState).toBe("predicate-after");
     expect(actions).toBe(0);
     expect(nestedActions).toBe(1);
@@ -268,7 +261,6 @@ describe("withLock", () => {
 
   test("reports a failed pre-acquisition check without taking the lock", async () => {
     let observedState: string | undefined;
-    let observedAcquired: boolean | undefined;
 
     const result = await withLock(
       { resource: "pre-check-failure" },
@@ -277,9 +269,8 @@ describe("withLock", () => {
       },
       {
         scope: "memory",
-        predicate: ({ acquired }) => acquired,
-        onCheckFailed: ({ acquired, state }) => {
-          observedAcquired = acquired;
+        predicate: ({ state }) => state === "predicate-after",
+        onCheckFailed: ({ state }) => {
           observedState = state;
         },
       },
@@ -287,10 +278,9 @@ describe("withLock", () => {
 
     expect(result.value).toBeUndefined();
     expect(result.context).toMatchObject({
-      acquired: false,
       state: "predicate-before",
     });
-    expect(observedAcquired).toBe(false);
+    expect("acquired" in result.context).toBe(false);
     expect(observedState).toBe("predicate-before");
   });
 
@@ -351,10 +341,10 @@ describe("withLock", () => {
     );
     expect(attempt.value).toBeUndefined();
     expect(attempt.context).toMatchObject({
-      acquired: false,
       resource: key,
       state: "timeout",
     });
+    expect("acquired" in attempt.context).toBe(false);
     expect(attempt.context.lock.waitedMs).toBeGreaterThanOrEqual(0);
 
     await expect(

@@ -45,8 +45,7 @@ function createContext<
   lock: Readonly<LockInfo>,
   state: TState,
 ): LockContext<TContext, TState> {
-  const acquired = state !== "predicate-before";
-  return Object.freeze({ ...context, state, acquired, lock }) as LockContext<
+  return Object.freeze({ ...context, state, lock }) as LockContext<
     TContext,
     TState
   >;
@@ -88,7 +87,6 @@ function createTimeoutContext<TContext extends object>(
   return Object.freeze({
     ...context,
     state: "timeout",
-    acquired: false,
     lock,
   }) as LockResultContext<TContext>;
 }
@@ -350,8 +348,7 @@ const withLockImplementation = async <TContext extends object, TResult>(
  * By default, memory, worker-thread, and cross-process file layers are held in
  * that order. When supplied, the predicate runs before waiting and again after
  * every requested layer has been acquired. Callbacks distinguish those phases
- * through context.state; context.acquired is the corresponding convenience
- * boolean.
+ * through context.state.
  */
 export const withLock: WithLock = withLockImplementation;
 

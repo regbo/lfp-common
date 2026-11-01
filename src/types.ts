@@ -21,12 +21,6 @@ export type LockCallbackState =
   | "executed";
 export type LockState = LockCallbackState | "timeout";
 
-type LockAcquired<TState extends LockState> = TState extends
-  | "predicate-before"
-  | "timeout"
-  ? false
-  : true;
-
 /** One requested lock layer and the implementation that satisfied it. */
 export interface LockBackendInfo {
   readonly scope: LockBackendScope;
@@ -53,11 +47,9 @@ export type LockContext<
   TContext extends object,
   TState extends LockCallbackState = LockCallbackState,
 > = Readonly<
-  Omit<TContext, "acquired" | "lock" | "state"> & {
+  Omit<TContext, "lock" | "state"> & {
     /** Which branch of the lock attempt is invoking this callback. */
     readonly state: TState;
-    /** Whether this context snapshot was created after lock acquisition. */
-    readonly acquired: LockAcquired<TState>;
     readonly lock: Readonly<LockInfo>;
   }
 >;

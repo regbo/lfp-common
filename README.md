@@ -32,7 +32,7 @@ console.log(result.value, result.context.state, result.context.lock.waitedMs);
 
 By default, `withLock` acquires memory, worker-thread, and file locks for the same key. The argument after the action can be a predicate function or an options object containing `predicate`. The predicate runs once before waiting and again after all three layers are held. The action runs only when both checks pass.
 
-Every callback receives `ctx.state`: `"predicate-before"` for the first check, `"predicate-after"` for the check after acquisition, and `"executed"` for the action. `ctx.acquired` is the corresponding convenience boolean. When either check fails, `onCheckFailed(ctx)` runs after any acquired layers have been released. It can inspect `ctx.state`, log, reread data, or start other lock work without holding this lock. For this hook, `acquired` describes the context snapshot; it does not mean the hook currently holds the lock.
+Every callback receives `ctx.state`: `"predicate-before"` for the first check, `"predicate-after"` for the check after acquisition, and `"executed"` for the action. When either check fails, `onCheckFailed(ctx)` runs after any acquired layers have been released. It can inspect `ctx.state`, log, reread data, or start other lock work without holding this lock.
 
 `withLock` returns `{ value, context }`. `value` is the action's result, or `undefined` when the action did not run. The returned context has the same fields and state values as a callback context, with `"timeout"` added because a non-throwing timeout can only be observed in the result. Lock metadata, including wait time, is available on `result.context.lock`.
 
