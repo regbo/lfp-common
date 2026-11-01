@@ -95,6 +95,7 @@ if (versionResponse.status !== 404) {
 console.log(
   `${dryRun ? 'Dry run' : 'Release'}: ${plan.currentVersion ?? 'unpublished'} -> ${plan.nextVersion} (${tag})`,
 );
+const versionChanged = manifest.version !== plan.nextVersion;
 manifest.version = plan.nextVersion;
 await Bun.write('package.json', `${JSON.stringify(manifest, null, 2)}\n`);
 
@@ -121,7 +122,11 @@ try {
     console.log(`Dry run complete; ${tag} was not created`);
   } else {
     await runCommand('git', ['add', '--', 'package.json']);
-    await runCommand('git', ['commit', '-m', `release: ${tag}`], { inherit: true });
+    await runCommand(
+      'git',
+      ['commit', ...(versionChanged ? [] : ['--allow-empty']), '-m', `release: ${tag}`],
+      { inherit: true },
+    );
     releaseCommitCreated = true;
     await runCommand('git', ['tag', tag]);
     await runCommand('git', [
