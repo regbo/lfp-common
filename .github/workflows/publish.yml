@@ -25,7 +25,8 @@ jobs:
       fingerprint: ${{ steps.plan.outputs.fingerprint }}
       matrix: ${{ steps.plan.outputs.matrix }}
       node_major: ${{ steps.plan.outputs.node_major }}
-      python_major_minor: ${{ steps.plan.outputs.python_major_minor }}
+      python_build_version: ${{ steps.plan.outputs.python_build_version }}
+      python_minimum_version: ${{ steps.plan.outputs.python_minimum_version }}
       reuse: ${{ steps.plan.outputs.reuse }}
       source_version: ${{ steps.plan.outputs.source_version }}
       windows_arm_node_gyp: ${{ steps.plan.outputs.windows_arm_node_gyp }}
@@ -47,7 +48,7 @@ jobs:
           retention-days: 14
 
   native-prebuilds:
-    name: ${{ matrix.platform }}-${{ matrix.arch }} Python ${{ needs.native-plan.outputs.python_major_minor }}
+    name: ${{ matrix.platform }}-${{ matrix.arch }} Python >=${{ needs.native-plan.outputs.python_minimum_version }}
     needs: native-plan
     if: github.repository == 'regbo/pynect' && needs.native-plan.outputs.reuse != 'true'
     runs-on: ${{ matrix.runner }}
@@ -65,7 +66,7 @@ jobs:
           architecture: ${{ matrix.arch }}
       - uses: actions/setup-python@v7
         with:
-          python-version: ${{ needs.native-plan.outputs.python_major_minor }}
+          python-version: ${{ needs.native-plan.outputs.python_build_version }}
           architecture: ${{ matrix.arch }}
       - name: Install build dependencies
         run: npm install --ignore-scripts --package-lock=false --no-audit --no-fund
@@ -80,12 +81,29 @@ jobs:
           PYNECT_AUTO_INSTALL: '0'
       - name: Verify shared Python boundary
         run: node scripts/smoke-python-boundary.js
+      - name: Install Linux binary metadata tool
+        if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install --yes patchelf
       - name: Stage prebuild
         run: node scripts/stage-prebuild.js
         env:
           PYNECT_EXPECTED_NATIVE_FINGERPRINT: ${{ needs.native-plan.outputs.fingerprint }}
       - name: Verify staged prebuild
         run: node scripts/smoke-prebuild.js
+      - name: Set up Python compatibility floor
+        if: matrix.compatibilityPython
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.compatibilityPython }}
+          architecture: ${{ matrix.arch }}
+      - name: Verify one prebuild across Python minors
+        if: matrix.compatibilityPython
+        run: node scripts/smoke-prebuild.js
+        env:
+          PYNECT_PYTHON: python
+          PYNECT_REQUIRES_PYTHON: "==${{ matrix.compatibilityPython }}.*"
+          PYNECT_MANAGED_PYTHON: ${{ matrix.compatibilityPython }}
+          PYNECT_AUTO_INSTALL: '0'
       - uses: actions/upload-artifact@v7
         with:
           name: pynect-prebuild-${{ matrix.platform }}-${{ matrix.arch }}

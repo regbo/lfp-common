@@ -77,7 +77,7 @@ async function main() {
     await pynect.shutdown();
   }
 
-  console.log(`Python boundary verified: ${python.executable}`);
+  console.log(`Python ${python.version} boundary verified: ${python.executable}`);
 }
 
 function assertSuccess(result, label) {

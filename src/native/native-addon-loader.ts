@@ -72,10 +72,11 @@ interface NativeBuildMetadata {
 }
 
 interface NativePrebuildMetadata {
-  schemaVersion: 1;
+  schemaVersion: 2;
   platform: NodeJS.Platform;
   architecture: string;
-  pythonMajorMinor: string;
+  pythonMinimumVersion: string;
+  pythonAbi: string;
   napi: number;
   glibc?: string;
   pythonLibraryName: string;
@@ -91,17 +92,22 @@ function loadMatchingPrebuild(options: NativeAddonBuildOptions): NativeAddon {
   } catch (error) {
     throw new Error(`Native prebuild metadata is unavailable at ${metadataPath}.`, { cause: error });
   }
-  const pythonMajorMinor = options.pythonVersion.split('.').slice(0, 2).join('.');
+  const pythonVersion = majorMinor(options.pythonVersion);
+  const minimumVersion = typeof metadata.pythonMinimumVersion === 'string'
+    ? majorMinor(metadata.pythonMinimumVersion)
+    : [Number.POSITIVE_INFINITY, 0] as const;
   if (
-    metadata.schemaVersion !== 1 ||
+    metadata.schemaVersion !== 2 ||
     metadata.platform !== process.platform ||
     metadata.architecture !== process.arch ||
-    metadata.pythonMajorMinor !== pythonMajorMinor ||
+    metadata.pythonAbi !== 'cp310-abi3' ||
+    pythonVersion[0] !== 3 ||
+    compareMajorMinor(pythonVersion, minimumVersion) < 0 ||
     metadata.napi > Number(process.versions.napi ?? 0)
   ) {
     throw new Error(
       `Native prebuild does not match ${process.platform}-${process.arch}, ` +
-      `Python ${pythonMajorMinor}, N-API ${process.versions.napi ?? 'unknown'}.`,
+      `Python ${options.pythonVersion}, N-API ${process.versions.napi ?? 'unknown'}.`,
     );
   }
   if (process.platform === 'linux' && metadata.glibc) {
@@ -137,7 +143,7 @@ function materializePortablePrebuild(
     'node_modules',
     '.pynect',
     'native',
-    `${process.platform}-${process.arch}-python${metadata.pythonMajorMinor}-${identity}`,
+    `${process.platform}-${process.arch}-${metadata.pythonAbi}-${identity}`,
   );
   const addon = path.join(directory, 'pynect_addon.node');
   const library = path.join(directory, metadata.pythonLibraryName);
@@ -215,4 +221,17 @@ function compareVersions(left: string, right: string): number {
     if (difference !== 0) return difference;
   }
   return 0;
+}
+
+function majorMinor(version: string): readonly [number, number] {
+  const match = version.match(/^(\d+)\.(\d+)/u);
+  if (!match) throw new Error(`Invalid Python version: ${version}`);
+  return [Number(match[1]), Number(match[2])];
+}
+
+function compareMajorMinor(
+  left: readonly [number, number],
+  right: readonly [number, number],
+): number {
+  return left[0] - right[0] || left[1] - right[1];
 }

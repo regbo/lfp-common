@@ -7,6 +7,7 @@ import {
   resolveProjectConfig,
   resolveInstalledPackageDirectory,
   validatePackageManifest,
+  PYNECT_REQUIRES_PYTHON,
   type CanonicalPynectPackageManifest,
   type PynectModuleManifest,
   type ProjectConfigOverrides,
@@ -101,6 +102,7 @@ export function createProjectPlan(
   ].sort();
 
   const pythonConstraints = [
+    { range: PYNECT_REQUIRES_PYTHON, packageName: 'pynect' },
     { range: config.requiresPython, packageName: '<application>' },
     ...contributions
       .filter(contribution =>

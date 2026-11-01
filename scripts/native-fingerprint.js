@@ -71,10 +71,11 @@ function computeNativeFingerprint(root = ROOT) {
 }
 
 function validatePrebuildMetadata(metadata, target, fingerprint) {
-  return metadata?.schemaVersion === 1 &&
+  return metadata?.schemaVersion === 2 &&
     metadata.platform === target.platform &&
     metadata.architecture === target.arch &&
-    metadata.pythonMajorMinor === nativeBuildConfig.pythonMajorMinor &&
+    metadata.pythonMinimumVersion === nativeBuildConfig.pythonMinimumVersion &&
+    metadata.pythonAbi === nativeBuildConfig.pythonAbi &&
     metadata.napi === nativeBuildConfig.napi &&
     metadata.nativeFingerprint === fingerprint &&
     typeof metadata.pythonLibraryName === 'string' &&

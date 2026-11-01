@@ -2,13 +2,16 @@
   "schemaVersion": 1,
   "nodeMajor": 22,
   "napi": 8,
-  "pythonMajorMinor": "3.12",
+  "pythonBuildVersion": "3.12",
+  "pythonMinimumVersion": "3.10",
+  "pythonAbi": "cp310-abi3",
   "windowsArmNodeGyp": "13.1.0",
   "targets": [
     {
       "runner": "ubuntu-22.04",
       "platform": "linux",
-      "arch": "x64"
+      "arch": "x64",
+      "compatibilityPython": "3.10"
     },
     {
       "runner": "ubuntu-24.04-arm",
@@ -18,7 +21,8 @@
     {
       "runner": "macos-15-intel",
       "platform": "darwin",
-      "arch": "x64"
+      "arch": "x64",
+      "compatibilityPython": "3.10"
     },
     {
       "runner": "macos-15",
@@ -28,7 +32,8 @@
     {
       "runner": "windows-2022",
       "platform": "win32",
-      "arch": "x64"
+      "arch": "x64",
+      "compatibilityPython": "3.10"
     },
     {
       "runner": "windows-11-arm",

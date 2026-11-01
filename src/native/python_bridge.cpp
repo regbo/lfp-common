@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <iostream>
 #include <algorithm>
+#include <fstream>
 
 #if defined(__linux__) || defined(__APPLE__)
 #include <dlfcn.h>
@@ -20,6 +21,40 @@
 namespace pynect {
 
 namespace {
+
+void setEnvironmentVariable(const std::string& key, const std::string& value) {
+#ifdef _WIN32
+  _putenv_s(key.c_str(), value.c_str());
+#else
+  setenv(key.c_str(), value.c_str(), 1);
+#endif
+}
+
+PyObject* evaluateSource(
+  const std::string& source,
+  const std::string& filename,
+  const char* mode,
+  PyObject* globals
+) {
+  PyObject* builtins = PyImport_ImportModule("builtins");
+  if (!builtins) return nullptr;
+  PyRef builtinsRef = PyRef::steal(builtins);
+
+  PyObject* compile = PyObject_GetAttrString(builtins, "compile");
+  if (!compile) return nullptr;
+  PyRef compileRef = PyRef::steal(compile);
+
+  PyObject* code = PyObject_CallFunction(
+    compile,
+    "sss",
+    source.c_str(),
+    filename.c_str(),
+    mode
+  );
+  if (!code) return nullptr;
+  PyRef codeRef = PyRef::steal(code);
+  return PyEval_EvalCode(code, globals, globals);
+}
 
 #if defined(__linux__) || defined(__APPLE__)
 void promotePythonLibrary(const std::string& libraryPath) {
@@ -60,6 +95,8 @@ PythonBridge& PythonBridge::getInstance() {
 void PythonBridge::initializePython(
   const std::string& pythonHome,
   const std::string& pythonExecutable,
+  const std::string& pythonBaseExecutable,
+  const std::string& pythonPrefix,
   const std::string& pythonLibrary,
   const std::vector<std::string>& extraSysPaths,
   const std::vector<std::pair<std::string, std::string>>& envVars
@@ -74,52 +111,57 @@ void PythonBridge::initializePython(
 
   // Set environment variables before initialization
   for (const auto& [key, val] : envVars) {
-#ifdef _WIN32
-    _putenv_s(key.c_str(), val.c_str());
-#else
-    setenv(key.c_str(), val.c_str(), 1);
-#endif
+    setEnvironmentVariable(key, val);
   }
 
-  // Configure the interpreter with the detected executable so CPython can
-  // resolve its standard library consistently across platforms.
-  PyConfig config;
-  PyConfig_InitPythonConfig(&config);
-  PyStatus status = PyConfig_SetBytesString(
-    &config,
-    &config.program_name,
-    pythonExecutable.c_str()
-  );
-  if (!PyStatus_Exception(status) && !pythonHome.empty()) {
-    status = PyConfig_SetBytesString(&config, &config.home, pythonHome.c_str());
+  // These process-wide setters are in Python's Stable ABI. Keep their decoded
+  // storage alive until finalization, as required by CPython.
+  _programName = Py_DecodeLocale(pythonExecutable.c_str(), nullptr);
+  if (!_programName) {
+    throw std::runtime_error("Failed to decode the Python executable path");
   }
-  if (!PyStatus_Exception(status)) {
-    status = Py_InitializeFromConfig(&config);
+  Py_SetProgramName(_programName);
+  if (!pythonHome.empty()) {
+    _pythonHome = Py_DecodeLocale(pythonHome.c_str(), nullptr);
+    if (!_pythonHome) {
+      throw std::runtime_error("Failed to decode the Python home path");
+    }
+    Py_SetPythonHome(_pythonHome);
   }
-  std::string configError = PyStatus_Exception(status) && status.err_msg
-    ? status.err_msg
-    : "";
-  PyConfig_Clear(&config);
-  if (PyStatus_Exception(status)) {
-    throw std::runtime_error("Failed to configure Python: " + configError);
-  }
+  Py_Initialize();
 
   if (!Py_IsInitialized()) {
     throw std::runtime_error("Failed to initialize Python interpreter");
   }
 
-  // Enable thread support
-  PyEval_InitThreads();
-
   // Save main thread state and release GIL so threads can run
   _mainThreadState = PyEval_SaveThread();
 
-  // Add extra sys.path entries (done with GIL held)
-  if (!extraSysPaths.empty()) {
+  // Restore the selected environment identity and add its import paths after
+  // Stable ABI initialization used the base installation for the stdlib.
+  {
     GILAcquire gil;
     PyObject* sysModule = PyImport_ImportModule("sys");
     if (sysModule) {
       PyRef sysRef = PyRef::steal(sysModule);
+      PyObject* executable = PyUnicode_FromString(pythonExecutable.c_str());
+      if (executable) {
+        PyRef executableRef = PyRef::steal(executable);
+        PyObject_SetAttrString(sysModule, "executable", executable);
+      }
+      PyObject* baseExecutable = PyUnicode_FromString(pythonBaseExecutable.c_str());
+      if (baseExecutable) {
+        PyRef baseExecutableRef = PyRef::steal(baseExecutable);
+        PyObject_SetAttrString(sysModule, "_base_executable", baseExecutable);
+      }
+      if (!pythonPrefix.empty()) {
+        PyObject* prefix = PyUnicode_FromString(pythonPrefix.c_str());
+        if (prefix) {
+          PyRef prefixRef = PyRef::steal(prefix);
+          PyObject_SetAttrString(sysModule, "prefix", prefix);
+          PyObject_SetAttrString(sysModule, "exec_prefix", prefix);
+        }
+      }
       PyObject* sysPath = PyObject_GetAttrString(sysModule, "path");
       if (sysPath) {
         PyRef pathRef = PyRef::steal(sysPath);
@@ -130,6 +172,23 @@ void PythonBridge::initializePython(
             Py_DECREF(pathStr);
           }
         }
+      }
+      PyObject* siteModule = PyImport_ImportModule("site");
+      if (siteModule) {
+        PyRef siteRef = PyRef::steal(siteModule);
+        PyObject* addSiteDirectory = PyObject_GetAttrString(siteModule, "addsitedir");
+        if (addSiteDirectory) {
+          PyRef addSiteDirectoryRef = PyRef::steal(addSiteDirectory);
+          for (const auto& p : extraSysPaths) {
+            PyObject* added = PyObject_CallFunction(addSiteDirectory, "s", p.c_str());
+            if (added) Py_DECREF(added);
+            else PyErr_Clear();
+          }
+        } else {
+          PyErr_Clear();
+        }
+      } else {
+        PyErr_Clear();
       }
     }
   }
@@ -203,8 +262,7 @@ TaskResult PythonBridge::_makeSuccessResult(PyObject* obj) {
   }
 
   // For callable objects
-  if (PyCallable_Check(obj) && !PyFunction_Check(obj) &&
-      !PyModule_Check(obj) && !PyType_Check(obj)) {
+  if (PyCallable_Check(obj) && !PyModule_Check(obj) && !PyType_Check(obj)) {
     // Instance of a class with __call__ - usually want as reference
     result.objectId = TypeConverter::registerObject(obj);
     result.isObject = true;
@@ -563,7 +621,11 @@ bool PythonBridge::_buildCallArgs(
       argsOut = nullptr;
       return false;
     }
-    PyTuple_SET_ITEM(argsOut, static_cast<Py_ssize_t>(i), arg);  // steals reference
+    if (PyTuple_SetItem(argsOut, static_cast<Py_ssize_t>(i), arg) != 0) {
+      Py_DECREF(argsOut);
+      argsOut = nullptr;
+      return false;
+    }
   }
 
   // Build kwargs dict
@@ -643,7 +705,7 @@ TaskResult PythonBridge::runCodeSync(const std::string& code) {
 
   PyObject* globalDict = PyModule_GetDict(mainModule);  // borrowed
 
-  PyObject* result = PyRun_String(code.c_str(), Py_file_input, globalDict, globalDict);
+  PyObject* result = evaluateSource(code, "<pynect>", "exec", globalDict);
   if (!result) {
     return _makeErrorResult();
   }
@@ -661,7 +723,7 @@ TaskResult PythonBridge::evalExpressionSync(const std::string& expression) {
 
   PyObject* globalDict = PyModule_GetDict(mainModule);  // borrowed
 
-  PyObject* result = PyRun_String(expression.c_str(), Py_eval_input, globalDict, globalDict);
+  PyObject* result = evaluateSource(expression, "<pynect>", "eval", globalDict);
   if (!result) {
     return _makeErrorResult();
   }
@@ -671,8 +733,8 @@ TaskResult PythonBridge::evalExpressionSync(const std::string& expression) {
 }
 
 TaskResult PythonBridge::runFileSync(const std::string& filePath) {
-  FILE* fp = fopen(filePath.c_str(), "r");
-  if (!fp) {
+  std::ifstream input(filePath, std::ios::binary);
+  if (!input) {
     TaskResult r;
     r.success = false;
     r.errorType = "FileNotFoundError";
@@ -680,11 +742,14 @@ TaskResult PythonBridge::runFileSync(const std::string& filePath) {
     return r;
   }
 
+  std::ostringstream source;
+  source << input.rdbuf();
+
   PyObject* mainModule = PyImport_AddModule("__main__");
+  if (!mainModule) return _makeErrorResult();
   PyObject* globalDict = PyModule_GetDict(mainModule);
 
-  PyObject* result = PyRun_File(fp, filePath.c_str(), Py_file_input, globalDict, globalDict);
-  fclose(fp);
+  PyObject* result = evaluateSource(source.str(), filePath, "exec", globalDict);
 
   if (!result) {
     return _makeErrorResult();
@@ -763,7 +828,7 @@ TaskResult PythonBridge::getObjectKeysSync(uint32_t objectId) {
     PyObject* name = PyList_GetItem(dirList, i);
     if (!name || !PyUnicode_Check(name)) continue;
 
-    const char* nameStr = PyUnicode_AsUTF8(name);
+    const char* nameStr = PyUnicode_AsUTF8AndSize(name, nullptr);
     if (!nameStr) continue;
 
     // Filter out private names

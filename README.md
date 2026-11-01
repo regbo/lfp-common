@@ -43,7 +43,7 @@ await init({
 
 When lifecycle scripts are disabled or Pynect is not trusted, run `bunx --bun pynect sync` explicitly.
 
-Current Bun releases and Node.js 22 or newer are supported. Bun-only systems do not need a `node` executable. A preinstalled Python or uv is also unnecessary: Pynect uses Pyfig 0.6 to reuse a compatible application environment or create `<project-root>/node_modules/.pyfig/venv`, installing compatible uv and managed GIL-enabled Python releases when necessary. A matching Python 3.12 prebuild is loaded when available; other Python minors and incompatible platform baselines fall back to compiling with the active JavaScript runtime from `process.execPath` and require a C++ toolchain.
+Current Bun releases and Node.js 22 or newer are supported. Bun-only systems do not need a `node` executable. A preinstalled Python or uv is also unnecessary: Pynect uses Pyfig 0.6 to reuse a compatible application environment or create `<project-root>/node_modules/.pyfig/venv`, installing compatible uv and managed GIL-enabled Python releases when necessary. One CPython Stable ABI prebuild supports GIL-enabled Python 3.10 and newer on each packaged platform and architecture. Incompatible platform baselines fall back to compiling with the active JavaScript runtime from `process.execPath` and require a C++ toolchain.
 
 ## Quick start
 
@@ -136,7 +136,7 @@ The main tradeoff is isolation versus integration. Normal Pynect proxy calls avo
 
 ## Python and native build
 
-The package first loads a prebuilt N-API addon whose platform, architecture, Python minor, N-API version, and Linux glibc baseline match the active process. On Linux and macOS, Pynect materializes that addon beside a symlink to the exact `libpython` selected by Pyfig, so the binary does not depend on the CI machine's Python path. It then checks for an exact local build whose manifest names the selected interpreter. If neither addon works, Pynect lazily builds one against that interpreter. The builder is launched with `process.execPath`, so Bun launches Bun and Node.js launches Node.js instead of assuming a `node` command exists. The same approach works with another Node-compatible runtime when it implements the child-process and N-API behavior Pynect needs.
+The package first loads a prebuilt N-API addon whose platform, architecture, Python Stable ABI floor, N-API version, and Linux glibc baseline match the active process. The addon targets CPython's 3.10 Limited API. On Linux and macOS, Pynect materializes it beside a generic `libpython3` symlink to the exact GIL-enabled library selected by Pyfig, so the binary does not depend on the CI machine's Python path or minor version. It then checks for an exact local build whose manifest names the selected interpreter. If neither addon works, Pynect lazily builds one against that interpreter. The builder is launched with `process.execPath`, so Bun launches Bun and Node.js launches Node.js instead of assuming a `node` command exists. The same approach works with another Node-compatible runtime when it implements the child-process and N-API behavior Pynect needs.
 
 ```mermaid
 graph TD;
@@ -466,7 +466,7 @@ Pydantic cannot infer a validation target for an unannotated value, and some ext
 - Async Python uses one persistent asyncio loop. CPU-bound work still needs Python multiprocessing or native extensions that release the GIL.
 - Local modules use safe AST inspection, but codegen for explicitly requested installed packages imports those packages and may run their import-time code.
 - The isolated worker is not an operating-system sandbox and supports only JSON-compatible calls, not Python object proxies.
-- The npm package includes Python 3.12 native prebuilds for Linux, macOS, and Windows on x64 and ARM64. Other Python minors or incompatible platform baselines require a local C++ toolchain for the fallback build.
+- The npm package includes CPython 3.10+ Stable ABI prebuilds for Linux, macOS, and Windows on x64 and ARM64. Incompatible platform baselines require a local C++ toolchain for the fallback build; free-threaded Python remains unsupported.
 
 See [SECURITY.md](./SECURITY.md) before exposing imports or call patterns to untrusted input.
 

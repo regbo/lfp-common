@@ -14,6 +14,14 @@ async function main() {
     pythonPath: process.env.PYNECT_PYTHON,
   });
   const embedding = python.embedding;
+  const stableAbiLibrary = embedding.stableAbiLibraryPath || (
+    process.platform === 'win32'
+      ? path.join(embedding.libraryDirectory, 'python3.lib')
+      : ''
+  );
+  const linkLibrary = stableAbiLibrary && fs.existsSync(stableAbiLibrary)
+    ? stableAbiLibrary
+    : embedding.libraryPath;
   const nodeGyp = require.resolve('node-gyp/bin/node-gyp.js');
   const mode = process.argv.includes('--debug') ? '--debug' : '--release';
   const args = [nodeGyp, 'rebuild', mode];
@@ -24,8 +32,8 @@ async function main() {
     npm_config_python: python.executable,
     PYTHON: python.executable,
     PYNECT_PYTHON_INCLUDE_DIR: embedding.includeDirectory,
-    PYNECT_PYTHON_LIBRARY: embedding.libraryPath,
-    PYNECT_PYTHON_LIBRARY_DIR: embedding.libraryDirectory,
+    PYNECT_PYTHON_LIBRARY: linkLibrary,
+    PYNECT_PYTHON_LIBRARY_DIR: path.dirname(linkLibrary),
     PATH: [embedding.libraryDirectory, path.dirname(python.executable), process.env.PATH || '']
       .filter(Boolean)
       .join(path.delimiter),
@@ -40,7 +48,7 @@ async function main() {
       schemaVersion: 1,
       pythonExecutable: path.resolve(python.executable),
       pythonVersion: python.version,
-      pythonLibrary: path.resolve(embedding.libraryPath),
+      pythonLibrary: path.resolve(linkLibrary),
       buildType: mode === '--debug' ? 'Debug' : 'Release',
     }, null, 2)}\n`,
   );

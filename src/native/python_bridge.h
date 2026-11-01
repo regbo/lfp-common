@@ -67,6 +67,8 @@ public:
   void initializePython(
     const std::string& pythonHome,
     const std::string& pythonExecutable,
+    const std::string& pythonBaseExecutable,
+    const std::string& pythonPrefix,
     const std::string& pythonLibrary,
     const std::vector<std::string>& extraSysPaths,
     const std::vector<std::pair<std::string, std::string>>& envVars
@@ -253,6 +255,10 @@ private:
 
   bool _initialized = false;
   PyThreadState* _mainThreadState = nullptr;
+  // CPython requires these buffers to remain unchanged for the process
+  // lifetime, so the singleton intentionally retains them after finalization.
+  wchar_t* _programName = nullptr;
+  wchar_t* _pythonHome = nullptr;
 
   // Iterator registry: iteratorId -> Python iterator object
   std::map<uint32_t, PyObject*> _iterators;

@@ -96,13 +96,14 @@ describe('release workflow', () => {
     const fingerprint = computeNativeFingerprint();
     const target = nativeBuildConfig.targets[0]!;
     const metadata = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       platform: target.platform,
       architecture: target.arch,
-      pythonMajorMinor: nativeBuildConfig.pythonMajorMinor,
+      pythonMinimumVersion: nativeBuildConfig.pythonMinimumVersion,
+      pythonAbi: nativeBuildConfig.pythonAbi,
       napi: nativeBuildConfig.napi,
       nativeFingerprint: fingerprint,
-      pythonLibraryName: 'libpython3.12.so.1.0',
+      pythonLibraryName: 'libpython3.so',
     };
     expect(validatePrebuildMetadata(metadata, target, fingerprint)).toBe(true);
     expect(validatePrebuildMetadata(metadata, target, 'sha256:stale')).toBe(false);

@@ -106,14 +106,19 @@ void TypeConverter::clearRegistry() {
 
 std::string TypeConverter::getTypeName(PyObject* obj) {
   if (!obj) return "NoneType";
-  PyObject* type = reinterpret_cast<PyObject*>(Py_TYPE(obj));
+  PyObject* type = PyObject_Type(obj);
+  if (!type) {
+    PyErr_Clear();
+    return "unknown";
+  }
+  PyRef typeRef = PyRef::steal(type);
   PyObject* name = PyObject_GetAttrString(type, "__name__");
   if (!name) {
     PyErr_Clear();
     return "unknown";
   }
   PyRef nameRef = PyRef::steal(name);
-  const char* str = PyUnicode_AsUTF8(name);
+  const char* str = PyUnicode_AsUTF8AndSize(name, nullptr);
   if (!str) {
     PyErr_Clear();
     return "unknown";
@@ -123,7 +128,12 @@ std::string TypeConverter::getTypeName(PyObject* obj) {
 
 std::string TypeConverter::getQualifiedTypeName(PyObject* obj) {
   if (!obj) return "NoneType";
-  PyObject* type = reinterpret_cast<PyObject*>(Py_TYPE(obj));
+  PyObject* type = PyObject_Type(obj);
+  if (!type) {
+    PyErr_Clear();
+    return "unknown";
+  }
+  PyRef typeRef = PyRef::steal(type);
 
   // Try __module__.__qualname__ first
   PyObject* module = PyObject_GetAttrString(type, "__module__");
@@ -132,13 +142,13 @@ std::string TypeConverter::getQualifiedTypeName(PyObject* obj) {
 
   std::string result;
   if (module && PyUnicode_Check(module)) {
-    const char* mod = PyUnicode_AsUTF8(module);
+    const char* mod = PyUnicode_AsUTF8AndSize(module, nullptr);
     if (mod) {
       result = std::string(mod) + ".";
     }
   }
   if (qualname && PyUnicode_Check(qualname)) {
-    const char* qn = PyUnicode_AsUTF8(qualname);
+    const char* qn = PyUnicode_AsUTF8AndSize(qualname, nullptr);
     if (qn) result += qn;
   } else {
     result += getTypeName(obj);
@@ -249,7 +259,7 @@ SerializedValue TypeConverter::pythonToSerialized(PyObject* obj, int depth) {
         if (strObj) {
           PyRef strRef = PyRef::steal(strObj);
           result.format = SerializedFormat::JSON;
-          result.jsonData = "\"" + std::string(PyUnicode_AsUTF8(strObj)) + "\"";
+          result.jsonData = "\"" + std::string(PyUnicode_AsUTF8AndSize(strObj, nullptr)) + "\"";
           return result;
         }
       }
@@ -286,7 +296,7 @@ SerializedValue TypeConverter::pythonToSerialized(PyObject* obj, int depth) {
 
   // String
   if (PyUnicode_Check(obj)) {
-    const char* str = PyUnicode_AsUTF8(obj);
+    const char* str = PyUnicode_AsUTF8AndSize(obj, nullptr);
     if (!str) {
       PyErr_Clear();
       result.format = SerializedFormat::JSON;
@@ -420,13 +430,13 @@ std::string TypeConverter::dictToJson(PyObject* mapping, int depth) {
     // Convert key to string
     std::string keyStr;
     if (PyUnicode_Check(key)) {
-      const char* k = PyUnicode_AsUTF8(key);
+      const char* k = PyUnicode_AsUTF8AndSize(key, nullptr);
       if (k) keyStr = k;
     } else {
       PyObject* strKey = PyObject_Str(key);
       if (strKey) {
         PyRef strRef = PyRef::steal(strKey);
-        const char* k = PyUnicode_AsUTF8(strKey);
+        const char* k = PyUnicode_AsUTF8AndSize(strKey, nullptr);
         if (k) keyStr = k;
       } else {
         PyErr_Clear();
@@ -470,7 +480,7 @@ SerializedValue TypeConverter::numpyArrayToBuffer(PyObject* array) {
     PyObject* dtypeName = PyObject_GetAttrString(dtypeObj, "name");
     if (dtypeName) {
       PyRef nameRef = PyRef::steal(dtypeName);
-      const char* name = PyUnicode_AsUTF8(dtypeName);
+      const char* name = PyUnicode_AsUTF8AndSize(dtypeName, nullptr);
       if (name) result.metadata.dtype = name;
     } else { PyErr_Clear(); }
   } else { PyErr_Clear(); }
@@ -538,7 +548,7 @@ SerializedValue TypeConverter::dataFrameToBuffer(PyObject* df) {
         for (Py_ssize_t i = 0; i < ncols; ++i) {
           PyObject* col = PyList_GetItem(colList, i);
           if (col && PyUnicode_Check(col)) {
-            const char* colName = PyUnicode_AsUTF8(col);
+            const char* colName = PyUnicode_AsUTF8AndSize(col, nullptr);
             if (colName) result.metadata.columns.push_back(colName);
           }
         }
@@ -565,7 +575,7 @@ SerializedValue TypeConverter::dataFrameToBuffer(PyObject* df) {
 
     if (jsonStr) {
       PyRef jsonRef = PyRef::steal(jsonStr);
-      const char* json = PyUnicode_AsUTF8(jsonStr);
+      const char* json = PyUnicode_AsUTF8AndSize(jsonStr, nullptr);
       if (json) {
         result.jsonData = json;
         result.format = SerializedFormat::PANDAS_DATAFRAME;
@@ -588,7 +598,7 @@ SerializedValue TypeConverter::seriesToBuffer(PyObject* series) {
     PyObject* jsonStr = PyObject_CallNoArgs(toJson);
     if (jsonStr) {
       PyRef jsonRef = PyRef::steal(jsonStr);
-      const char* json = PyUnicode_AsUTF8(jsonStr);
+      const char* json = PyUnicode_AsUTF8AndSize(jsonStr, nullptr);
       if (json) result.jsonData = json;
     } else { PyErr_Clear(); }
   } else { PyErr_Clear(); }
@@ -598,7 +608,7 @@ SerializedValue TypeConverter::seriesToBuffer(PyObject* series) {
   if (nameObj && nameObj != Py_None) {
     PyRef nameRef = PyRef::steal(nameObj);
     if (PyUnicode_Check(nameObj)) {
-      const char* name = PyUnicode_AsUTF8(nameObj);
+      const char* name = PyUnicode_AsUTF8AndSize(nameObj, nullptr);
       if (name) result.metadata.columns.push_back(name);
     }
   } else if (nameObj) {
@@ -634,7 +644,7 @@ PyObject* TypeConverter::jsonToPython(const std::string& json) {
   }
   PyRef strRef = PyRef::steal(strObj);
 
-  PyObject* result = PyObject_CallOneArg(loads, strObj);
+  PyObject* result = PyObject_CallFunctionObjArgs(loads, strObj, nullptr);
   if (!result) {
     PyErr_Clear();
     Py_RETURN_NONE;
@@ -747,7 +757,7 @@ PyObject* TypeConverter::bufferToNumpyArray(
       }
       PyRef shapeListRef = PyRef::steal(shapeList);
 
-      PyObject* reshaped = PyObject_CallOneArg(reshape, shapeList);
+      PyObject* reshaped = PyObject_CallFunctionObjArgs(reshape, shapeList, nullptr);
       if (reshaped) {
         return reshaped;
       }
@@ -770,7 +780,7 @@ std::string TypeConverter::getRepr(PyObject* obj) {
     return "<error getting repr>";
   }
   PyRef reprRef = PyRef::steal(repr);
-  const char* str = PyUnicode_AsUTF8(repr);
+  const char* str = PyUnicode_AsUTF8AndSize(repr, nullptr);
   if (!str) {
     PyErr_Clear();
     return "<encoding error>";
@@ -786,7 +796,7 @@ std::string TypeConverter::getStr(PyObject* obj) {
     return "<error>";
   }
   PyRef strRef = PyRef::steal(str);
-  const char* cstr = PyUnicode_AsUTF8(str);
+  const char* cstr = PyUnicode_AsUTF8AndSize(str, nullptr);
   if (!cstr) {
     PyErr_Clear();
     return "";
@@ -815,7 +825,7 @@ std::tuple<std::string, std::string, std::string> TypeConverter::captureExceptio
     PyObject* name = PyObject_GetAttrString(excType, "__name__");
     if (name) {
       PyRef nameRef = PyRef::steal(name);
-      const char* n = PyUnicode_AsUTF8(name);
+      const char* n = PyUnicode_AsUTF8AndSize(name, nullptr);
       if (n) typeName = n;
     } else { PyErr_Clear(); }
   }
@@ -825,7 +835,7 @@ std::tuple<std::string, std::string, std::string> TypeConverter::captureExceptio
     PyObject* str = PyObject_Str(excValue);
     if (str) {
       PyRef strRef = PyRef::steal(str);
-      const char* s = PyUnicode_AsUTF8(str);
+      const char* s = PyUnicode_AsUTF8AndSize(str, nullptr);
       if (s) message = s;
     } else { PyErr_Clear(); }
   }
@@ -838,7 +848,7 @@ std::tuple<std::string, std::string, std::string> TypeConverter::captureExceptio
       PyObject* formatTb = PyObject_GetAttrString(tbModule, "format_tb");
       if (formatTb) {
         PyRef formatTbRef = PyRef::steal(formatTb);
-        PyObject* tbLines = PyObject_CallOneArg(formatTb, excTb);
+        PyObject* tbLines = PyObject_CallFunctionObjArgs(formatTb, excTb, nullptr);
         if (tbLines) {
           PyRef tbLinesRef = PyRef::steal(tbLines);
           std::ostringstream oss;
@@ -847,7 +857,7 @@ std::tuple<std::string, std::string, std::string> TypeConverter::captureExceptio
           for (Py_ssize_t i = 0; i < nlines; ++i) {
             PyObject* line = PyList_GetItem(tbLines, i);
             if (line && PyUnicode_Check(line)) {
-              const char* l = PyUnicode_AsUTF8(line);
+              const char* l = PyUnicode_AsUTF8AndSize(line, nullptr);
               if (l) oss << l;
             }
           }

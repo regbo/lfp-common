@@ -51,27 +51,30 @@ jobs:
           - runner: ubuntu-22.04
             platform: linux
             arch: x64
-            artifact: pynect-linux-x64-python312
+            artifact: pynect-linux-x64-abi3
+            compatibility_python: '3.10'
           - runner: ubuntu-24.04-arm
             platform: linux
             arch: arm64
-            artifact: pynect-linux-arm64-python312
+            artifact: pynect-linux-arm64-abi3
           - runner: macos-15-intel
             platform: darwin
             arch: x64
-            artifact: pynect-darwin-x64-python312
+            artifact: pynect-darwin-x64-abi3
+            compatibility_python: '3.10'
           - runner: macos-15
             platform: darwin
             arch: arm64
-            artifact: pynect-darwin-arm64-python312
+            artifact: pynect-darwin-arm64-abi3
           - runner: windows-2022
             platform: win32
             arch: x64
-            artifact: pynect-win32-x64-python312
+            artifact: pynect-win32-x64-abi3
+            compatibility_python: '3.10'
           - runner: windows-11-arm
             platform: win32
             arch: arm64
-            artifact: pynect-win32-arm64-python312
+            artifact: pynect-win32-arm64-abi3
 
     steps:
       - name: Check out source
@@ -113,11 +116,31 @@ jobs:
       - name: Verify shared Python boundary
         run: node scripts/smoke-python-boundary.js
 
+      - name: Install Linux binary metadata tool
+        if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install --yes patchelf
+
       - name: Stage prebuild
         run: node scripts/stage-prebuild.js
 
       - name: Verify staged prebuild
         run: node scripts/smoke-prebuild.js
+
+      - name: Set up Python compatibility floor
+        if: matrix.compatibility_python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.compatibility_python }}
+          architecture: ${{ matrix.arch }}
+
+      - name: Verify one prebuild across Python minors
+        if: matrix.compatibility_python
+        run: node scripts/smoke-prebuild.js
+        env:
+          PYNECT_PYTHON: python
+          PYNECT_REQUIRES_PYTHON: "==${{ matrix.compatibility_python }}.*"
+          PYNECT_MANAGED_PYTHON: ${{ matrix.compatibility_python }}
+          PYNECT_AUTO_INSTALL: '0'
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v7

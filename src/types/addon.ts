@@ -17,6 +17,10 @@ export interface AddonInitOptions {
   pythonHome: string;
   /** Path to Python executable */
   pythonExecutable: string;
+  /** Base interpreter executable selected by Pyfig */
+  pythonBaseExecutable: string;
+  /** Runtime prefix selected by Pyfig (the virtual environment when present) */
+  pythonPrefix: string;
   /** Exact CPython embedding library selected by Pyfig */
   pythonLibrary: string;
   /** Thread pool size */

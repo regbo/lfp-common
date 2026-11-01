@@ -24,7 +24,8 @@
     "defines": [
       "NAPI_CPP_EXCEPTIONS",
       "NAPI_VERSION=8",
-      "PY_SSIZE_T_CLEAN"
+      "PY_SSIZE_T_CLEAN",
+      "Py_LIMITED_API=0x030A0000"
     ],
     "conditions": [
       ["OS=='linux'", {

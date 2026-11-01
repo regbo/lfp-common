@@ -141,6 +141,12 @@ static Napi::Value InitializePython(const Napi::CallbackInfo& info) {
   std::string pythonExecutable = opts.Has("pythonExecutable") ?
     opts.Get("pythonExecutable").As<Napi::String>().Utf8Value() : "python3";
 
+  std::string pythonBaseExecutable = opts.Has("pythonBaseExecutable") ?
+    opts.Get("pythonBaseExecutable").As<Napi::String>().Utf8Value() : pythonExecutable;
+
+  std::string pythonPrefix = opts.Has("pythonPrefix") ?
+    opts.Get("pythonPrefix").As<Napi::String>().Utf8Value() : "";
+
   std::string pythonLibrary = opts.Has("pythonLibrary") ?
     opts.Get("pythonLibrary").As<Napi::String>().Utf8Value() : "";
 
@@ -180,6 +186,8 @@ static Napi::Value InitializePython(const Napi::CallbackInfo& info) {
     PythonBridge::getInstance().initializePython(
       pythonHome,
       pythonExecutable,
+      pythonBaseExecutable,
+      pythonPrefix,
       pythonLibrary,
       pythonPathExtra,
       envVars

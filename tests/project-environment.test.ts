@@ -163,7 +163,9 @@ describe('manifest aggregation', () => {
 
     const plan = createProjectPlan({ projectRoot: root });
 
-    expect(plan.pythonRequirement).toBe('>=3.11,<3.14,>=3.12,<3.13');
+    expect(plan.pythonRequirement).toBe(
+      '>=3.10.0,<4.0.0,>=3.11,<3.14,>=3.12,<3.13',
+    );
     expect(semver.satisfies('3.12.0', plan.pythonRange)).toBe(true);
     expect(semver.satisfies('3.13.0', plan.pythonRange)).toBe(false);
     expect(plan.config.managedPython).toBe('3.12');
@@ -177,7 +179,9 @@ describe('manifest aggregation', () => {
       include: ['generate_name'],
     });
     expect(moduleDispatcherIncludes(plan)).toEqual(['name_generator.generate_name']);
-    expect(renderUvProject(plan)).toContain('requires-python = ">=3.11,<3.14,>=3.12,<3.13"');
+    expect(renderUvProject(plan)).toContain(
+      'requires-python = ">=3.10.0,<4.0.0,>=3.11,<3.14,>=3.12,<3.13"',
+    );
     expect(renderUvProject(plan)).toContain('override-dependencies = [\n  "packaging==24.2",\n]');
     expect(plan.generatedDirectory).toBe(path.join(root, 'node_modules', '.pynect'));
     expect(plan.pyprojectFile).toBe(
@@ -186,6 +190,14 @@ describe('manifest aggregation', () => {
     expect(plan.stateFile).toBe(
       path.join(root, 'node_modules', '.pynect', '.pynect-state.json'),
     );
+  });
+
+  test('enforces Pynect\'s Python 3.10 runtime floor', () => {
+    const root = project({ name: 'legacy-app', version: '1.0.0' });
+    expect(() => createProjectPlan({
+      projectRoot: root,
+      requiresPython: '>=3.9,<3.10',
+    })).toThrow(/pynect requires Python >=3\.10\.0 <4\.0\.0/);
   });
 
   test('derives an unconfigured managed Python fallback from the combined range', () => {

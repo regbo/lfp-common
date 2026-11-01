@@ -56,6 +56,9 @@ export class PyRuntime {
   private readonly _config: ResolvedPynectConfig;
   private _pythonExecutable: string;
   private readonly _pythonLibrary: string;
+  private readonly _pythonHome: string;
+  private readonly _pythonPrefix: string;
+  private readonly _pythonBaseExecutable: string;
   private readonly _addon: NativeAddon;
   private readonly _pluginManager: PluginManager;
   private readonly _memoryMonitor: MemoryMonitor;
@@ -66,10 +69,16 @@ export class PyRuntime {
     config: ResolvedPynectConfig,
     addon: NativeAddon,
     pythonLibrary: string,
+    pythonHome: string,
+    pythonPrefix: string,
+    pythonBaseExecutable: string,
   ) {
     this._config = config;
     this._pythonExecutable = config.pythonExecutable;
     this._pythonLibrary = pythonLibrary;
+    this._pythonHome = pythonHome;
+    this._pythonPrefix = pythonPrefix;
+    this._pythonBaseExecutable = pythonBaseExecutable;
     this._addon = addon;
     this._pluginManager = new PluginManager();
     this._memoryMonitor = new MemoryMonitor({
@@ -146,6 +155,16 @@ export class PyRuntime {
       }
     }
     const selectedProjectRoot = project.projectRoot;
+    const selectedSitePackages = selected.virtualEnvironment
+      ? [process.platform === 'win32'
+        ? path.join(selected.prefix, 'Lib', 'site-packages')
+        : path.join(
+          selected.prefix,
+          'lib',
+          `python${selected.major}.${selected.minor}`,
+          'site-packages',
+        )]
+      : [];
     if (config.virtualenv?.path) {
       const configuredVenv = path.resolve(config.virtualenv.path);
       if (!selected.virtualEnvironment || !pathsEqual(configuredVenv, selected.virtualEnvironment)) {
@@ -157,6 +176,10 @@ export class PyRuntime {
     const preparedConfig: PynectConfig = {
       ...config,
       python: selected.executable,
+      pythonPath_extra: [
+        ...selectedSitePackages,
+        ...(config.pythonPath_extra ?? []),
+      ],
       requiresPython: plan.pythonRange,
       projectRoot: selectedProjectRoot,
       installPython: project.installPython,
@@ -215,7 +238,14 @@ export class PyRuntime {
       );
     }
 
-    const runtime = new PyRuntime(resolved, addon, selected.embedding.libraryPath);
+    const runtime = new PyRuntime(
+      resolved,
+      addon,
+      selected.embedding.libraryPath,
+      selected.basePrefix,
+      selected.prefix,
+      selected.baseExecutable,
+    );
     try {
       await runtime._initialize();
       return runtime;
@@ -255,8 +285,10 @@ export class PyRuntime {
     logger.debug(`Initializing Python interpreter: ${pythonExecutable}`);
 
     await this._addon.initializePython({
-      pythonHome: this._config.pythonHome || '',
+      pythonHome: this._pythonHome,
       pythonExecutable,
+      pythonBaseExecutable: this._pythonBaseExecutable,
+      pythonPrefix: this._pythonPrefix,
       pythonLibrary: this._pythonLibrary,
       threadPoolSize: this._config.threadPoolSize,
       maxQueueSize: this._config.maxQueueSize,

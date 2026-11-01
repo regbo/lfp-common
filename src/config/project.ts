@@ -3,13 +3,13 @@ import path from 'path';
 import { createHash } from 'crypto';
 import {
   DEFAULT_MANAGED_PYTHON,
-  DEFAULT_REQUIRES_PYTHON,
   DEFAULT_REQUIRES_UV,
   resolveProjectRoot,
 } from 'pyfig';
 
 export type AutoSyncMode = 'never' | 'if-missing';
 export const CURRENT_PYNECT_SCHEMA_VERSION = 1 as const;
+export const PYNECT_REQUIRES_PYTHON = '>=3.10.0 <4.0.0';
 
 export interface PynectModuleManifest {
   import: string;
@@ -122,7 +122,7 @@ export interface ResolvedProjectConfig {
 
 const DEFAULTS = {
   python: '',
-  requiresPython: DEFAULT_REQUIRES_PYTHON,
+  requiresPython: PYNECT_REQUIRES_PYTHON,
   managedPython: DEFAULT_MANAGED_PYTHON,
   uvVersion: DEFAULT_REQUIRES_UV,
   installPython: true,
