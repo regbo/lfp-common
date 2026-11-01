@@ -42,9 +42,12 @@ function lockRecord(lock, packageName) {
 function hashNativeInputs(inputs) {
   const hash = crypto.createHash('sha256');
   for (const input of [...inputs].sort((left, right) => left.name.localeCompare(right.name))) {
-    const content = Buffer.isBuffer(input.content)
-      ? input.content
-      : Buffer.from(input.content, 'utf8');
+    // Git may check out the same tracked text with CRLF on Windows. Native
+    // fingerprints describe source semantics, so canonicalize line endings.
+    const text = Buffer.isBuffer(input.content)
+      ? input.content.toString('utf8')
+      : input.content;
+    const content = Buffer.from(text.replaceAll('\r\n', '\n'), 'utf8');
     hash.update(`${input.name}\0${content.length}\0`, 'utf8');
     hash.update(content);
   }

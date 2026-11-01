@@ -84,6 +84,14 @@ describe('release workflow', () => {
     ]));
   });
 
+  test('fingerprints native text independent of checkout line endings', () => {
+    expect(hashNativeInputs([
+      { name: 'native.cpp', content: 'first\nsecond\n' },
+    ])).toBe(hashNativeInputs([
+      { name: 'native.cpp', content: Buffer.from('first\r\nsecond\r\n') },
+    ]));
+  });
+
   test('accepts prebuilds only for the current native fingerprint', () => {
     const fingerprint = computeNativeFingerprint();
     const target = nativeBuildConfig.targets[0]!;
