@@ -3,7 +3,7 @@ import path from 'path';
 import { createHash } from 'crypto';
 import {
   DEFAULT_MANAGED_PYTHON,
-  DEFAULT_PYTHON_RANGE,
+  DEFAULT_REQUIRES_PYTHON,
   DEFAULT_UV_VERSION,
   resolveProjectRoot,
 } from 'pyfig';
@@ -122,7 +122,7 @@ export interface ResolvedProjectConfig {
 
 const DEFAULTS = {
   python: '',
-  requiresPython: DEFAULT_PYTHON_RANGE,
+  requiresPython: DEFAULT_REQUIRES_PYTHON,
   managedPython: DEFAULT_MANAGED_PYTHON,
   uvVersion: DEFAULT_UV_VERSION,
   installPython: true,

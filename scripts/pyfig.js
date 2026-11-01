@@ -49,6 +49,10 @@ function parseBoolean(value, fallback) {
   throw new TypeError(`Invalid boolean value: ${value}`);
 }
 
+function pep440PythonRange(value) {
+  return value.trim().replace(/\s+(?=[<>=!~])/gu, ',');
+}
+
 function projectRoot(explicit) {
   const hint = explicit || process.env.PYNECT_PROJECT_ROOT || process.env.INIT_CWD;
   return hint ? path.resolve(hint) : loadPyfig().resolveProjectRoot(process.cwd());
@@ -63,8 +67,10 @@ function pynectPyfigOptions(options = {}) {
   return {
     projectRoot: projectRoot(options.projectRoot),
     python: options.pythonPath || process.env.PYNECT_PYTHON || '',
-    pythonRange: options.pythonRange || process.env.PYNECT_REQUIRES_PYTHON ||
-      pyfig.DEFAULT_PYTHON_RANGE,
+    requiresPython: pep440PythonRange(
+      options.pythonRange || process.env.PYNECT_REQUIRES_PYTHON ||
+        pyfig.DEFAULT_REQUIRES_PYTHON,
+    ),
     managedPython: options.managedPython || process.env.PYNECT_MANAGED_PYTHON ||
       process.env.PYNECT_PYTHON_VERSION || pyfig.DEFAULT_MANAGED_PYTHON,
     uvVersion: options.uvVersion || process.env.PYNECT_UV_VERSION || pyfig.DEFAULT_UV_VERSION,

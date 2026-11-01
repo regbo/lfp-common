@@ -43,7 +43,7 @@ await init({
 
 When lifecycle scripts are disabled or Pynect is not trusted, run `bunx --bun pynect sync` explicitly.
 
-Current Bun releases and Node.js 22 or newer are supported. Bun-only systems do not need a `node` executable. A preinstalled Python or uv is also unnecessary: Pynect uses Pyfig 0.4 to reuse a compatible application environment or create `<project-root>/node_modules/.pyfig/venv`, installing its pinned uv and a managed GIL-enabled Python 3.12 when no compatible embeddable CPython exists. A matching Python 3.12 prebuild is loaded when available; other Python minors and incompatible platform baselines fall back to compiling with the active JavaScript runtime from `process.execPath` and require a C++ toolchain.
+Current Bun releases and Node.js 22 or newer are supported. Bun-only systems do not need a `node` executable. A preinstalled Python or uv is also unnecessary: Pynect uses Pyfig 0.5 to reuse a compatible application environment or create `<project-root>/node_modules/.pyfig/venv`, installing its pinned uv and a managed GIL-enabled Python 3.12 when no compatible embeddable CPython exists. A matching Python 3.12 prebuild is loaded when available; other Python minors and incompatible platform baselines fall back to compiling with the active JavaScript runtime from `process.execPath` and require a C++ toolchain.
 
 ## Quick start
 
