@@ -523,17 +523,65 @@ async function virtualEnvironmentMatchesConfiguredPython(
 }
 
 interface UvRelease {
+  assets: string[];
   tag: string;
   version: string;
 }
 
+interface UvReleaseCatalog {
+  fetchedAt: number;
+  releases: UvRelease[];
+}
+
 const UV_RELEASE_PAGE_SIZE = 100;
 const UV_RELEASE_MAX_PAGES = 20;
+const UV_RELEASE_METADATA_TTL_MS = 24 * 60 * 60_000;
 
 async function resolveUvRelease(options: ResolvedPyfigOptions): Promise<UvRelease> {
-  const dispatcher = proxyDispatcher(options.env);
-  const releases = new Map<string, string>();
+  const catalog = await ensureUvReleaseCatalog(options);
   const asset = uvAsset();
+  const releases = catalog.releases.filter(release =>
+    release.assets.includes(asset) && release.assets.includes(`${asset}.sha256`)
+  );
+  const version = maxPep440Version(
+    releases.map(release => release.version),
+    options.requiresUv,
+  );
+  const release = releases.find(candidate => candidate.version === version);
+  if (!release) {
+    throw new Error(`No published uv release satisfies requires-uv ${options.requiresUv}.`);
+  }
+  return release;
+}
+
+async function ensureUvReleaseCatalog(
+  options: ResolvedPyfigOptions,
+): Promise<UvReleaseCatalog> {
+  const file = uvReleaseMetadataFile(options);
+  const stale = await readUvReleaseCatalog(file);
+  try {
+    return await withProvisioningLock({
+      key: `uv-metadata:${canonicalPath(file)}`,
+      timeoutMs: options.coordinationTimeoutMs,
+      check: () => readFreshUvReleaseCatalog(file),
+      mutate: async () => {
+        const catalog = await fetchUvReleaseCatalog(options);
+        await writeUvReleaseCatalog(file, catalog);
+        return catalog;
+      },
+    });
+  } catch (error) {
+    const fallback = await readUvReleaseCatalog(file) ?? stale;
+    if (fallback) return fallback;
+    throw error;
+  }
+}
+
+async function fetchUvReleaseCatalog(
+  options: ResolvedPyfigOptions,
+): Promise<UvReleaseCatalog> {
+  const dispatcher = proxyDispatcher(options.env);
+  const releases = new Map<string, UvRelease>();
   let exhausted = false;
   try {
     for (let page = 1; page <= UV_RELEASE_MAX_PAGES; page += 1) {
@@ -556,9 +604,10 @@ async function resolveUvRelease(options: ResolvedPyfigOptions): Promise<UvReleas
         const release = candidate as { assets?: unknown; draft?: unknown; tag_name?: unknown };
         if (release.draft === true || typeof release.tag_name !== 'string') continue;
         const assetNames = releaseAssetNames(release.assets);
-        if (!assetNames.includes(asset) || !assetNames.includes(`${asset}.sha256`)) continue;
         const version = normalizePep440Version(release.tag_name);
-        if (version) releases.set(version, release.tag_name);
+        if (version) {
+          releases.set(version, { assets: assetNames, tag: release.tag_name, version });
+        }
       }
       if (payload.length < UV_RELEASE_PAGE_SIZE) {
         exhausted = true;
@@ -572,12 +621,72 @@ async function resolveUvRelease(options: ResolvedPyfigOptions): Promise<UvReleas
   if (!exhausted) {
     throw new Error(`uv release catalog exceeded ${UV_RELEASE_MAX_PAGES} pages.`);
   }
-  const version = maxPep440Version([...releases.keys()], options.requiresUv);
-  const tag = version ? releases.get(version) : undefined;
-  if (!version || !tag) {
-    throw new Error(`No published uv release satisfies requires-uv ${options.requiresUv}.`);
+  if (releases.size === 0) {
+    throw new Error('GitHub returned no usable uv releases.');
   }
-  return { tag, version };
+  return { fetchedAt: Date.now(), releases: [...releases.values()] };
+}
+
+async function readFreshUvReleaseCatalog(file: string): Promise<UvReleaseCatalog | null> {
+  const catalog = await readUvReleaseCatalog(file);
+  if (!catalog) return null;
+  const age = Date.now() - catalog.fetchedAt;
+  return age >= 0 && age < UV_RELEASE_METADATA_TTL_MS ? catalog : null;
+}
+
+async function readUvReleaseCatalog(file: string): Promise<UvReleaseCatalog | null> {
+  try {
+    return parseUvReleaseCatalog(JSON.parse(await readFile(file, 'utf8')) as unknown);
+  } catch {
+    return null;
+  }
+}
+
+function parseUvReleaseCatalog(value: unknown): UvReleaseCatalog | null {
+  if (!value || typeof value !== 'object') return null;
+  const catalog = value as { fetchedAt?: unknown; releases?: unknown };
+  if (!Number.isSafeInteger(catalog.fetchedAt) || (catalog.fetchedAt as number) < 0 ||
+      !Array.isArray(catalog.releases)) {
+    return null;
+  }
+  const releases: UvRelease[] = [];
+  for (const value of catalog.releases) {
+    if (!value || typeof value !== 'object') return null;
+    const release = value as { assets?: unknown; tag?: unknown; version?: unknown };
+    if (!Array.isArray(release.assets) ||
+        !release.assets.every(asset => typeof asset === 'string') ||
+        typeof release.tag !== 'string' ||
+        !/^[A-Za-z0-9][A-Za-z0-9._+-]*$/u.test(release.tag) ||
+        typeof release.version !== 'string' ||
+        normalizePep440Version(release.version) !== release.version) {
+      return null;
+    }
+    releases.push({
+      assets: release.assets as string[],
+      tag: release.tag,
+      version: release.version,
+    });
+  }
+  return { fetchedAt: catalog.fetchedAt as number, releases };
+}
+
+async function writeUvReleaseCatalog(file: string, catalog: UvReleaseCatalog): Promise<void> {
+  await mkdir(path.dirname(file), { recursive: true });
+  const staged = path.join(
+    path.dirname(file),
+    `.${path.basename(file)}.${process.pid}.${randomUUID()}.tmp`,
+  );
+  try {
+    await writeFile(staged, `${JSON.stringify(catalog)}\n`, { encoding: 'utf8', flag: 'wx' });
+    if (process.platform === 'win32') await rm(file, { force: true });
+    await rename(staged, file);
+  } finally {
+    await rm(staged, { force: true });
+  }
+}
+
+function uvReleaseMetadataFile(options: ResolvedPyfigOptions): string {
+  return path.join(options.cacheDir, 'metadata', 'uv-releases.json');
 }
 
 function releaseAssetNames(value: unknown): string[] {

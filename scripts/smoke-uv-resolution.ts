@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { ensureUv } from '../src/index.ts';
@@ -32,15 +32,36 @@ try {
       `${first.version} and ${concurrent.version}.`,
     );
   }
+  const metadataFile = path.join(cacheDir, 'metadata', 'uv-releases.json');
+  const metadata = JSON.parse(await readFile(metadataFile, 'utf8')) as { fetchedAt?: unknown };
+  if (typeof metadata.fetchedAt !== 'number' ||
+      Date.now() - metadata.fetchedAt >= 24 * 60 * 60_000) {
+    throw new Error('Cold resolution did not publish fresh uv release metadata.');
+  }
 
+  const offlineOptions = {
+    ...options,
+    env: {
+      ...env,
+      HTTP_PROXY: 'http://127.0.0.1:1',
+      HTTPS_PROXY: 'http://127.0.0.1:1',
+      http_proxy: 'http://127.0.0.1:1',
+      https_proxy: 'http://127.0.0.1:1',
+    },
+  };
   const validatedCacheStarted = performance.now();
-  const validatedCache = await ensureUv(options);
+  const validatedCache = await ensureUv(offlineOptions);
   const validatedCacheMs = performance.now() - validatedCacheStarted;
   if (validatedCache.executable !== first.executable || validatedCache.version !== expectedVersion) {
     throw new Error('Validated resolution did not reuse the compatible cached uv executable.');
   }
 
-  console.log(JSON.stringify({ coldMs, executable: first.executable, validatedCacheMs }, null, 2));
+  console.log(JSON.stringify({
+    coldMs,
+    executable: first.executable,
+    metadataFile,
+    validatedCacheMs,
+  }, null, 2));
 } finally {
   await rm(temporary, { recursive: true, force: true });
 }

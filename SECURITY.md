@@ -2,7 +2,7 @@
 
 Pyfig can download Astral uv release archives and can ask uv to download Python distributions. Automatic installation is enabled by default; set `autoInstall: false`, pass `--check`, or set `PYFIG_AUTO_INSTALL=0` when downloads are not allowed.
 
-Pyfig resolves a uv release allowed by `requiresUv`, then fetches that exact release URL over HTTPS with bounded redirects and timeouts. It verifies the adjacent SHA-256 checksum, validates the staged executable's reported version, and atomically publishes it into its cache. It never executes an installer script or modifies shell profiles or the host `PATH`. Proxy variables are honored through a per-request dispatcher without logging proxy credentials.
+Pyfig resolves a uv release allowed by `requiresUv`, then fetches that exact release URL over HTTPS with bounded redirects and timeouts. GitHub release metadata is cached for 24 hours under Loqkit coordination, with validated stale metadata available if refresh fails. Pyfig verifies the adjacent SHA-256 checksum, validates the staged executable's reported version, and atomically publishes it into its cache. It never executes an installer script or modifies shell profiles or the host `PATH`. Proxy variables are honored through a per-request dispatcher without logging proxy credentials.
 
 Provisioning uses in-process, worker, optional native advisory, and portable filesystem coordination followed by a post-lock capability check. Runtime dependency mutation uses uv's target-environment lock. Pyfig pins uv commands to the selected venv and removes configuration values that could redirect them. It reads an existing `pyproject.toml` only as a resolver input and never writes project manifests or requirements files.
 
