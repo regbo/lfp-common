@@ -2,7 +2,7 @@ import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { hash } from "ohash";
 import { readPackageUp } from "read-package-up";
-import type { ResolvedLockOptions } from "./schemas.js";
+import type { ResolvedLockOptionsData } from "./schemas.js";
 
 const namespaceCache = new Map<string, Promise<string>>();
 
@@ -18,7 +18,7 @@ async function discoverNamespace(cwd: string): Promise<string> {
 }
 
 export async function resolveNamespace(
-  options: ResolvedLockOptions,
+  options: ResolvedLockOptionsData,
 ): Promise<string> {
   if (options.namespace) return options.namespace;
 
@@ -35,7 +35,7 @@ export async function resolveNamespace(
   return pending;
 }
 
-export function resolveLockDirectory(options: ResolvedLockOptions): string {
+export function resolveLockDirectory(options: ResolvedLockOptionsData): string {
   const configured =
     options.lockDirectory ??
     process.env.LOQKIT_LOCK_DIR?.trim() ??
@@ -46,7 +46,7 @@ export function resolveLockDirectory(options: ResolvedLockOptions): string {
 
 export async function createLockIdentity(
   context: object,
-  options: ResolvedLockOptions,
+  options: ResolvedLockOptionsData,
 ): Promise<{
   id: string;
   name: string;

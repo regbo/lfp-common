@@ -121,6 +121,102 @@ describe("withLock", () => {
     expect(checks).toBe(2);
   });
 
+  test("accepts the predicate as an options field", async () => {
+    let checks = 0;
+    let actions = 0;
+
+    const result = await withLock(
+      { resource: "options-predicate" },
+      () => {
+        actions += 1;
+        return "done";
+      },
+      {
+        scope: "memory",
+        predicate: ({ resource }) => {
+          checks += 1;
+          return resource === "options-predicate";
+        },
+      },
+    );
+
+    expect(result).toMatchObject({ executed: true, value: "done" });
+    expect(checks).toBe(2);
+    expect(actions).toBe(1);
+  });
+
+  test("runs onCheckFailed after releasing an acquired lock", async () => {
+    const key = "post-check-failure";
+    let checks = 0;
+    let actions = 0;
+    let nestedActions = 0;
+    let observedReason: string | undefined;
+
+    const result = await withLock(
+      { resource: key },
+      () => {
+        actions += 1;
+      },
+      {
+        key,
+        scope: "memory",
+        predicate: () => {
+          checks += 1;
+          return checks === 1;
+        },
+        onCheckFailed: async ({ lock, resource }, reason) => {
+          observedReason = reason;
+          expect(resource).toBe(key);
+          expect(lock.state).toBe("acquired");
+
+          const nested = await withLock(
+            { resource },
+            () => {
+              nestedActions += 1;
+            },
+            { key, scope: "memory", timeoutMs: 0 },
+          );
+          expect(nested.executed).toBe(true);
+        },
+      },
+    );
+
+    expect(result).toMatchObject({
+      executed: false,
+      reason: "predicate-after",
+    });
+    expect(observedReason).toBe("predicate-after");
+    expect(actions).toBe(0);
+    expect(nestedActions).toBe(1);
+  });
+
+  test("reports a failed pre-acquisition check without taking the lock", async () => {
+    let observedState: string | undefined;
+    let observedReason: string | undefined;
+
+    const result = await withLock(
+      { resource: "pre-check-failure" },
+      () => {
+        throw new Error("action should not run");
+      },
+      {
+        scope: "memory",
+        predicate: () => false,
+        onCheckFailed: ({ lock }, reason) => {
+          observedState = lock.state;
+          observedReason = reason;
+        },
+      },
+    );
+
+    expect(result).toMatchObject({
+      executed: false,
+      reason: "predicate-before",
+    });
+    expect(observedState).toBe("checking");
+    expect(observedReason).toBe("predicate-before");
+  });
+
   test("applies timeout only while acquiring the layered lock", async () => {
     const lockDirectory = await mkdtemp(join(tmpdir(), "loqkit-action-test-"));
 

@@ -2,7 +2,7 @@ import { mkdir, open } from "node:fs/promises";
 import { dirname } from "node:path";
 import lockfile from "proper-lockfile";
 import { LockUnavailableError } from "../errors.js";
-import type { ResolvedLockOptions } from "../schemas.js";
+import type { ResolvedLockOptionsData } from "../schemas.js";
 import type { LockBackendInfo, LockInfo } from "../types.js";
 import { throwIfAborted, waitForRetry } from "../waiting.js";
 import type { PreparedBackend } from "./types.js";
@@ -62,7 +62,7 @@ function isPollingContention(error: unknown): boolean {
 
 function preparePollingBackend(
   info: Readonly<LockInfo>,
-  options: ResolvedLockOptions,
+  options: ResolvedLockOptionsData,
   file: string,
   fallback?: string,
 ): PreparedBackend {
@@ -119,7 +119,7 @@ function preparePollingBackend(
 function prepareFlockBackend(
   fsExt: FsExt,
   info: Readonly<LockInfo>,
-  options: ResolvedLockOptions,
+  options: ResolvedLockOptionsData,
   file: string,
   pollingFallback?: PreparedBackend,
 ): PreparedBackend {
@@ -184,7 +184,7 @@ function prepareFlockBackend(
 
 export async function prepareFileBackend(
   info: Readonly<LockInfo>,
-  options: ResolvedLockOptions,
+  options: ResolvedLockOptionsData,
   fileBase: string,
   dependencies: FileBackendDependencies = { loadFsExt },
 ): Promise<PreparedBackend> {

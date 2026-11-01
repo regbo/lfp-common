@@ -12,12 +12,19 @@ await withLock(
   async ({ resource, lock }) => {
     console.log(`locked ${resource} with ${lock.backends.length} layers`);
   },
-  async ({ resource }) => resource === "cache",
-  { key: "cache-refresh" },
+  {
+    key: "cache-refresh",
+    predicate: async ({ resource }) => resource === "cache",
+    onCheckFailed: async ({ resource, lock }, reason) => {
+      console.log(`${resource} skipped at ${reason} (${lock.state})`);
+    },
+  },
 );
 ```
 
-By default, `withLock` acquires memory, worker-thread, and file locks for the same key. The optional predicate runs once before waiting and again after all three layers are held. The action runs only when both checks pass.
+By default, `withLock` acquires memory, worker-thread, and file locks for the same key. The argument after the action can be a predicate function or an options object containing `predicate`. The predicate runs once before waiting and again after all three layers are held. The action runs only when both checks pass.
+
+When either check fails, `onCheckFailed(context, reason)` runs after any acquired layers have been released. It can log, reread state, or start other lock work without holding this lock. Its `reason` is `"predicate-before"` or `"predicate-after"`; the supplied `lock` metadata is the snapshot from the failed check.
 
 Use a narrower scope only when you deliberately need one boundary:
 
@@ -77,13 +84,16 @@ flowchart TD
     call["Call withLock"] --> options["Validate options and choose a key"]
     options --> checking["Create context with checking state"]
     checking --> before{"Predicate passes before waiting?"}
-    before -- "No" --> skippedBefore["Return predicate-before"]
+    before -- "No" --> failedBefore["Run onCheckFailed without a lock"]
+    failedBefore --> skippedBefore["Return predicate-before"]
     before -- "Yes or absent" --> memory["Acquire memory lock"]
     memory --> worker["Acquire worker-thread lock"]
     worker --> file["Acquire native flock or polling file lock"]
     file --> acquired["Create context with all layers acquired"]
     acquired --> after{"Predicate still passes?"}
-    after -- "No" --> skippedAfter["Return predicate-after"]
+    after -- "No" --> releaseFailed["Release all layers"]
+    releaseFailed --> failedAfter["Run onCheckFailed without a lock"]
+    failedAfter --> skippedAfter["Return predicate-after"]
     after -- "Yes or absent" --> action["Run the action exclusively"]
     action --> release["Release file, worker, then memory"]
     release --> result["Return the executed value"]

@@ -6,15 +6,16 @@ import { prepareWorkerBackend } from "./backends/worker.js";
 import { LockAbortedError, LockTimeoutError } from "./errors.js";
 import { createLockIdentity } from "./identity.js";
 import {
-  type LockOptions,
   lockOptionsSchema,
-  type ResolvedLockOptions,
+  type ResolvedLockOptionsData,
 } from "./schemas.js";
 import type {
   LockAction,
   LockBackendInfo,
+  LockCheckFailedHandler,
   LockContext,
   LockInfo,
+  LockOptions,
   LockPredicate,
   LockRunResult,
   WithLock,
@@ -79,7 +80,7 @@ function singleBackend(backend: PreparedBackend): PreparedLock {
 
 function layeredBackends(
   info: Readonly<LockInfo>,
-  options: ResolvedLockOptions,
+  options: ResolvedLockOptionsData,
   controller: AbortController,
   backends: readonly PreparedBackend[],
 ): PreparedLock {
@@ -146,7 +147,7 @@ function layeredBackends(
 
 async function prepareLock(
   info: Readonly<LockInfo>,
-  options: ResolvedLockOptions,
+  options: ResolvedLockOptionsData,
   fileBase: string,
 ): Promise<PreparedLock> {
   switch (options.scope) {
@@ -170,7 +171,7 @@ async function prepareLock(
 }
 
 function provisionalBackends(
-  options: ResolvedLockOptions,
+  options: ResolvedLockOptionsData,
 ): readonly LockBackendInfo[] {
   const fileType = options.fileStrategy === "poll" ? "poll" : "flock";
   switch (options.scope) {
@@ -192,16 +193,28 @@ function provisionalBackends(
 const withLockImplementation = async <TContext extends object, TResult>(
   context: TContext,
   action: LockAction<TContext, TResult>,
-  predicateOrOptions?: LockPredicate<TContext> | LockOptions,
-  suppliedOptions?: LockOptions,
+  predicateOrOptions?: LockPredicate<TContext> | LockOptions<TContext>,
+  suppliedOptions?: LockOptions<TContext>,
 ): Promise<LockRunResult<TResult>> => {
-  const predicate =
-    typeof predicateOrOptions === "function" ? predicateOrOptions : undefined;
   const options = lockOptionsSchema.parse(
     typeof predicateOrOptions === "function"
       ? suppliedOptions
       : predicateOrOptions,
   );
+  const positionalPredicate =
+    typeof predicateOrOptions === "function" ? predicateOrOptions : undefined;
+  const optionPredicate = options.predicate as
+    | LockPredicate<TContext>
+    | undefined;
+  if (positionalPredicate && optionPredicate) {
+    throw new TypeError(
+      "Pass the predicate either positionally or as options.predicate, not both",
+    );
+  }
+  const predicate = positionalPredicate ?? optionPredicate;
+  const onCheckFailed = options.onCheckFailed as
+    | LockCheckFailedHandler<TContext>
+    | undefined;
   const identity = await createLockIdentity(context, options);
   const baseInfo = {
     id: identity.id,
@@ -222,13 +235,22 @@ const withLockImplementation = async <TContext extends object, TResult>(
   const checkingInfo = createInfo(baseInfo, prepared.initial, "checking");
 
   if (predicate && !(await predicate(createContext(context, checkingInfo)))) {
-    return { executed: false, reason: "predicate-before", lock: checkingInfo };
+    const result = {
+      executed: false,
+      reason: "predicate-before",
+      lock: checkingInfo,
+    } as const;
+    await onCheckFailed?.(
+      createContext(context, checkingInfo),
+      result.reason,
+    );
+    return result;
   }
 
   const startedAt = performance.now();
   let acquiredInfo: Readonly<LockInfo> | undefined;
 
-  return prepared.run(async (details) => {
+  const result: LockRunResult<TResult> = await prepared.run(async (details) => {
     acquiredInfo = createInfo(
       baseInfo,
       details,
@@ -248,6 +270,14 @@ const withLockImplementation = async <TContext extends object, TResult>(
     const value = await action(acquiredContext);
     return { executed: true, value, lock: acquiredInfo };
   });
+
+  if (!result.executed) {
+    await onCheckFailed?.(
+      createContext(context, result.lock),
+      result.reason,
+    );
+  }
+  return result;
 };
 
 /**
@@ -268,17 +298,19 @@ export {
 } from "./schemas.js";
 export type {
   FileLockStrategy,
-  LockOptions,
   LockScope,
-  ResolvedLockOptions,
 } from "./schemas.js";
 export type {
   LockAction,
   LockBackendInfo,
   LockBackendScope,
+  LockCheckFailedHandler,
+  LockCheckFailureReason,
   LockContext,
   LockInfo,
+  LockOptions,
   LockPredicate,
+  ResolvedLockOptions,
   LockRunResult,
   LockState,
   LockType,

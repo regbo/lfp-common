@@ -1,5 +1,5 @@
 import { Mutex } from "async-mutex";
-import type { ResolvedLockOptions } from "../schemas.js";
+import type { ResolvedLockOptionsData } from "../schemas.js";
 import type { LockBackendInfo, LockInfo } from "../types.js";
 import { acquireWithLimits } from "../waiting.js";
 import type { PreparedBackend } from "./types.js";
@@ -34,7 +34,7 @@ function deleteUnusedMutex(id: string, entry: MutexEntry): void {
 
 export function prepareMemoryBackend(
   info: Readonly<LockInfo>,
-  options: ResolvedLockOptions,
+  options: ResolvedLockOptionsData,
   details: Readonly<LockBackendInfo> = {
     scope: "memory",
     type: "memory",

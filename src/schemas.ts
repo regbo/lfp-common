@@ -8,6 +8,11 @@ const abortSignalSchema = z.custom<AbortSignal>(
   "Expected an AbortSignal",
 );
 
+const callbackSchema = z.custom<(...args: never[]) => unknown>(
+  (value) => typeof value === "function",
+  "Expected a function",
+);
+
 /** Runtime-validated options accepted by {@link withLock}. */
 export const lockOptionsSchema = z
   .object({
@@ -37,10 +42,14 @@ export const lockOptionsSchema = z
       .default(() => process.cwd()),
     /** Cancels only while waiting; an acquired action is not interrupted. */
     signal: abortSignalSchema.optional(),
+    /** Runs before waiting and again after acquisition. */
+    predicate: callbackSchema.optional(),
+    /** Runs without a held lock after either predicate check fails. */
+    onCheckFailed: callbackSchema.optional(),
   })
   .strict();
 
 export type LockScope = z.infer<typeof lockScopeSchema>;
 export type FileLockStrategy = z.infer<typeof fileLockStrategySchema>;
-export type LockOptions = z.input<typeof lockOptionsSchema>;
-export type ResolvedLockOptions = z.output<typeof lockOptionsSchema>;
+export type LockOptionsInput = z.input<typeof lockOptionsSchema>;
+export type ResolvedLockOptionsData = z.output<typeof lockOptionsSchema>;

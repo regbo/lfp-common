@@ -4,7 +4,7 @@ import {
   LockTimeoutError,
   LockUnavailableError,
 } from "../errors.js";
-import type { ResolvedLockOptions } from "../schemas.js";
+import type { ResolvedLockOptionsData } from "../schemas.js";
 import type { LockBackendInfo, LockInfo } from "../types.js";
 import type { PreparedBackend } from "./types.js";
 
@@ -43,7 +43,7 @@ function passThroughBackend(
 
 export function prepareWorkerBackend(
   info: Readonly<LockInfo>,
-  options: ResolvedLockOptions,
+  options: ResolvedLockOptionsData,
   memoryAlreadyHeld = false,
 ): PreparedBackend {
   const locks = getWorkerLocks();
