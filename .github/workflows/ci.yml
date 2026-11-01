@@ -11,6 +11,8 @@ jobs:
   bun:
     name: Bun / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
     strategy:
       fail-fast: false
       matrix:
@@ -40,11 +42,13 @@ jobs:
       - name: Verify ESM and CommonJS exports
         run: |
           node --input-type=module -e "const api = await import('./dist/index.js'); if (typeof api.createPyfig !== 'function') process.exit(1)"
-          node -e "const api = require('./dist/cjs/index.js'); if (typeof api.pythonSpawnSync !== 'function') process.exit(1)"
+          node -e "const api = require('./dist/cjs/index.js'); if (typeof api.uvSpawnSync !== 'function') process.exit(1)"
 
   alpine:
     name: Alpine zero-Python bootstrap
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - run: docker build --file tests/docker/Dockerfile.zero-python .
+      - run: docker build --secret id=github_token,env=GITHUB_TOKEN --file tests/docker/Dockerfile.zero-python .
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

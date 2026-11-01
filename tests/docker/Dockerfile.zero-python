@@ -11,4 +11,8 @@ COPY scripts ./scripts
 COPY tests ./tests
 
 RUN bun run build
-RUN bun run test:zero-python
+RUN --mount=type=secret,id=github_token \
+    if [ -f /run/secrets/github_token ]; then \
+      export GITHUB_TOKEN="$(cat /run/secrets/github_token)"; \
+    fi; \
+    bun run test:zero-python
