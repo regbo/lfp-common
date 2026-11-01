@@ -23,8 +23,8 @@ import type {
   AttributePath,
   SerializedValue,
 } from '../types/python';
-import { translatePythonError } from '../utils/ErrorTranslator';
-import { Logger } from '../utils/Logger';
+import { translatePythonError } from '../utils/error-translator';
+import { Logger } from '../utils/logger';
 
 const logger = new Logger('PyProxy');
 let nextRequestId = 0;

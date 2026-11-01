@@ -16,7 +16,7 @@
  */
 
 import type { SerializedValue, SerializedFormat, NumPyArrayResult, NumpyTypedArray } from '../types/python';
-import { Logger } from '../utils/Logger';
+import { Logger } from '../utils/logger';
 
 const logger = new Logger('NumpyBridge');
 

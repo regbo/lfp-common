@@ -13,7 +13,7 @@
 #include <iostream>
 #include <algorithm>
 
-#ifdef __linux__
+#if defined(__linux__) || defined(__APPLE__)
 #include <dlfcn.h>
 #endif
 
@@ -21,7 +21,7 @@ namespace pynect {
 
 namespace {
 
-#ifdef __linux__
+#if defined(__linux__) || defined(__APPLE__)
 void promotePythonLibrary(const std::string& libraryPath) {
   if (libraryPath.empty()) {
     throw std::runtime_error("Python library path is required on Linux");
@@ -68,7 +68,7 @@ void PythonBridge::initializePython(
     throw std::runtime_error("Python already initialized");
   }
 
-#ifdef __linux__
+#if defined(__linux__) || defined(__APPLE__)
   promotePythonLibrary(pythonLibrary);
 #endif
 

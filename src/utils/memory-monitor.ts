@@ -3,9 +3,9 @@
  * Tracks Python object references, heap usage, and triggers GC when needed.
  */
 
-import { Logger } from './Logger';
+import { Logger } from './logger';
 import type { NativeAddon } from '../types/addon';
-import { withPynectLock } from './Locking';
+import { withPynectLock } from './locking';
 
 export interface MemorySnapshot {
   timestamp: number;

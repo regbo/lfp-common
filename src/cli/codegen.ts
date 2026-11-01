@@ -11,7 +11,7 @@ import {
   type FormattingOptions,
   type ParseError,
 } from 'jsonc-parser';
-import { ensurePynectPython } from '../env/PyfigAdapter';
+import { ensurePynectPython } from '../env/pyfig-adapter';
 
 type StringMap = Record<string, string>;
 

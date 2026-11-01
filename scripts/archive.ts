@@ -10,7 +10,7 @@ const allowedRootFiles = new Set([
   'binding.gyp',
   'package.json',
 ]);
-const allowedPrefixes = ['dist/', 'python/', 'scripts/', 'src/native/'] as const;
+const allowedPrefixes = ['dist/', 'prebuilds/', 'python/', 'scripts/', 'src/native/'] as const;
 const emailPattern = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
 const secretPatterns = [
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,

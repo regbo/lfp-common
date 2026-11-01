@@ -3,10 +3,10 @@
  * Routes ndarray wire objects through NumpyBridge.
  */
 
-import type { PynectPlugin, PluginInitContext } from '../Plugin.interface';
+import type { PynectPlugin, PluginInitContext } from '../plugin.interface';
 import type { SerializedValue, NumPyArrayResult } from '../../types/python';
-import { NumpyBridge } from '../../serialization/NumpyBridge';
-import { Logger } from '../../utils/Logger';
+import { NumpyBridge } from '../../serialization/numpy-bridge';
+import { Logger } from '../../utils/logger';
 
 const logger = new Logger('NumpyPlugin');
 const bridge = new NumpyBridge();

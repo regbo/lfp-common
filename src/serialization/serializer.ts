@@ -8,10 +8,10 @@ import type {
   SerializedValue,
   SerializedFormat,
 } from '../types/python';
-import { NumpyBridge } from './NumpyBridge';
-import { DataFrameBridge } from './DataFrameBridge';
-import { MsgPackSerializer } from './MsgPackSerializer';
-import { Logger } from '../utils/Logger';
+import { NumpyBridge } from './numpy-bridge';
+import { DataFrameBridge } from './data-frame-bridge';
+import { MsgPackSerializer } from './msg-pack-serializer';
+import { Logger } from '../utils/logger';
 
 const logger = new Logger('Serializer');
 

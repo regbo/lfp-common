@@ -22,6 +22,7 @@
   },
   "files": [
     "dist/",
+    "prebuilds/",
     "src/native/",
     "python/*.py",
     "scripts/build-native.js",
@@ -85,7 +86,7 @@
     "node-gyp": "^11.5.0",
     "node-gyp-build": "^4.8.4",
     "pacwich": "^0.7.3",
-    "pyfig": "^0.3.1",
+    "pyfig": "^0.4.0",
     "semver": "^7.8.5"
   },
   "devDependencies": {

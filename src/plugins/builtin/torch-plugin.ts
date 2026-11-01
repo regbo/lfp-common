@@ -3,10 +3,10 @@
  * Handles PyTorch Tensor objects - delegates to NumpyBridge (tensors are NumPy-compatible).
  */
 
-import type { PynectPlugin, PluginInitContext } from '../Plugin.interface';
+import type { PynectPlugin, PluginInitContext } from '../plugin.interface';
 import type { SerializedValue, NumPyArrayResult } from '../../types/python';
-import { NumpyBridge } from '../../serialization/NumpyBridge';
-import { Logger } from '../../utils/Logger';
+import { NumpyBridge } from '../../serialization/numpy-bridge';
+import { Logger } from '../../utils/logger';
 
 const logger = new Logger('TorchPlugin');
 const bridge = new NumpyBridge();

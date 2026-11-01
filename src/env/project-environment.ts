@@ -5,27 +5,25 @@ import path from 'path';
 import semver from 'semver';
 import {
   resolveProjectConfig,
+  resolveInstalledPackageDirectory,
   validatePackageManifest,
+  type CanonicalPynectPackageManifest,
   type PynectModuleManifest,
-  type PynectPackageManifest,
   type ProjectConfigOverrides,
   type ResolvedProjectConfig,
 } from '../config/project';
-import { createPynectPyfig } from './PyfigAdapter';
-import { withPynectLock } from '../utils/Locking';
+import { createPynectPyfig } from './pyfig-adapter';
+import { withPynectLock } from '../utils/locking';
 
-const GENERATED_DIRECTORY = '.pynect';
 const PYPROJECT_FILE = 'pyproject.toml';
 const UV_LOCK_FILE = 'uv.lock';
 const MODULES_FILE = 'modules.json';
 const STATE_FILE = '.pynect-state.json';
-const TRANSITIVE_KEYS = new Set(['schemaVersion', 'requiresPython', 'requirements', 'modules']);
-
 export interface PynectContribution {
   packageName: string;
   packageVersion: string;
   packageRoot: string;
-  manifest: PynectPackageManifest;
+  manifest: CanonicalPynectPackageManifest;
   root: boolean;
 }
 
@@ -56,6 +54,7 @@ export interface PynectEnvironmentState {
   lockHash: string;
   pythonVersion: string;
   pythonExecutable: string;
+  virtualEnvironment: string;
   pythonAbi: string;
   platform: NodeJS.Platform;
   architecture: string;
@@ -79,30 +78,35 @@ export function createProjectPlan(
 ): PynectProjectPlan {
   let config = resolveProjectConfig(overrides);
   const contributions = discoverPynectContributions(config.projectRoot);
+  const manifestFor = (contribution: PynectContribution) =>
+    contribution.root ? config.packageManifest : contribution.manifest;
   const requirements = contributions.flatMap(contribution =>
-    (contribution.manifest.requirements ?? []).map(requirement => ({
+    (manifestFor(contribution).project.dependencies ?? []).map(requirement => ({
       requirement,
       packageName: contribution.packageName,
     })),
   );
   const modules: Record<string, ExposedModule> = {};
   for (const contribution of contributions) {
-    for (const [alias, module] of Object.entries(contribution.manifest.modules ?? {})) {
+    for (const [alias, module] of Object.entries(
+      manifestFor(contribution).tool.pynect.modules ?? {},
+    )) {
       const id = `${contribution.packageName}:${alias}`;
       if (modules[id]) throw new Error(`Duplicate Pynect module id: ${id}`);
       modules[id] = { ...module, id, packageName: contribution.packageName };
     }
   }
-  const requirementOverrides = Object.entries(config.packageManifest.overrides ?? {})
-    .map(([distribution, constraint]) => `${distribution}${constraint}`)
-    .sort();
+  const requirementOverrides = [
+    ...(config.packageManifest.tool.uv['override-dependencies'] ?? []),
+  ].sort();
 
   const pythonConstraints = [
     { range: config.requiresPython, packageName: '<application>' },
     ...contributions
-      .filter(contribution => !contribution.root && contribution.manifest.requiresPython)
+      .filter(contribution =>
+        !contribution.root && contribution.manifest.project['requires-python'])
       .map(contribution => ({
-        range: contribution.manifest.requiresPython!,
+        range: contribution.manifest.project['requires-python']!,
         packageName: contribution.packageName,
       })),
   ];
@@ -112,13 +116,17 @@ export function createProjectPlan(
   }
   const manifestHash = sha256(stableJson({
     schemaVersion: 1,
+    project: {
+      name: config.packageManifest.project.name,
+      version: config.packageManifest.project.version,
+    },
     pythonRange,
     pythonRequirement,
     requirements: [...requirements].sort(compareRequirements),
     overrides: requirementOverrides,
     modules,
   }));
-  const generatedDirectory = path.join(config.projectRoot, GENERATED_DIRECTORY);
+  const generatedDirectory = config.generatedDirectory;
 
   return {
     config,
@@ -133,7 +141,7 @@ export function createProjectPlan(
     pyprojectFile: path.join(generatedDirectory, PYPROJECT_FILE),
     generatedLockfile: path.join(generatedDirectory, UV_LOCK_FILE),
     modulesFile: path.join(generatedDirectory, MODULES_FILE),
-    stateFile: path.join(config.projectRoot, '.venv', STATE_FILE),
+    stateFile: path.join(generatedDirectory, STATE_FILE),
   };
 }
 
@@ -151,9 +159,9 @@ export function discoverPynectContributions(projectRoot: string): PynectContribu
     if (visited.has(realDirectory)) continue;
     visited.add(realDirectory);
 
-    if (current.packageJson.pynect !== undefined) {
+    if (current.root || current.packageJson.pynect !== undefined) {
       const packagePath = path.join(current.directory, 'package.json');
-      const manifest = validatePackageManifest(current.packageJson.pynect, packagePath);
+      const manifest = validatePackageManifest(current.packageJson.pynect ?? {}, packagePath);
       if (!current.root) assertTransitiveManifest(manifest, current.packageJson.name, packagePath);
       contributions.push({
         packageName: current.packageJson.name,
@@ -170,7 +178,7 @@ export function discoverPynectContributions(projectRoot: string): PynectContribu
       ...(current.root ? current.packageJson.devDependencies : {}),
     }).sort();
     for (const dependencyName of dependencyNames) {
-      const directory = resolveInstalledPackage(current.directory, dependencyName);
+      const directory = resolveInstalledPackageDirectory(current.directory, dependencyName);
       if (!directory) continue;
       queue.push({
         directory,
@@ -225,14 +233,23 @@ async function syncProjectUnlocked(
   });
   const environment = await client.prepare();
 
-  const syncArgs = ['sync', '--project', plan.generatedDirectory, '--no-dev'];
+  if (!environment.python.virtualEnvironment) {
+    throw new Error('Pyfig did not select a virtual environment for Pynect synchronization.');
+  }
+  const syncArgs = [
+    'sync',
+    '--project',
+    plan.generatedDirectory,
+    '--no-dev',
+    '--active',
+  ];
   if (options.frozen) syncArgs.push('--locked');
   if (options.offline) syncArgs.push('--offline');
   const synced = await runChild(await client.uv(syncArgs, {
     cwd: plan.config.projectRoot,
     env: {
       ...plan.config.env,
-      UV_PROJECT_ENVIRONMENT: path.join(plan.config.projectRoot, '.venv'),
+      VIRTUAL_ENV: environment.python.virtualEnvironment,
     },
   }));
   if (synced.code !== 0) {
@@ -251,6 +268,7 @@ async function syncProjectUnlocked(
     lockHash,
     pythonVersion: python.version,
     pythonExecutable: python.executable,
+    virtualEnvironment: environment.python.virtualEnvironment,
     pythonAbi: `${python.implementation}-${python.version}-${python.architecture}-${python.pointerBits}`,
     platform: process.platform,
     architecture: process.arch,
@@ -287,14 +305,8 @@ export function validateProjectEnvironment(plan: PynectProjectPlan): PynectEnvir
   if (state.platform !== process.platform || state.architecture !== process.arch) {
     throw staleEnvironmentError(plan, 'environment was synchronized for another platform');
   }
-  const expectedPython = path.join(
-    plan.config.projectRoot,
-    '.venv',
-    process.platform === 'win32' ? 'Scripts' : 'bin',
-    process.platform === 'win32' ? 'python.exe' : 'python',
-  );
-  if (!fs.existsSync(state.pythonExecutable) || !pathsEqual(state.pythonExecutable, expectedPython)) {
-    throw staleEnvironmentError(plan, 'recorded Python executable is missing or outside the root .venv');
+  if (!state.virtualEnvironment || !fs.existsSync(state.pythonExecutable)) {
+    throw staleEnvironmentError(plan, 'recorded Python environment is missing');
   }
   return state;
 }
@@ -329,11 +341,12 @@ function writeGeneratedProject(plan: PynectProjectPlan): void {
 
 export function renderUvProject(plan: PynectProjectPlan): string {
   const requirements = [...new Set(plan.requirements.map(item => item.requirement))].sort();
+  const project = plan.config.packageManifest.project;
   const lines = [
-    '# Generated by Pynect. Declare dependencies in package.json, not here.',
+    '# Generated by Pynect. Configure package.json#pynect or the Pynect API, not this file.',
     '[project]',
-    'name = "pynect-environment"',
-    'version = "0.0.0"',
+    `name = ${JSON.stringify(project.name ?? 'pynect-environment')}`,
+    `version = ${JSON.stringify(project.version ?? '0.0.0')}`,
     `requires-python = ${JSON.stringify(plan.pythonRequirement)}`,
     'dependencies = [',
     ...requirements.map(requirement => `  ${JSON.stringify(requirement)},`),
@@ -377,11 +390,19 @@ function staleEnvironmentError(plan: PynectProjectPlan, detail: string): Error {
 }
 
 function assertTransitiveManifest(
-  manifest: PynectPackageManifest,
+  manifest: CanonicalPynectPackageManifest,
   packageName: string,
   source: string,
 ): void {
-  const policyKeys = Object.keys(manifest).filter(key => !TRANSITIVE_KEYS.has(key));
+  const policyKeys = [
+    ...Object.keys(manifest.tool.pynect)
+      .filter(key => key !== 'modules' &&
+        manifest.tool.pynect[key as keyof typeof manifest.tool.pynect] !== undefined)
+      .map(key => `tool.pynect.${key}`),
+    ...Object.keys(manifest.tool.uv)
+      .filter(key => key !== 'package' && manifest.tool.uv[key as keyof typeof manifest.tool.uv] !== undefined)
+      .map(key => `tool.uv.${key}`),
+  ];
   if (policyKeys.length > 0) {
     throw new TypeError(
       `${source}: transitive package ${packageName} cannot set application policy: ` +
@@ -447,17 +468,6 @@ function readPackage(packagePath: string): PackageJson {
     name: typeof value['name'] === 'string' ? value['name'] : path.basename(path.dirname(packagePath)),
     version: typeof value['version'] === 'string' ? value['version'] : '0.0.0',
   } as PackageJson;
-}
-
-function resolveInstalledPackage(fromDirectory: string, packageName: string): string | undefined {
-  let current = path.resolve(fromDirectory);
-  while (true) {
-    const candidate = path.join(current, 'node_modules', ...packageName.split('/'));
-    if (fs.existsSync(path.join(candidate, 'package.json'))) return candidate;
-    const parent = path.dirname(current);
-    if (parent === current) return undefined;
-    current = parent;
-  }
 }
 
 async function runChild(child: ChildProcess): Promise<{ code: number; output: string }> {

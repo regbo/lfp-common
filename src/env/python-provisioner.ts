@@ -1,9 +1,9 @@
-import type { PythonInfo } from './PythonDetector';
+import type { PythonInfo } from './python-detector';
 import {
   ensurePynectPython,
   type PynectPythonOptions,
   type SelectedPython,
-} from './PyfigAdapter';
+} from './pyfig-adapter';
 
 export interface PythonProvisionerOptions {
   minVersion?: [number, number];

@@ -4,7 +4,7 @@
  */
 
 import { availableParallelism } from 'os';
-import type { AutoSyncMode } from '../config/project';
+import type { AutoSyncMode, PynectPackageManifest } from '../config/project';
 
 export type LogLevel = 'silent' | 'error' | 'warn' | 'info' | 'debug';
 export type ValidationMode = 'auto' | 'required' | 'off';
@@ -24,11 +24,11 @@ export interface DispatcherConfig {
 
 export interface VirtualenvConfig {
   /**
-   * Must resolve to the repository-root `.venv` when provided.
-   * @deprecated Pynect now always uses the Pyfig-managed repository `.venv`.
+   * Must resolve to the environment selected by Pyfig when provided.
+   * @deprecated Pynect now selects the application environment through Pyfig.
    */
   path?: string;
-  /** @deprecated Declare Python dependencies in package.json pynect.requirements. */
+  /** @deprecated Declare Python dependencies in package.json pynect.project.dependencies. */
   packages?: string[];
   /** @deprecated Use pynect sync or the root autoSync policy. */
   autoInstall?: boolean;
@@ -88,17 +88,17 @@ export interface ProfilingConfig {
   samplingInterval?: number;
 }
 
-export interface PynectConfig {
+export interface PynectConfig extends PynectPackageManifest {
   /** Shut down the shared runtime when the Node.js or Bun process exits. Default: true. */
   autoShutdown?: boolean;
 
-  /** Preferred Python executable used to create or validate the project `.venv`. */
+  /** Preferred Python executable used to create or validate the application environment. */
   python?: string;
 
   /**
-   * Python executable to check first as the base for the repository `.venv`.
+   * Python executable to check first as the base for the application environment.
    * It must expose the CPython embedding development files; package and
-   * runtime operations still target the root `.venv` rather than this path.
+   * runtime operations still target Pyfig's selected virtual environment.
    * @deprecated Use python instead.
    */
   pythonPath?: string;
@@ -106,7 +106,7 @@ export interface PynectConfig {
   /** Accepted Python version range. Default: Pyfig's supported range. */
   requiresPython?: string;
 
-  /** Repository root that owns `.venv`. Default: Pyfig project discovery. */
+  /** Application root used for Pyfig environment ownership. Default: Pyfig project discovery. */
   projectRoot?: string;
 
   /** Allow Pyfig to install managed Python. Default: true. */
@@ -115,7 +115,7 @@ export interface PynectConfig {
   /** Allow Pyfig to install its pinned uv release. Default: true. */
   installUv?: boolean;
 
-  /** Allow Pyfig to create the application-root `.venv`. Default: true. */
+  /** Allow Pyfig to create its application-private virtual environment. Default: true. */
   createVirtualEnvironment?: boolean;
 
   /** @deprecated Use installPython instead. */
@@ -139,8 +139,11 @@ export interface PynectConfig {
   /** Project-relative Pynect lockfile. Default: 'pynect.lock'. */
   lockfile?: string;
 
+  /** Directory for the generated pyproject.toml and uv.lock. */
+  generatedDirectory?: string;
+
   /**
-   * Legacy root `.venv` compatibility settings. Package provisioning now uses
+   * Legacy virtual-environment compatibility settings. Package provisioning now uses
    * the application `pynect` manifest and `pynect sync`.
    */
   virtualenv?: VirtualenvConfig;
@@ -251,6 +254,7 @@ export interface ResolvedPynectConfig {
   uvVersion: string;
   autoSync: AutoSyncMode;
   lockfile: string;
+  generatedDirectory: string;
   threadPoolSize: number;
   maxQueueSize: number;
   idleTimeout: number;
@@ -289,6 +293,7 @@ export function resolveConfig(config: PynectConfig = {}): ResolvedPynectConfig {
     uvVersion: config.uvVersion ?? '0.13.6',
     autoSync: config.autoSync ?? 'never',
     lockfile: config.lockfile ?? 'pynect.lock',
+    generatedDirectory: config.generatedDirectory ?? '',
     threadPoolSize: config.threadPool?.size ?? config.threadPoolSize ?? Math.max(4, availableParallelism()),
     maxQueueSize: config.threadPool?.maxQueueSize ?? 1000,
     idleTimeout: config.threadPool?.idleTimeout ?? 30000,

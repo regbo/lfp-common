@@ -4,7 +4,7 @@ error_handler.py
 Python-side exception handling and traceback formatting for pynect.
 
 This module is the single place where Python exceptions are converted to
-the structured error dict that ErrorTranslator.ts on the Node.js side
+the structured error dict that error-translator.ts on the Node.js side
 deserialises into ``PythonError`` instances.
 
 Wire format
@@ -55,7 +55,7 @@ ERROR_HANDLER_VERSION = "1.0.0"
 
 # Exception type hierarchy
 # Maps Python built-in exception names -> recommended JS error types.
-# Used by ErrorTranslator.ts to select the right JS Error subclass.
+# Used by error-translator.ts to select the right JS Error subclass.
 
 EXCEPTION_CATEGORY: Dict[str, str] = {
     # Standard errors

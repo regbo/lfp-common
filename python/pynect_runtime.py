@@ -13,7 +13,7 @@ Responsibilities
   - Call callables with positional / keyword arguments
   - Build and iterate Python iterators
   - Set attributes on Python objects
-  - Serialize return values to the wire format expected by Serializer.ts
+  - Serialize return values to the wire format expected by serializer.ts
   - Handle exceptions and forward structured error information
   - Provide module introspection used by TypeGenerator.ts
 
@@ -420,7 +420,7 @@ def _serialize_result(obj: Any) -> Dict[str, Any]:
 
 
 def _make_error(exc_type: str, message: str, tb: str) -> Dict[str, Any]:
-    """Build a structured error dict forwarded to ErrorTranslator.ts."""
+    """Build a structured error dict forwarded to error-translator.ts."""
     return {
         "error": {
             "type":      exc_type,
@@ -502,7 +502,7 @@ def get_module_version(module_name: str) -> Optional[str]:
 
 def create_namespace(init_code: Optional[str] = None) -> Dict[str, Any]:
     """
-    Create an isolated execution namespace (analogous to PyContext.ts).
+    Create an isolated execution namespace (analogous to py-context.ts).
     Returns {"namespaceId": <oid>}.
     """
     ns: Dict[str, Any] = {"__builtins__": __builtins__}

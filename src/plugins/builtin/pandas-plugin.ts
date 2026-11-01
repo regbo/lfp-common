@@ -3,10 +3,10 @@
  * Intercepts DataFrame/Series wire objects and routes through DataFrameBridge.
  */
 
-import type { PynectPlugin, PluginInitContext } from '../Plugin.interface';
+import type { PynectPlugin, PluginInitContext } from '../plugin.interface';
 import type { SerializedValue, DataFrameResult, SeriesResult } from '../../types/python';
-import { DataFrameBridge } from '../../serialization/DataFrameBridge';
-import { Logger } from '../../utils/Logger';
+import { DataFrameBridge } from '../../serialization/data-frame-bridge';
+import { Logger } from '../../utils/logger';
 
 const logger = new Logger('PandasPlugin');
 const bridge = new DataFrameBridge();

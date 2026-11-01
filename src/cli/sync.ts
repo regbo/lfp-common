@@ -1,7 +1,6 @@
-import path from 'path';
 import { Command, Option } from 'commander';
 import { parseBoolean } from '../config/project';
-import { syncProject } from '../env/ProjectEnvironment';
+import { syncProject } from '../env/project-environment';
 
 interface SyncCommandOptions {
   projectRoot?: string;
@@ -13,6 +12,7 @@ interface SyncCommandOptions {
   installUv?: boolean;
   createVirtualEnvironment?: boolean;
   lockfile?: string;
+  generatedDirectory?: string;
   frozen?: boolean;
   offline?: boolean;
   json?: boolean;
@@ -21,7 +21,7 @@ interface SyncCommandOptions {
 export function createSyncCommand(): Command {
   return new Command('sync')
     .description('Resolve and synchronize the application Python environment.')
-    .option('--project-root <path>', 'application root that owns package.json and .venv')
+    .option('--project-root <path>', 'application root that owns package.json')
     .option('--python <path>', 'preferred base Python executable')
     .option('--requires-python <range>', 'accepted Python version range')
     .option('--managed-python <version>', 'managed Python request used as a fallback')
@@ -30,9 +30,10 @@ export function createSyncCommand(): Command {
     .addOption(booleanOption('--install-uv <boolean>', 'allow uv installation'))
     .addOption(booleanOption(
       '--create-virtual-environment <boolean>',
-      'allow creation of the root .venv',
+      'allow creation of the Pyfig-managed virtual environment',
     ))
     .option('--lockfile <path>', 'project-relative lockfile path')
+    .option('--generated-directory <path>', 'directory for generated pyproject.toml and uv.lock')
     .option('--frozen', 'use the existing lockfile and reject manifest changes')
     .option('--offline', 'prohibit network access during resolution and sync')
     .option('--json', 'print the result as JSON')
@@ -42,7 +43,8 @@ export function createSyncCommand(): Command {
         process.stdout.write(`${JSON.stringify({
           projectRoot: result.plan.config.projectRoot,
           lockfile: result.lockfile,
-          environment: path.dirname(result.plan.stateFile),
+          environment: result.state.virtualEnvironment,
+          generatedProject: result.plan.generatedDirectory,
           manifestHash: result.state.manifestHash,
           requirements: result.plan.requirements.length,
           contributors: result.state.contributors,
@@ -53,7 +55,8 @@ export function createSyncCommand(): Command {
         `Synchronized ${result.plan.requirements.length} Python requirement(s) from ` +
         `${result.state.contributors.length} package(s).\n` +
         `Lockfile: ${result.lockfile}\n` +
-        `Environment: ${path.dirname(result.plan.stateFile)}\n`,
+        `Generated project: ${result.plan.generatedDirectory}\n` +
+        `Environment: ${result.state.virtualEnvironment}\n`,
       );
     });
 }

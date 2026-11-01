@@ -6,9 +6,9 @@
 
 import type { NativeAddon } from '../types/addon';
 import type { PyObjectId } from '../types/python';
-import { translatePythonError } from '../utils/ErrorTranslator';
-import { PyProxy, PYPROXY_INTERNAL } from './PyProxy';
-import { Logger } from '../utils/Logger';
+import { translatePythonError } from '../utils/error-translator';
+import { PyProxy, PYPROXY_INTERNAL } from './py-proxy';
+import { Logger } from '../utils/logger';
 
 const logger = new Logger('PyIterator');
 

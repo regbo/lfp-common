@@ -31,9 +31,9 @@
 import { EventEmitter } from 'events';
 import * as fs   from 'fs';
 import * as path from 'path';
-import { Logger } from '../utils/Logger';
+import { Logger } from '../utils/logger';
 import { assertPythonPackageSpec, isPythonModuleName } from './executables';
-import { createPynectPyfig, type PynectPyfigClient } from './PyfigAdapter';
+import { createPynectPyfig, type PynectPyfigClient } from './pyfig-adapter';
 
 const logger = new Logger('PackageInstaller');
 
@@ -426,7 +426,7 @@ export class PackageInstaller extends EventEmitter {
     if (packages.length === 0) {return;}
     packages.forEach(assertPythonPackageSpec);
 
-    const args = ['uninstall', '-y', ...packages];
+    const args = ['uninstall', ...packages];
     logger.info(`Uninstalling: ${packages.join(', ')}`);
 
     const result = this._pyfig.pipSync(args, {
@@ -512,16 +512,7 @@ export class PackageInstaller extends EventEmitter {
    * Ensure pip itself is up-to-date.
    */
   async upgradePip(): Promise<void> {
-    logger.info('Upgrading pip...');
-    const args = ['install', '--upgrade', 'pip'];
-    const r = this._pyfig.pipSync(args, {
-      encoding: 'utf8',
-      cwd:      this._opts.cwd,
-      env:      { ...process.env, ...this._opts.env },
-    });
-    if (r.status !== 0) {
-      logger.warn(`pip self-upgrade failed (non-fatal):\n${r.stderr}`);
-    }
+    logger.debug('Pyfig uses uv directly; there is no environment-local pip to upgrade.');
   }
 
   // Private helpers
@@ -553,8 +544,6 @@ export class PackageInstaller extends EventEmitter {
     if (preRelease)         {args.push('--pre');}
 
     args.push('--no-warn-script-location');
-    args.push('--disable-pip-version-check');
-
     if (this._opts.indexUrl) {
       args.push('--index-url', this._opts.indexUrl);
     }
@@ -713,8 +702,8 @@ export class PackageInstaller extends EventEmitter {
 // Factory helpers
 
 /**
- * Create an installer seeded from a system Python, but always target the
- * repository-root .venv selected by Pyfig.
+ * Create an installer seeded from a system Python, while targeting the
+ * application environment selected by Pyfig.
  */
 export function createSystemInstaller(
   options?: Partial<Omit<PackageInstallerOptions, 'pythonExecutable'>>
@@ -730,9 +719,6 @@ export function createVenvInstaller(
   venvDir:  string,
   options?: Partial<Omit<PackageInstallerOptions, 'pythonExecutable'>>
 ): PackageInstaller {
-  if (path.basename(path.resolve(venvDir)).toLowerCase() !== '.venv') {
-    throw new Error('Pynect only supports a repository-root .venv directory.');
-  }
   const bin = process.platform === 'win32'
     ? path.join(venvDir, 'Scripts', 'python.exe')
     : path.join(venvDir, 'bin', 'python');
@@ -742,7 +728,7 @@ export function createVenvInstaller(
   }
   return new PackageInstaller({
     pythonExecutable: bin,
-    cwd: path.dirname(path.resolve(venvDir)),
+    cwd: options?.cwd ?? process.cwd(),
     ...options,
   });
 }

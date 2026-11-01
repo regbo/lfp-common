@@ -10,11 +10,10 @@
  * import { init, py } from 'pynect';
  *
  * await init({
- * virtualenv: {
- * path: './.venv',
- * packages: ['pandas', 'numpy'],
- * autoInstall: true,
+ * project: {
+ * dependencies: ['pandas', 'numpy'],
  * },
+ * tool: { pynect: { autoSync: 'if-missing' } },
  * });
  *
  * const pd = await py.import('pandas');
@@ -23,14 +22,14 @@
  * ```
  */
 
-import { PyRuntime } from './core/PyRuntime';
-import { Logger } from './utils/Logger';
-import { PynectNotInitializedError } from './utils/ErrorTranslator';
+import { PyRuntime } from './core/py-runtime';
+import { Logger } from './utils/logger';
+import { PynectNotInitializedError } from './utils/error-translator';
 import type { PynectConfig } from './types/config';
 import type { PyProxyInterface } from './types/python';
-import type { IsolatedCallOptions } from './core/IsolatedWorker';
-import { resolveExposedModule } from './env/ProjectEnvironment';
-import { withPynectLock } from './utils/Locking';
+import type { IsolatedCallOptions } from './core/isolated-worker';
+import { resolveExposedModule } from './env/project-environment';
+import { withPynectLock } from './utils/locking';
 
 // Singleton Runtime Management
 
@@ -97,7 +96,8 @@ export const py: PyRuntime = new Proxy({} as PyRuntime, {
  * @example
  * ```typescript
  * await init({
- * virtualenv: { path: '.venv', packages: ['pandas'], autoInstall: true },
+ * project: { dependencies: ['pandas'] },
+ * tool: { pynect: { autoSync: 'if-missing' } },
  * logLevel: 'info',
  * });
  * ```
@@ -347,20 +347,20 @@ function _registerCleanup(): void {
 // Exports
 
 // Core
-export { PyRuntime } from './core/PyRuntime';
-export { PyProxy, PYNECT_WITH_OPTIONS } from './core/PyProxy';
-export type { PynectFunction } from './core/PyProxy';
-export { PyModule } from './core/PyModule';
-export { PyCallable } from './core/PyCallable';
-export { PyIterator } from './core/PyIterator';
-export { PyContext } from './core/PyContext';
-export { IsolatedWorker } from './core/IsolatedWorker';
-export type { IsolatedCallOptions } from './core/IsolatedWorker';
+export { PyRuntime } from './core/py-runtime';
+export { PyProxy, PYNECT_WITH_OPTIONS } from './core/py-proxy';
+export type { PynectFunction } from './core/py-proxy';
+export { PyModule } from './core/py-module';
+export { PyCallable } from './core/py-callable';
+export { PyIterator } from './core/py-iterator';
+export { PyContext } from './core/py-context';
+export { IsolatedWorker } from './core/isolated-worker';
+export type { IsolatedCallOptions } from './core/isolated-worker';
 
 // Serialization
-export { Serializer } from './serialization/Serializer';
-export { NumpyBridge } from './serialization/NumpyBridge';
-export { DataFrameBridge } from './serialization/DataFrameBridge';
+export { Serializer } from './serialization/serializer';
+export { NumpyBridge } from './serialization/numpy-bridge';
+export { DataFrameBridge } from './serialization/data-frame-bridge';
 
 // Error types
 export {
@@ -383,12 +383,12 @@ export {
   translatePythonError,
   isPythonError,
   isPythonErrorOfType,
-} from './utils/ErrorTranslator';
+} from './utils/error-translator';
 
 // Environment management
-export { PythonDetector } from './env/PythonDetector';
-export { VenvManager } from './env/VenvManager';
-export { PackageInstaller } from './env/PackageInstaller';
+export { PythonDetector } from './env/python-detector';
+export { VenvManager } from './env/venv-manager';
+export { PackageInstaller } from './env/package-installer';
 export {
   createProjectPlan,
   discoverPynectContributions,
@@ -396,11 +396,11 @@ export {
   resolveExposedModule,
   syncProject,
   validateProjectEnvironment,
-} from './env/ProjectEnvironment';
-export { resolveProjectConfig } from './config/project';
+} from './env/project-environment';
+export { CURRENT_PYNECT_SCHEMA_VERSION, resolveProjectConfig } from './config/project';
 
 // Plugins
-export { PluginManager } from './plugins/PluginManager';
+export { PluginManager } from './plugins/plugin-manager';
 
 // Types
 export type {
@@ -430,8 +430,13 @@ export type {
 } from './types/index';
 export type {
   AutoSyncMode,
+  CanonicalPynectPackageManifest,
   PynectModuleManifest,
   PynectPackageManifest,
+  PynectProjectTable,
+  PynectToolTable,
+  PynectUvTable,
+  ProjectConfigOverrides,
   ResolvedProjectConfig,
 } from './config/project';
 export type {
@@ -441,7 +446,7 @@ export type {
   PynectProjectPlan,
   SyncProjectOptions,
   SyncProjectResult,
-} from './env/ProjectEnvironment';
+} from './env/project-environment';
 
 // Default export
 export default {

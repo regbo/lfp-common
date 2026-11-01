@@ -15,16 +15,35 @@ Declare application Python dependencies. Pynect's trusted postinstall creates th
 ```json
 {
   "pynect": {
-    "schemaVersion": 1,
-    "requiresPython": ">=3.11,<3.13",
-    "requirements": ["pydantic>=2,<3"]
+    "project": {
+      "requires-python": ">=3.11,<3.13",
+      "dependencies": ["pydantic>=2,<3"]
+    }
   }
 }
 ```
 
+The `pynect` value is a JSON projection of the generated `pyproject.toml`. Omitted
+`schemaVersion` means the latest schema supported by the installed Pynect release.
+The same shape is accepted programmatically:
+
+```ts
+import { init } from 'pynect';
+
+await init({
+  project: {
+    'requires-python': '>=3.11,<3.13',
+    dependencies: ['pydantic>=2,<3'],
+  },
+  tool: {
+    pynect: { autoSync: 'if-missing' },
+  },
+});
+```
+
 When lifecycle scripts are disabled or Pynect is not trusted, run `bunx --bun pynect sync` explicitly.
 
-Current Bun releases and Node.js 22 or newer are supported. Bun-only systems do not need a `node` executable. A preinstalled Python or uv is also unnecessary: Pynect uses Pyfig to create `<project-root>/.venv`, installing its pinned uv and a managed GIL-enabled Python 3.12 when no compatible embeddable CPython exists. When a matching prebuilt addon is unavailable, the first `init()` or `importModule()` compiles it with the active JavaScript runtime from `process.execPath`; a C++ toolchain is still required for that fallback.
+Current Bun releases and Node.js 22 or newer are supported. Bun-only systems do not need a `node` executable. A preinstalled Python or uv is also unnecessary: Pynect uses Pyfig 0.4 to reuse a compatible application environment or create `<project-root>/node_modules/.pyfig/venv`, installing its pinned uv and a managed GIL-enabled Python 3.12 when no compatible embeddable CPython exists. A matching Python 3.12 prebuild is loaded when available; other Python minors and incompatible platform baselines fall back to compiling with the active JavaScript runtime from `process.execPath` and require a C++ toolchain.
 
 ## Quick start
 
@@ -113,16 +132,16 @@ Pynect and [PyBridge](https://github.com/marcj/pybridge) connect TypeScript and 
 
 PyBridge may be a better fit when every call must be process-isolated, or when RxJS generator streaming or Deepkit runtime serialization and reflection matter more than direct in-process access.
 
-The main tradeoff is isolation versus integration. Normal Pynect proxy calls avoid subprocess transport and duplicate controller definitions, while its optional JSON-only worker provides hard termination for selected calls. Installation still requires a local C++ build toolchain until prebuilt binaries are available.
+The main tradeoff is isolation versus integration. Normal Pynect proxy calls avoid subprocess transport and duplicate controller definitions, while its optional JSON-only worker provides hard termination for selected calls. Supported Python 3.12 platform prebuilds avoid a local compiler; fallback builds still require a C++ toolchain.
 
 ## Python and native build
 
-The package loads a matching local N-API addon first. Its build manifest must name the exact interpreter selected by Pyfig; a stale addon built for another Python is rebuilt. If no matching addon works, Pynect lazily builds one against the selected interpreter. The builder is launched with `process.execPath`, so Bun launches Bun and Node.js launches Node.js instead of assuming a `node` command exists. The same approach works with another Node-compatible runtime when it implements the child-process and N-API behavior Pynect needs.
+The package first loads a prebuilt N-API addon whose platform, architecture, Python minor, N-API version, and Linux glibc baseline match the active process. It then checks for an exact local build whose manifest names the interpreter selected by Pyfig. If neither addon works, Pynect lazily builds one against the selected interpreter. The builder is launched with `process.execPath`, so Bun launches Bun and Node.js launches Node.js instead of assuming a `node` command exists. The same approach works with another Node-compatible runtime when it implements the child-process and N-API behavior Pynect needs.
 
 ```mermaid
 graph TD;
-    A[First runtime initialization] --> B[Pyfig selects repository Python];
-    B --> C{Exact Python addon loads};
+    A[First runtime initialization] --> B[Pyfig selects application Python];
+    B --> C{Compatible prebuild or exact local addon loads};
     C -->|Yes| G[Initialize embedded CPython];
     C -->|No| D[Launch builder with process execPath];
     D --> E[Build against selected Python headers and library];
@@ -132,11 +151,11 @@ graph TD;
 
 Pynect requires Python 3.10 or newer, `Python.h`, a linkable CPython library, and the standard GIL-enabled ABI. It rejects a runtime-only or free-threaded installation instead of compiling against unrelated `python3-config` output. When no compatible interpreter exists, Pyfig downloads the pinned uv archive from Astral's GitHub release, verifies its SHA-256 checksum, and installs managed Python 3.12.
 
-Builds, the embedded runtime, codegen, isolated workers, `pipSpawn`, and `uv pip` all use the same repository-root `.venv` interpreter. `virtualenv.path` is deprecated; when provided for compatibility, it must resolve to that root `.venv`.
+Builds, the embedded runtime, codegen, isolated workers, and uv package operations all use the same Pyfig-selected interpreter. Pyfig reuses a compatible active or root `.venv`; otherwise it creates the application-private `node_modules/.pyfig/venv`. `virtualenv.path` is deprecated and, when provided for compatibility, must resolve to the selected environment.
 
 ## Locked application environment
 
-One application owns one `.venv` and one `pynect.lock`. Reusable npm packages contribute requirements and exposed modules through their `package.json` without installing anything themselves:
+One application owns one Pyfig-selected environment and one `pynect.lock`. Reusable npm packages contribute requirements and exposed modules through their `package.json` without installing anything themselves:
 
 ```json
 {
@@ -145,30 +164,37 @@ One application owns one `.venv` and one `pynect.lock`. Reusable npm packages co
     "pynect": "^0.2.0"
   },
   "pynect": {
-    "schemaVersion": 1,
-    "requiresPython": ">=3.11,<3.13",
-    "requirements": ["name-generator>=1,<2"],
-    "modules": {
-      "generator": {
-        "import": "name_generator",
-        "include": ["generate_name"]
+    "project": {
+      "requires-python": ">=3.11,<3.13",
+      "dependencies": ["name-generator>=1,<2"]
+    },
+    "tool": {
+      "pynect": {
+        "modules": {
+          "generator": {
+            "import": "name_generator",
+            "include": ["generate_name"]
+          }
+        }
       }
     }
   }
 }
 ```
 
-`pynect sync` walks the installed npm dependency graph and writes one minimal generated uv project at `.pynect/pyproject.toml`. uv performs dependency resolution, writes its native universal lock, and exactly synchronizes the root `.venv`; Pynect copies that native lock to the configured `pynect.lock` path for check-in. uv's shared cache avoids repeated downloads across environments. Pynect records the manifest hash, lock hash, Python ABI, platform, and contributing packages in `.venv/.pynect-state.json`.
+`pynect sync` walks the installed npm dependency graph and writes one minimal generated uv project beside the resolved Pynect installation, normally at `node_modules/.pynect/pyproject.toml`. Hoisted installations add a stable application-specific directory below `.pynect` so workspaces cannot overwrite one another. uv performs dependency resolution, writes its native universal lock, and exactly synchronizes the environment selected by Pyfig; Pynect copies that native lock to the configured `pynect.lock` path for check-in. uv's shared cache avoids repeated downloads across environments. Pynect records the environment path, manifest hash, lock hash, Python ABI, platform, and contributing packages in the generated directory's `.pynect-state.json`.
 
-Pynect does not implement a Python package resolver. Conflicts and platform-specific selections are handled by uv, while Pynect adds the npm packages that contributed each top-level requirement to failure output. Dependency manifests may declare only `schemaVersion`, `requiresPython`, `requirements`, and `modules`; Python selection, installation policy, lockfile placement, indexes, and credentials remain application-owned.
+Pynect does not implement a Python package resolver. Conflicts and platform-specific selections are handled by uv, while Pynect adds the npm packages that contributed each top-level requirement to failure output. Dependency manifests may declare `project` dependency metadata and `tool.pynect.modules`; Python selection, installation policy, generated-file and lockfile placement, indexes, and credentials remain application-owned.
 
 The root application may resolve a known conflict explicitly without changing a dependency package:
 
 ```json
 {
   "pynect": {
-    "overrides": {
-      "image-lib": ">=2,<3"
+    "tool": {
+      "uv": {
+        "override-dependencies": ["image-lib>=2,<3"]
+      }
     }
   }
 }
@@ -187,7 +213,7 @@ console.log(await generator.generate_name());
 
 The aggregated `modules.include` patterns are enforced by the runtime dispatcher. When `include` is omitted, that manifest exposes the module's public callables; application dispatcher includes are additive, and excludes always win.
 
-Normal runtime startup validates the lock and environment state without network access. Applications that want development-time repair may opt in with `"autoSync": "if-missing"`; the default is `"never"`. Production and CI should use an explicit frozen sync:
+Normal runtime startup validates the lock and environment state without network access. Applications that want development-time repair may opt in with `"tool": { "pynect": { "autoSync": "if-missing" } }`; the default is `"never"`. Production and CI should use an explicit frozen sync:
 
 ```sh
 bunx --bun pynect sync --frozen
@@ -203,21 +229,22 @@ Pynect's postinstall runs the same sync automatically when a reachable npm packa
 
 An application may always keep installation side-effect free and run `pynect sync` explicitly instead.
 
-Configuration precedence is API or CLI, environment, root `package.json`, then default:
+Package and programmatic configuration use the same JSON pyproject projection. Configuration precedence is API or CLI, environment, root `package.json`, then default:
 
 | package.json / API | Environment | CLI | Default |
 | --- | --- | --- | --- |
-| `python` | `PYNECT_PYTHON` | `--python` | auto-detect |
-| `requiresPython` | `PYNECT_REQUIRES_PYTHON` | `--requires-python` | `>=3.10.0 <4.0.0` |
-| `managedPython` | `PYNECT_MANAGED_PYTHON` | `--managed-python` | `3.12` |
-| `uvVersion` | `PYNECT_UV_VERSION` | `--uv-version` | Pyfig's pinned release |
-| `installPython` | `PYNECT_INSTALL_PYTHON` | `--install-python` | `true` |
-| `installUv` | `PYNECT_INSTALL_UV` | `--install-uv` | `true` |
-| `createVirtualEnvironment` | `PYNECT_CREATE_VIRTUAL_ENVIRONMENT` | `--create-virtual-environment` | `true` |
-| `autoSync` | `PYNECT_AUTO_SYNC` | n/a | `never` |
-| `lockfile` | `PYNECT_LOCKFILE` | `--lockfile` | `pynect.lock` |
+| `tool.pynect.python` | `PYNECT_PYTHON` | `--python` | auto-detect |
+| `project["requires-python"]` | `PYNECT_REQUIRES_PYTHON` | `--requires-python` | `>=3.10.0 <4.0.0` |
+| `tool.pynect.managedPython` | `PYNECT_MANAGED_PYTHON` | `--managed-python` | `3.12` |
+| `tool.pynect.uvVersion` | `PYNECT_UV_VERSION` | `--uv-version` | Pyfig's pinned release |
+| `tool.pynect.installPython` | `PYNECT_INSTALL_PYTHON` | `--install-python` | `true` |
+| `tool.pynect.installUv` | `PYNECT_INSTALL_UV` | `--install-uv` | `true` |
+| `tool.pynect.createVirtualEnvironment` | `PYNECT_CREATE_VIRTUAL_ENVIRONMENT` | `--create-virtual-environment` | `true` |
+| `tool.pynect.autoSync` | `PYNECT_AUTO_SYNC` | n/a | `never` |
+| `tool.pynect.lockfile` | `PYNECT_LOCKFILE` | `--lockfile` | `pynect.lock` |
+| `tool.pynect.generatedDirectory` | `PYNECT_GENERATED_DIRECTORY` | `--generated-directory` | beside the Pynect install |
 
-`--offline` prohibits network access. `--frozen` passes uv's `--locked` check and refuses to rewrite an outdated lock. The deprecated `PYNECT_AUTO_INSTALL` and runtime `autoInstallPython` names remain compatibility aliases; new configuration should use the names above. Runtime `virtualenv.autoInstall` is no longer supported because independent startup installs cannot resolve the complete npm dependency graph safely.
+Relative generated-directory values resolve from the application root. This lets linked, global, read-only, or nonstandard installations choose a writable runtime location without changing dependency manifests. `--offline` prohibits network access. `--frozen` passes uv's `--locked` check and refuses to rewrite an outdated lock. The deprecated flat package keys, `PYNECT_AUTO_INSTALL`, and runtime `autoInstallPython` name remain compatibility aliases; new configuration should use the nested names above. Runtime `virtualenv.autoInstall` is no longer supported because independent startup installs cannot resolve the complete npm dependency graph safely.
 
 Pynect uses [loqkit](https://www.npmjs.com/package/loqkit) for JavaScript critical sections. Project sync and native builds use its default layered memory, worker-thread, and cross-process file locks. Runtime lifecycle and Python garbage collection use memory-scoped locks because those resources belong to one JavaScript process. Pynect does not maintain separate promise, module, inspection, or proxy memo caches; new memoized getters should use loqkit's `memoize` primitive.
 
@@ -228,7 +255,7 @@ Pyfig's managed-tool provisioning uses its own check-lock-check sections:
 3. Check again.
 4. Install only if it is still absent.
 
-A C++ build toolchain is still required. On Windows, install Visual Studio Build Tools with the Desktop development with C++ workload. Set `PYNECT_AUTO_INSTALL=0` to prohibit managed Python downloads while still allowing `.venv` creation from a compatible setup-python or system interpreter. Set `PYNECT_INSTALL_UV=0` to prohibit uv installation, `PYNECT_CREATE_VIRTUAL_ENVIRONMENT=0` to require an existing root `.venv`, or `PYNECT_PYTHON` to check a specific interpreter first.
+A C++ build toolchain is required only when no compatible prebuild is available. On Windows, fallback builds need Visual Studio Build Tools with the Desktop development with C++ workload. Set `PYNECT_AUTO_INSTALL=0` to prohibit managed Python downloads while still allowing environment creation from a compatible setup-python or system interpreter. Set `PYNECT_INSTALL_UV=0` to prohibit uv installation, `PYNECT_CREATE_VIRTUAL_ENVIRONMENT=0` to require an existing compatible environment, or `PYNECT_PYTHON` to check a specific interpreter first.
 
 ## Codegen selection
 

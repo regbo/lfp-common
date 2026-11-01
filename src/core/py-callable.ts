@@ -4,7 +4,7 @@
  * Extends PyProxy with call metadata and convenience methods.
  */
 
-import { PyProxy, PYPROXY_INTERNAL } from './PyProxy';
+import { PyProxy, PYPROXY_INTERNAL } from './py-proxy';
 import type { NativeAddon } from '../types/addon';
 import type { PyCallOptions } from '../types/addon';
 import type { PyObjectId, AttributePath, PyCallableInfo } from '../types/python';

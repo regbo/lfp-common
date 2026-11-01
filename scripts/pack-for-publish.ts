@@ -1,4 +1,4 @@
-import { appendFile, mkdtemp } from 'node:fs/promises';
+import { access, appendFile, mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { auditArchive } from './archive.ts';
@@ -25,6 +25,24 @@ const registryResponse = await fetch(registryVersionUrl(manifest.name, manifest.
 if (registryResponse.ok) throw new Error(`${manifest.name}@${manifest.version} already exists on npm`);
 if (registryResponse.status !== 404) {
   throw new Error(`npm registry check failed with HTTP ${registryResponse.status}`);
+}
+
+for (const target of [
+  'linux-x64',
+  'linux-arm64',
+  'darwin-x64',
+  'darwin-arm64',
+  'win32-x64',
+  'win32-arm64',
+]) {
+  const directory = resolve('prebuilds', target);
+  await access(join(directory, 'pynect_addon.node'));
+  const metadata = JSON.parse(
+    await readFile(join(directory, 'pynect-prebuild.json'), 'utf8'),
+  ) as { schemaVersion?: number; pythonMajorMinor?: string };
+  if (metadata.schemaVersion !== 1 || metadata.pythonMajorMinor !== '3.12') {
+    throw new Error(`Invalid Python 3.12 prebuild metadata for ${target}`);
+  }
 }
 
 const archiveRoot = await mkdtemp(

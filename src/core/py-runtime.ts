@@ -10,13 +10,13 @@ import type { NativeAddon } from '../types/addon';
 import { resolveConfig } from '../types/config';
 import type { PynectConfig, ResolvedPynectConfig } from '../types/config';
 import type { PyObjectId } from '../types/python';
-import { PyProxy } from './PyProxy';
-import { PyModule } from './PyModule';
-import { PyContext } from './PyContext';
-import { IsolatedWorker, type IsolatedCallOptions } from './IsolatedWorker';
-import { PluginManager } from '../plugins/PluginManager';
-import { PackageInstaller } from '../env/PackageInstaller';
-import { ensurePynectPython } from '../env/PyfigAdapter';
+import { PyProxy } from './py-proxy';
+import { PyModule } from './py-module';
+import { PyContext } from './py-context';
+import { IsolatedWorker, type IsolatedCallOptions } from './isolated-worker';
+import { PluginManager } from '../plugins/plugin-manager';
+import { PackageInstaller } from '../env/package-installer';
+import { ensurePynectPython } from '../env/pyfig-adapter';
 import {
   createProjectPlan,
   moduleDispatcherIncludes,
@@ -24,14 +24,14 @@ import {
   syncProject,
   validateProjectEnvironment,
   type PynectEnvironmentState,
-} from '../env/ProjectEnvironment';
-import { loadOrBuildNativeAddon } from '../native/NativeAddonLoader';
-import { MemoryMonitor } from '../utils/MemoryMonitor';
-import { Logger } from '../utils/Logger';
+} from '../env/project-environment';
+import { loadOrBuildNativeAddon } from '../native/native-addon-loader';
+import { MemoryMonitor } from '../utils/memory-monitor';
+import { Logger } from '../utils/logger';
 import {
   translatePythonError,
   PynectShutdownError,
-} from '../utils/ErrorTranslator';
+} from '../utils/error-translator';
 
 const logger = new Logger('PyRuntime');
 
@@ -41,7 +41,8 @@ const logger = new Logger('PyRuntime');
  * @example
  * ```typescript
  * const runtime = await PyRuntime.create({
- * virtualenv: { path: '.venv', packages: ['pandas'], autoInstall: true },
+ * project: { dependencies: ['pandas'] },
+ * tool: { pynect: { autoSync: 'if-missing' } },
  * });
  *
  * const pd = await runtime.import('pandas');
@@ -81,7 +82,8 @@ export class PyRuntime {
    * Create and initialize a PyRuntime instance.
    */
   static async create(config: PynectConfig = {}): Promise<PyRuntime> {
-    const project = resolveProjectConfig({
+    const projectOverrides = {
+      ...config,
       projectRoot: config.projectRoot,
       python: config.python ?? config.pythonPath,
       requiresPython: config.requiresPython,
@@ -93,39 +95,18 @@ export class PyRuntime {
         config.createVirtualEnvironment ?? config.autoCreateVirtualEnvironment,
       autoSync: config.autoSync,
       lockfile: config.lockfile,
+      generatedDirectory: config.generatedDirectory,
       env: config.env,
-    });
-    const plan = createProjectPlan({
-      projectRoot: project.projectRoot,
-      python: project.python,
-      requiresPython: project.requiresPython,
-      managedPython: project.managedPython,
-      uvVersion: project.uvVersion,
-      installPython: project.installPython,
-      installUv: project.installUv,
-      createVirtualEnvironment: project.createVirtualEnvironment,
-      autoSync: project.autoSync,
-      lockfile: project.lockfile,
-      env: project.env as Record<string, string>,
-    });
+    };
+    const project = resolveProjectConfig(projectOverrides);
+    const plan = createProjectPlan(projectOverrides);
     let environmentState: PynectEnvironmentState | undefined;
     if (requiresProjectSync(plan)) {
       if (project.autoSync === 'if-missing') {
         try {
           environmentState = validateProjectEnvironment(plan);
         } catch {
-          environmentState = (await syncProject({
-            projectRoot: project.projectRoot,
-            python: project.python,
-            requiresPython: project.requiresPython,
-            managedPython: project.managedPython,
-            uvVersion: project.uvVersion,
-            installPython: project.installPython,
-            installUv: project.installUv,
-            createVirtualEnvironment: project.createVirtualEnvironment,
-            lockfile: project.lockfile,
-            env: project.env as Record<string, string>,
-          })).state;
+          environmentState = (await syncProject(projectOverrides)).state;
         }
       } else {
         environmentState = validateProjectEnvironment(plan);
@@ -135,7 +116,7 @@ export class PyRuntime {
     if (config.virtualenv?.autoInstall && (config.virtualenv.packages?.length ?? 0) > 0) {
       throw new Error(
         'virtualenv.autoInstall is no longer supported. Declare Python dependencies in the ' +
-        'root package.json pynect.requirements field and run "pynect sync".',
+        'root package.json pynect.project.dependencies field and run "pynect sync".',
       );
     }
 
@@ -164,14 +145,12 @@ export class PyRuntime {
         );
       }
     }
-    const selectedProjectRoot = selected.virtualEnvironment
-      ? path.dirname(selected.virtualEnvironment)
-      : config.projectRoot ?? process.cwd();
+    const selectedProjectRoot = project.projectRoot;
     if (config.virtualenv?.path) {
       const configuredVenv = path.resolve(config.virtualenv.path);
       if (!selected.virtualEnvironment || !pathsEqual(configuredVenv, selected.virtualEnvironment)) {
         throw new Error(
-          `virtualenv.path must resolve to the repository .venv at ${selected.virtualEnvironment}.`,
+          `virtualenv.path must resolve to the Pyfig-selected environment at ${selected.virtualEnvironment}.`,
         );
       }
     }
@@ -187,6 +166,7 @@ export class PyRuntime {
       uvVersion: project.uvVersion,
       autoSync: project.autoSync,
       lockfile: project.lockfile,
+      generatedDirectory: project.generatedDirectory,
       env: project.env as Record<string, string>,
       dispatcher: {
         ...config.dispatcher,
@@ -223,6 +203,7 @@ export class PyRuntime {
       addon = loadOrBuildNativeAddon({
         projectRoot: selectedProjectRoot,
         pythonExecutable: selected.executable,
+        pythonVersion: selected.version,
       });
       logger.debug('Native addon loaded');
     } catch (err) {

@@ -4,10 +4,10 @@
  * Inherits from PyProxy but adds module-specific introspection.
  */
 
-import { PyProxy, PYPROXY_INTERNAL } from './PyProxy';
+import { PyProxy, PYPROXY_INTERNAL } from './py-proxy';
 import type { NativeAddon } from '../types/addon';
 import type { PyObjectId, PyModuleInspection } from '../types/python';
-import { Logger } from '../utils/Logger';
+import { Logger } from '../utils/logger';
 
 const logger = new Logger('PyModule');
 

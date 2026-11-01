@@ -13,7 +13,7 @@ async function main() {
   const projectRoot = path.resolve(
     process.env.INIT_CWD || process.env.npm_config_local_prefix || process.cwd(),
   );
-  const environmentModule = path.join(__dirname, '..', 'dist', 'env', 'ProjectEnvironment.js');
+  const environmentModule = path.join(__dirname, '..', 'dist', 'env', 'project-environment.js');
 
   // Published packages contain dist. A source checkout may install dependencies
   // before its first TypeScript build, so its normal verify/build flow owns setup.

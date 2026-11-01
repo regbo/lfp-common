@@ -56,7 +56,7 @@ import type {
   DataFrameResult,
   SeriesResult,
 } from '../types/python';
-import { Logger } from '../utils/Logger';
+import { Logger } from '../utils/logger';
 
 const logger = new Logger('DataFrameBridge');
 

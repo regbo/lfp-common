@@ -1,6 +1,6 @@
 import type { ChildProcessWithoutNullStreams } from 'child_process';
 import { createInterface, type Interface as ReadlineInterface } from 'readline';
-import { createPynectPyfig } from '../env/PyfigAdapter';
+import { createPynectPyfig } from '../env/pyfig-adapter';
 
 export interface IsolatedCallOptions {
   kwargs?: Record<string, unknown>;

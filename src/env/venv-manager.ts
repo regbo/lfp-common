@@ -1,13 +1,13 @@
 import fs from 'fs';
 import path from 'path';
 import type { VirtualenvConfig } from '../types/config';
-import { Logger } from '../utils/Logger';
-import { PackageInstaller } from './PackageInstaller';
+import { Logger } from '../utils/logger';
+import { PackageInstaller } from './package-installer';
 import {
   ensurePynectEnvironment,
   pynectProjectRoot,
   type SelectedPython,
-} from './PyfigAdapter';
+} from './pyfig-adapter';
 
 const logger = new Logger('VenvManager');
 const STATE_FILENAME = '.pynect-venv-state.json';
@@ -49,8 +49,9 @@ export class VenvManager {
   private readonly basePython: string;
   private readonly installTimeout: number;
   private readonly projectRoot: string;
-  private readonly venvPath: string;
-  private readonly statePath: string;
+  private readonly configuredPath?: string;
+  private venvPath: string;
+  private statePath: string;
   private selectedPython?: SelectedPython;
 
   constructor(options: VenvManagerOptions) {
@@ -63,14 +64,14 @@ export class VenvManager {
     this.basePython = options.basePython ?? '';
     this.installTimeout = options.installTimeout ?? 300_000;
 
-    const configuredPath = this.config.path ? path.resolve(this.config.path) : null;
-    if (configuredPath && path.basename(configuredPath).toLowerCase() !== '.venv') {
-      throw new Error(
-        `Pynect only supports the repository-root .venv; received ${configuredPath}.`,
-      );
-    }
-    this.projectRoot = configuredPath ? path.dirname(configuredPath) : pynectProjectRoot();
-    this.venvPath = path.join(this.projectRoot, '.venv');
+    this.configuredPath = this.config.path ? path.resolve(this.config.path) : undefined;
+    this.projectRoot = pynectProjectRoot();
+    const rootEnvironment = path.join(this.projectRoot, '.venv');
+    this.venvPath = this.configuredPath ?? (
+      fs.existsSync(rootEnvironment)
+        ? rootEnvironment
+        : path.join(this.projectRoot, 'node_modules', '.pyfig', 'venv')
+    );
     this.statePath = path.join(this.venvPath, STATE_FILENAME);
   }
 
@@ -78,23 +79,26 @@ export class VenvManager {
     const existed = this.isValid();
     const { environment } = await ensurePynectEnvironment({
       projectRoot: this.projectRoot,
-      pythonPath: this.basePython,
+      pythonPath: this.configuredPath && this.isValid()
+        ? venvPython(this.configuredPath)
+        : this.basePython,
     });
     this.selectedPython = environment.python;
     this.assertSelectedEnvironment(environment.python);
+    this.venvPath = environment.python.virtualEnvironment!;
+    this.statePath = path.join(this.venvPath, STATE_FILENAME);
 
     if (this.config.autoInstall && this.config.packages.length > 0) {
       throw new Error(
         'VenvManager auto-install is no longer supported. Declare package.json ' +
-        'pynect.requirements and run "pynect sync".',
+        'pynect.project.dependencies and run "pynect sync".',
       );
     }
 
-    const manager = environment.packageManager as { executable: string };
     logger.info(`VenvManager: ready: ${environment.python.executable}`);
     return {
       pythonExecutable: environment.python.executable,
-      pipExecutable: manager.executable,
+      pipExecutable: environment.uv.executable,
       created: !existed,
       packagesInstalled: false,
     };
@@ -149,9 +153,12 @@ export class VenvManager {
   }
 
   private assertSelectedEnvironment(python: SelectedPython): void {
-    if (!python.virtualEnvironment || !pathsEqual(python.virtualEnvironment, this.venvPath)) {
+    if (!python.virtualEnvironment) {
+      throw new Error(`Pyfig selected ${python.executable} without a virtual environment.`);
+    }
+    if (this.configuredPath && !pathsEqual(python.virtualEnvironment, this.configuredPath)) {
       throw new Error(
-        `Pyfig selected ${python.virtualEnvironment ?? python.executable}; expected ${this.venvPath}.`,
+        `Pyfig selected ${python.virtualEnvironment}; expected ${this.configuredPath}.`,
       );
     }
   }

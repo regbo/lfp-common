@@ -4,6 +4,12 @@ import type {
   PythonEnvironment,
   PythonInfo,
 } from 'pyfig';
+import type {
+  ChildProcess,
+  SpawnOptions,
+  SpawnSyncOptions,
+  SpawnSyncReturns,
+} from 'child_process';
 
 /** Python selected by Pynect after its embedding requirements have been checked. */
 export type SelectedPython = PythonInfo & { embedding: PythonEmbeddingInfo };
@@ -24,7 +30,18 @@ export interface PynectPythonOptions {
   env?: Record<string, string>;
 }
 
-export type PynectPyfigClient = PyfigClient;
+export type PynectPyfigClient = PyfigClient & {
+  python(args?: readonly string[], options?: SpawnOptions): Promise<ChildProcess>;
+  pythonSync(
+    args?: readonly string[],
+    options?: SpawnSyncOptions,
+  ): SpawnSyncReturns<string | Buffer>;
+  pip(args?: readonly string[], options?: SpawnOptions): Promise<ChildProcess>;
+  pipSync(
+    args?: readonly string[],
+    options?: SpawnSyncOptions,
+  ): SpawnSyncReturns<string | Buffer>;
+};
 
 interface AdapterModule {
   createPynectPyfig(options?: PynectPythonOptions): PynectPyfigClient;

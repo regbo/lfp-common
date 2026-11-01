@@ -3,7 +3,7 @@ pynect - Python-side serializer
 Converts Python objects into the pynect wire format consumed by the
 TypeScript DataFrameBridge / NumpyBridge.
 
-Wire format codes (must match NumpyBridge.ts NumpyDTypeCode enum):
+Wire format codes (must match numpy-bridge.ts NumpyDTypeCode enum):
   0  bool
   1  int8    2  int16    3  int32    4  int64
   5  uint8   6  uint16   7  uint32   8  uint64
@@ -11,7 +11,7 @@ Wire format codes (must match NumpyBridge.ts NumpyDTypeCode enum):
   11 complex64  12 complex128
 
 DataFrame / Series are serialised as JSON (split orientation).
-NumPy arrays use the custom binary layout described in NumpyBridge.ts.
+NumPy arrays use the custom binary layout described in numpy-bridge.ts.
 """
 
 from __future__ import annotations
@@ -170,7 +170,7 @@ def deserialize(wire: Dict[str, Any]) -> Any:
 
 
 def _serialize_ndarray(arr: 'np.ndarray') -> Dict[str, Any]:
-    """Serialize NumPy array using the binary layout in NumpyBridge.ts."""
+    """Serialize NumPy array using the binary layout in numpy-bridge.ts."""
     dtype_str = _NUMPY_DTYPE_MAP.get(arr.dtype.name, 'float64')
     dtype_code = _DTYPE_TO_CODE.get(dtype_str, 10)
     item_size  = arr.itemsize

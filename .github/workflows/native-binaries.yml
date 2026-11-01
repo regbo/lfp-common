@@ -11,11 +11,12 @@ on:
       - scripts/docker-zero-python.sh
       - scripts/pyfig.js
       - scripts/smoke-python-boundary.js
+      - scripts/stage-prebuild.js
       - package.json
       - bun.lock
       - src/cli/**
-      - src/core/IsolatedWorker.ts
-      - src/core/PyRuntime.ts
+      - src/core/isolated-worker.ts
+      - src/core/py-runtime.ts
       - src/env/**
       - src/native/**
       - src/types/config.ts
@@ -27,11 +28,12 @@ on:
       - scripts/docker-zero-python.sh
       - scripts/pyfig.js
       - scripts/smoke-python-boundary.js
+      - scripts/stage-prebuild.js
       - package.json
       - bun.lock
       - src/cli/**
-      - src/core/IsolatedWorker.ts
-      - src/core/PyRuntime.ts
+      - src/core/isolated-worker.ts
+      - src/core/py-runtime.ts
       - src/env/**
       - src/native/**
       - src/types/config.ts
@@ -52,7 +54,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: ubuntu-24.04
+          - runner: ubuntu-22.04
             platform: linux
             arch: x64
             artifact: pynect-linux-x64-python312
@@ -118,13 +120,13 @@ jobs:
         run: node scripts/smoke-python-boundary.js
 
       - name: Stage prebuild
-        run: node -e "const fs=require('fs');const path=require('path');const out=path.join('prebuilds','${{ matrix.platform }}-${{ matrix.arch }}');fs.mkdirSync(out,{recursive:true});fs.copyFileSync(path.join('build','Release','pynect_addon.node'),path.join(out,'pynect_addon.node'))"
+        run: node scripts/stage-prebuild.js
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
-          path: prebuilds/${{ matrix.platform }}-${{ matrix.arch }}/pynect_addon.node
+          path: prebuilds/${{ matrix.platform }}-${{ matrix.arch }}/
           if-no-files-found: error
           retention-days: 14
 

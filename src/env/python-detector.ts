@@ -4,13 +4,13 @@
  */
 
 import path from 'path';
-import { Logger } from '../utils/Logger';
+import { Logger } from '../utils/logger';
 import {
   createPynectPyfig,
   ensurePynectPython,
   type PynectPythonOptions,
   type SelectedPython,
-} from './PyfigAdapter';
+} from './pyfig-adapter';
 import { isPythonModuleName } from './executables';
 
 const logger = new Logger('PythonDetector');
@@ -38,7 +38,7 @@ export interface DetectorOptions {
   explicitOnly?: boolean;
   /** Modules that must be importable from the repository venv. */
   requiredModules?: string[];
-  /** Repository root that owns `.venv`. Defaults to Pyfig discovery. */
+  /** Application root that owns the Pyfig environment. Defaults to Pyfig discovery. */
   projectRoot?: string;
 }
 

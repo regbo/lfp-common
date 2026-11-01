@@ -89,7 +89,22 @@ function assertEmbeddable(python) {
 }
 
 function createPynectPyfig(options = {}) {
-  return loadPyfig().createPyfig(pynectPyfigOptions(options));
+  const client = loadPyfig().createPyfig(pynectPyfigOptions(options));
+  return {
+    ...client,
+    python(args = [], spawnOptions = {}) {
+      return client.uv(['run', '--', 'python', ...args], spawnOptions);
+    },
+    pythonSync(args = [], spawnOptions = {}) {
+      return client.uvSync(['run', '--', 'python', ...args], spawnOptions);
+    },
+    pip(args = [], spawnOptions = {}) {
+      return client.uv(['pip', ...args], spawnOptions);
+    },
+    pipSync(args = [], spawnOptions = {}) {
+      return client.uvSync(['pip', ...args], spawnOptions);
+    },
+  };
 }
 
 async function ensurePynectPython(options = {}) {

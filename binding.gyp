@@ -12,9 +12,6 @@
       "<!@(node -p \"require('node-addon-api').include\")",
       "<!(node -p \"process.env.PYNECT_PYTHON_INCLUDE_DIR || (() => { throw new Error('PYNECT_PYTHON_INCLUDE_DIR is required') })()\")"
     ],
-    "libraries": [
-      "<!(node -p \"process.env.PYNECT_PYTHON_LIBRARY || (() => { throw new Error('PYNECT_PYTHON_LIBRARY is required') })()\")"
-    ],
     "cflags_cc": [
       "-std=c++17",
       "-O2",
@@ -34,20 +31,22 @@
         "cflags_cc": ["-fvisibility=hidden"],
         "libraries": ["-ldl"],
         "ldflags": [
-          "-Wl,-rpath,<!(node -p \"process.env.PYNECT_PYTHON_LIBRARY_DIR || (() => { throw new Error('PYNECT_PYTHON_LIBRARY_DIR is required') })()\")"
+          "-static-libgcc",
+          "-static-libstdc++"
         ]
       }],
       ["OS=='mac'", {
+        "ldflags": ["-Wl,-undefined,dynamic_lookup"],
         "xcode_settings": {
           "MACOSX_DEPLOYMENT_TARGET": "11.0",
           "OTHER_CFLAGS": ["-std=c++17", "-stdlib=libc++"],
-          "LD_RUNPATH_SEARCH_PATHS": [
-            "<!(node -p \"process.env.PYNECT_PYTHON_LIBRARY_DIR || (() => { throw new Error('PYNECT_PYTHON_LIBRARY_DIR is required') })()\")"
-          ],
           "GCC_ENABLE_CPP_EXCEPTIONS": "YES"
         }
       }],
       ["OS=='win'", {
+        "libraries": [
+          "<!(node -p \"process.env.PYNECT_PYTHON_LIBRARY || (() => { throw new Error('PYNECT_PYTHON_LIBRARY is required') })()\")"
+        ],
         "msvs_settings": {
           "VCCLCompilerTool": {
             "ExceptionHandling": 1,

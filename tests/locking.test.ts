@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { withPynectLock } from '../src/utils/Locking';
+import { withPynectLock } from '../src/utils/locking';
 
 describe('loqkit integration', () => {
   test('serializes actions sharing a Pynect lock key', async () => {

@@ -5,14 +5,14 @@
  * PyRuntime holds a single PluginManager instance.
  */
 
-import { Logger } from '../utils/Logger';
+import { Logger } from '../utils/logger';
 import type {
   PynectPlugin,
   PluginRegistration,
   PluginInitContext,
   TypeTransformHandler,
   PythonTypeName,
-} from './Plugin.interface';
+} from './plugin.interface';
 import type { SerializedValue } from '../types/python';
 
 const logger = new Logger('PluginManager');
@@ -57,9 +57,9 @@ export class PluginManager {
 
   async registerBuiltins(): Promise<void> {
     const [{ PandasPlugin }, { NumpyPlugin }, { TorchPlugin }] = await Promise.all([
-      import('./builtin/PandasPlugin'),
-      import('./builtin/NumpyPlugin'),
-      import('./builtin/TorchPlugin'),
+      import('./builtin/pandas-plugin'),
+      import('./builtin/numpy-plugin'),
+      import('./builtin/torch-plugin'),
     ]);
     this.register(new PandasPlugin());
     this.register(new NumpyPlugin());

@@ -6,9 +6,9 @@
 
 import type { NativeAddon } from '../types/addon';
 import type { PyObjectId } from '../types/python';
-import { PyProxy, PYPROXY_INTERNAL } from './PyProxy';
-import { translatePythonError } from '../utils/ErrorTranslator';
-import { Logger } from '../utils/Logger';
+import { PyProxy, PYPROXY_INTERNAL } from './py-proxy';
+import { translatePythonError } from '../utils/error-translator';
+import { Logger } from '../utils/logger';
 
 const logger = new Logger('PyContext');
 
