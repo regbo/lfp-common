@@ -1,0 +1,54 @@
+{
+  "name": "loqkit",
+  "version": "0.0.1",
+  "description": "Small typed locking primitives for JavaScript runtimes.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/regbo/loqkit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/regbo/loqkit/issues"
+  },
+  "homepage": "https://github.com/regbo/loqkit#readme",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./release/index.d.ts",
+      "import": "./release/index.js"
+    }
+  },
+  "types": "./release/index.d.ts",
+  "files": [
+    "release",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "bun run typecheck && bun test && bun run build",
+    "test": "bun test",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "keywords": [
+    "lock",
+    "mutex",
+    "concurrency",
+    "typescript"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "async-mutex": "^0.5.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^5.9.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
