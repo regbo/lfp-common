@@ -3,7 +3,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { prepareFileBackend } from "../src/backends/file.js";
 import { memoize, withLock } from "../src/index.js";
+import { lockOptionsSchema } from "../src/schemas.js";
+import type { LockInfo } from "../src/types.js";
 
 describe("memoize", () => {
   test("memoizes synchronous results, including undefined", () => {
@@ -167,6 +170,54 @@ describe("withLock", () => {
         { code: 0, error: "" },
         { code: 0, error: "" },
       ]);
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
+  test("falls back to proper-lockfile when native flock acquisition fails", async () => {
+    const root = await mkdtemp(join(tmpdir(), "loqkit-fallback-test-"));
+    const options = lockOptionsSchema.parse({
+      fileStrategy: "flock",
+      lockDirectory: root,
+      scope: "file",
+    });
+    const info = {
+      id: "native-fallback",
+      name: "native-fallback",
+      namespace: "loqkit-test",
+      scope: "file",
+      type: "flock",
+      backends: [{ scope: "file", type: "flock" }],
+      state: "checking",
+      strategy: "flock",
+      waitedMs: 0,
+    } as const satisfies LockInfo;
+
+    try {
+      const backend = await prepareFileBackend(
+        info,
+        options,
+        join(root, "native-fallback"),
+        {
+          loadFsExt: async () => ({
+            flock(_fileDescriptor, _flags, callback) {
+              callback(
+                Object.assign(new Error("flock unsupported"), {
+                  code: "ENOTSUP",
+                }),
+              );
+            },
+          }),
+        },
+      );
+
+      const details = await backend.run(async (acquired) => acquired);
+      expect(details).toMatchObject({
+        scope: "file",
+        type: "poll",
+        fallback: "native-flock-failed",
+      });
     } finally {
       await rm(root, { force: true, recursive: true });
     }

@@ -1,7 +1,6 @@
 import { mkdir, open } from "node:fs/promises";
 import { dirname } from "node:path";
 import lockfile from "proper-lockfile";
-import { LockUnavailableError } from "../errors.js";
 import type { ResolvedLockOptions } from "../schemas.js";
 import type { LockBackendInfo, LockInfo } from "../types.js";
 import { throwIfAborted, waitForRetry } from "../waiting.js";
@@ -13,6 +12,10 @@ interface FsExt {
     flags: "exnb" | "un",
     callback: (error?: NodeJS.ErrnoException | null) => void,
   ): void;
+}
+
+interface FileBackendDependencies {
+  readonly loadFsExt: () => Promise<FsExt | undefined>;
 }
 
 async function loadFsExt(): Promise<FsExt | undefined> {
@@ -152,6 +155,8 @@ function prepareFlockBackend(
               continue;
             }
 
+            // Never switch protocols for contention: a proper-lockfile lock
+            // would not see the flock already held by another caller.
             if (pollingFallback) {
               await handle.close();
               return pollingFallback.run(callback);
@@ -176,20 +181,15 @@ export async function prepareFileBackend(
   info: Readonly<LockInfo>,
   options: ResolvedLockOptions,
   fileBase: string,
+  dependencies: FileBackendDependencies = { loadFsExt },
 ): Promise<PreparedBackend> {
   const pollFile = `${fileBase}.poll.lock`;
   const polling = preparePollingBackend(info, options, pollFile);
 
   if (options.fileStrategy === "poll") return polling;
 
-  const fsExt = await loadFsExt();
+  const fsExt = await dependencies.loadFsExt();
   if (!fsExt) {
-    if (options.fileStrategy === "flock") {
-      throw new LockUnavailableError(
-        info,
-        "the optional fs-ext dependency is unavailable on this platform",
-      );
-    }
     return preparePollingBackend(
       info,
       options,
@@ -210,6 +210,6 @@ export async function prepareFileBackend(
     info,
     options,
     flockFile,
-    options.fileStrategy === "auto" ? fallback : undefined,
+    fallback,
   );
 }
