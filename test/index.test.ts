@@ -110,8 +110,9 @@ describe("withLock", () => {
       const run = () =>
         withLock(
           { resource: "layered" },
-          async ({ acquired, lock }) => {
+          async ({ acquired, lock, state }) => {
             expect(acquired).toBe(true);
+            expect(state).toBe("executed");
             expect(lock.scope).toEqual(["memory", "worker", "file"]);
             expect(lock.type).toBe("composite");
             expect(lock.backends.map(({ scope }) => scope)).toEqual([
@@ -135,7 +136,7 @@ describe("withLock", () => {
 
       const results = await Promise.all([run(), run(), run()]);
       expect(peak).toBe(1);
-      expect(results.every(({ stats }) => stats.outcome === "executed")).toBe(
+      expect(results.every(({ stats }) => stats.state === "executed")).toBe(
         true,
       );
     } finally {
@@ -162,7 +163,7 @@ describe("withLock", () => {
     expect(result.stats).toMatchObject({
       acquired: true,
       executed: true,
-      outcome: "executed",
+      state: "executed",
       timedOut: false,
     });
     expect(checks).toBe(2);
@@ -193,6 +194,7 @@ describe("withLock", () => {
     let checks = 0;
     let actions = 0;
     const acquiredPhases: boolean[] = [];
+    const states: string[] = [];
 
     const result = await withLock(
       { resource: "options-predicate" },
@@ -202,19 +204,21 @@ describe("withLock", () => {
       },
       {
         scope: "memory",
-        predicate: ({ acquired, resource }) => {
+        predicate: ({ acquired, resource, state }) => {
           checks += 1;
           acquiredPhases.push(acquired);
+          states.push(state);
           return resource === "options-predicate";
         },
       },
     );
 
     expect(result.value).toBe("done");
-    expect(result.stats.outcome).toBe("executed");
+    expect(result.stats.state).toBe("executed");
     expect(checks).toBe(2);
     expect(actions).toBe(1);
     expect(acquiredPhases).toEqual([false, true]);
+    expect(states).toEqual(["predicate-before", "predicate-after"]);
   });
 
   test("runs onCheckFailed after releasing an acquired lock", async () => {
@@ -222,6 +226,7 @@ describe("withLock", () => {
     let actions = 0;
     let nestedActions = 0;
     let observedAcquired: boolean | undefined;
+    let observedState: string | undefined;
 
     const result = await withLock(
       { resource: key },
@@ -232,10 +237,10 @@ describe("withLock", () => {
         key,
         scope: "memory",
         predicate: ({ acquired }) => !acquired,
-        onCheckFailed: async ({ acquired, lock, resource }) => {
+        onCheckFailed: async ({ acquired, resource, state }) => {
           observedAcquired = acquired;
+          observedState = state;
           expect(resource).toBe(key);
-          expect(lock.state).toBe("acquired");
 
           await withLock(
             { resource },
@@ -252,10 +257,11 @@ describe("withLock", () => {
     expect(result.stats).toMatchObject({
       acquired: true,
       executed: false,
-      outcome: "predicate-after",
+      state: "predicate-after",
       timedOut: false,
     });
     expect(observedAcquired).toBe(true);
+    expect(observedState).toBe("predicate-after");
     expect(actions).toBe(0);
     expect(nestedActions).toBe(1);
   });
@@ -272,9 +278,9 @@ describe("withLock", () => {
       {
         scope: "memory",
         predicate: ({ acquired }) => acquired,
-        onCheckFailed: ({ acquired, lock }) => {
+        onCheckFailed: ({ acquired, state }) => {
           observedAcquired = acquired;
-          observedState = lock.state;
+          observedState = state;
         },
       },
     );
@@ -283,11 +289,11 @@ describe("withLock", () => {
     expect(result.stats).toMatchObject({
       acquired: false,
       executed: false,
-      outcome: "predicate-before",
+      state: "predicate-before",
       timedOut: false,
     });
     expect(observedAcquired).toBe(false);
-    expect(observedState).toBe("checking");
+    expect(observedState).toBe("predicate-before");
   });
 
   test("applies timeout only while acquiring the layered lock", async () => {
@@ -309,7 +315,7 @@ describe("withLock", () => {
       );
 
       expect(result.value).toBe("finished");
-      expect(result.stats.outcome).toBe("executed");
+      expect(result.stats.state).toBe("executed");
     } finally {
       await rm(lockDirectory, { force: true, recursive: true });
     }
@@ -349,8 +355,7 @@ describe("withLock", () => {
     expect(attempt.stats).toMatchObject({
       acquired: false,
       executed: false,
-      outcome: "timeout",
-      state: "waiting",
+      state: "timeout",
       timedOut: true,
     });
 
@@ -410,7 +415,6 @@ describe("withLock", () => {
       scope: ["file"],
       type: "flock",
       backends: [{ scope: "file", type: "flock" }],
-      state: "checking",
       strategy: "auto",
       waitedMs: 0,
     } as const satisfies LockInfo;
@@ -458,7 +462,6 @@ describe("withLock", () => {
       scope: ["file"],
       type: "flock",
       backends: [{ scope: "file", type: "flock" }],
-      state: "checking",
       strategy: "flock",
       waitedMs: 0,
     } as const satisfies LockInfo;

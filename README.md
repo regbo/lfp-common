@@ -14,23 +14,25 @@ const result = await withLock(
   },
   {
     key: "cache-refresh",
-    predicate: async ({ resource, acquired }) => {
-      return acquired ? await stillNeedsRefresh(resource) : true;
+    predicate: async ({ resource, state }) => {
+      return state === "predicate-after"
+        ? await stillNeedsRefresh(resource)
+        : true;
     },
-    onCheckFailed: async ({ resource, acquired }) => {
-      console.log(`${resource} skipped ${acquired ? "after" : "before"} locking`);
+    onCheckFailed: async ({ resource, state }) => {
+      console.log(`${resource} skipped in ${state}`);
     },
   },
 );
 
-console.log(result.value, result.stats.outcome, result.stats.waitedMs);
+console.log(result.value, result.stats.state, result.stats.waitedMs);
 ```
 
 By default, `withLock` acquires memory, worker-thread, and file locks for the same key. The argument after the action can be a predicate function or an options object containing `predicate`. The predicate runs once before waiting and again after all three layers are held. The action runs only when both checks pass.
 
-Every callback receives `ctx.acquired`: it is `false` for the check before locking and `true` for the check after acquisition and for the action. When either check fails, `onCheckFailed(ctx)` runs after any acquired layers have been released. It can use `ctx.acquired` to distinguish the failed phase, log, reread state, or start other lock work without holding this lock. For this hook, `acquired` describes the check snapshot; it does not mean the hook currently holds the lock.
+Every callback receives `ctx.state` from the same state model used by the result: `"predicate-before"` for the first check, `"predicate-after"` for the check after acquisition, and `"executed"` for the action. `ctx.acquired` is the corresponding convenience boolean. When either check fails, `onCheckFailed(ctx)` runs after any acquired layers have been released. It can inspect `ctx.state`, log, reread data, or start other lock work without holding this lock. For this hook, `acquired` describes the context snapshot; it does not mean the hook currently holds the lock.
 
-`withLock` returns `{ value, stats }`. `value` is the action's result, or `undefined` when the action did not run. `stats` contains the lock metadata plus `outcome`, `acquired`, `executed`, and `timedOut`. The outcome is `"executed"`, `"predicate-before"`, `"predicate-after"`, or `"timeout"`.
+`withLock` returns `{ value, stats }`. `value` is the action's result, or `undefined` when the action did not run. `stats` contains the lock metadata plus `state`, `acquired`, `executed`, and `timedOut`. Its state is `"executed"`, `"predicate-before"`, `"predicate-after"`, or `"timeout"`, matching the callback state whenever a callback produced the result.
 
 Omitting `timeout` waits indefinitely. A numeric timeout throws `LockTimeoutError` when it expires. Use the object form to return timeout statistics instead. A zero timeout makes one non-blocking acquisition attempt and never sleeps or polls a second time:
 
@@ -39,7 +41,7 @@ const attempt = await withLock(context, action, {
   timeout: { ms: 0, error: false },
 });
 
-if (attempt.stats.outcome === "timeout") {
+if (attempt.stats.state === "timeout") {
   console.log("Lock is busy");
 }
 ```
@@ -101,7 +103,7 @@ When `scope` is omitted, loqkit acquires these layers in order and releases them
 ```mermaid
 flowchart TD
     call["Call withLock"] --> options["Validate options and choose a key"]
-    options --> checking["Create context with checking state"]
+    options --> checking["Create predicate-before context"]
     checking --> before{"Predicate passes before waiting?"}
     before -- "No" --> failedBefore["Run onCheckFailed without a lock"]
     failedBefore --> skippedBefore["Return predicate-before stats"]
@@ -113,12 +115,12 @@ flowchart TD
     file -. "Timeout" .-> timeout
     timeout -- "Yes" --> timeoutError["Throw LockTimeoutError"]
     timeout -- "No" --> timeoutResult["Return timeout stats"]
-    file --> acquired["Create context with all layers acquired"]
+    file --> acquired["Create predicate-after context with all layers acquired"]
     acquired --> after{"Predicate still passes?"}
     after -- "No" --> releaseFailed["Release all layers"]
     releaseFailed --> failedAfter["Run onCheckFailed without a lock"]
     failedAfter --> skippedAfter["Return predicate-after stats"]
-    after -- "Yes or absent" --> action["Run the action exclusively"]
+    after -- "Yes or absent" --> action["Run action with executed context"]
     action --> release["Release file, worker, then memory"]
     release --> result["Return value and executed stats"]
 ```

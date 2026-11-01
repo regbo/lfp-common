@@ -12,13 +12,14 @@ import {
 import type {
   LockAction,
   LockBackendInfo,
+  LockCallbackState,
   LockCheckFailedHandler,
   LockContext,
   LockInfo,
   LockOptions,
-  LockOutcome,
   LockPredicate,
   LockResult,
+  LockState,
   LockStats,
   WithLock,
 } from "./types.js";
@@ -34,20 +35,21 @@ interface PreparedLock {
 
 type BaseLockInfo = Omit<
   LockInfo,
-  "acquiredAt" | "backends" | "state" | "type" | "waitedMs"
+  "acquiredAt" | "backends" | "type" | "waitedMs"
 >;
 
 function createContext<
   TContext extends object,
-  TAcquired extends boolean,
+  TState extends LockCallbackState,
 >(
   context: TContext,
   lock: Readonly<LockInfo>,
-  acquired: TAcquired,
-): LockContext<TContext, TAcquired> {
-  return Object.freeze({ ...context, acquired, lock }) as LockContext<
+  state: TState,
+): LockContext<TContext, TState> {
+  const acquired = state !== "predicate-before";
+  return Object.freeze({ ...context, state, acquired, lock }) as LockContext<
     TContext,
-    TAcquired
+    TState
   >;
 }
 
@@ -60,7 +62,7 @@ function freezeBackends(
 function createInfo(
   base: BaseLockInfo,
   details: readonly Readonly<LockBackendInfo>[],
-  state: LockInfo["state"],
+  acquired = false,
   waitedMs = 0,
 ): Readonly<LockInfo> {
   const backends = freezeBackends(details);
@@ -68,25 +70,24 @@ function createInfo(
     ...base,
     type: backends.length === 1 ? backends[0]!.type : "composite",
     backends,
-    state,
     waitedMs,
-    ...(state === "acquired" ? { acquiredAt: new Date().toISOString() } : {}),
+    ...(acquired ? { acquiredAt: new Date().toISOString() } : {}),
   });
 }
 
 function createResult<TResult>(
   value: TResult | undefined,
   lock: Readonly<LockInfo>,
-  outcome: LockOutcome,
+  state: LockState,
 ): Readonly<LockResult<TResult>> {
-  const executed = outcome === "executed";
-  const acquired = executed || outcome === "predicate-after";
+  const executed = state === "executed";
+  const acquired = executed || state === "predicate-after";
   const stats: Readonly<LockStats> = Object.freeze({
     ...lock,
-    outcome,
+    state,
     acquired,
     executed,
-    timedOut: outcome === "timeout",
+    timedOut: state === "timeout",
   });
   return Object.freeze({ value, stats });
 }
@@ -258,59 +259,61 @@ const withLockImplementation = async <TContext extends object, TResult>(
       : {}),
   } satisfies BaseLockInfo;
 
-  const provisionalInfo = createInfo(
-    baseInfo,
-    provisionalBackends(options),
-    "checking",
-  );
+  const provisionalInfo = createInfo(baseInfo, provisionalBackends(options));
   const prepared = await prepareLock(provisionalInfo, options, identity.fileBase);
-  const checkingInfo = createInfo(baseInfo, prepared.initial, "checking");
+  const checkingInfo = createInfo(baseInfo, prepared.initial);
+  const beforeContext = createContext(
+    context,
+    checkingInfo,
+    "predicate-before",
+  );
 
-  if (
-    predicate &&
-    !(await predicate(createContext(context, checkingInfo, false)))
-  ) {
-    await onCheckFailed?.(createContext(context, checkingInfo, false));
-    return createResult(undefined, checkingInfo, "predicate-before");
+  if (predicate && !(await predicate(beforeContext))) {
+    await onCheckFailed?.(beforeContext);
+    return createResult(undefined, beforeContext.lock, beforeContext.state);
   }
 
   const startedAt = performance.now();
-  let acquiredInfo: Readonly<LockInfo> | undefined;
   let fullyAcquired = false;
 
   let result:
     | {
-        readonly outcome: "predicate-after";
-        readonly context: LockContext<TContext, true>;
+        readonly state: "predicate-after";
+        readonly context: LockContext<TContext, "predicate-after">;
       }
     | {
-        readonly outcome: "executed";
+        readonly state: "executed";
         readonly value: TResult;
-        readonly lock: Readonly<LockInfo>;
+        readonly context: LockContext<TContext, "executed">;
       };
   try {
     result = await prepared.run(async (details) => {
       fullyAcquired = true;
-      acquiredInfo = createInfo(
+      const acquiredInfo = createInfo(
         baseInfo,
         details,
-        "acquired",
+        true,
         Math.max(0, performance.now() - startedAt),
       );
-      const acquiredContext = createContext(context, acquiredInfo, true);
+      const predicateContext = createContext(
+        context,
+        acquiredInfo,
+        "predicate-after",
+      );
 
-      if (predicate && !(await predicate(acquiredContext))) {
+      if (predicate && !(await predicate(predicateContext))) {
         return {
-          outcome: "predicate-after",
-          context: acquiredContext,
+          state: "predicate-after",
+          context: predicateContext,
         } as const;
       }
 
-      const value = await action(acquiredContext);
+      const actionContext = createContext(context, acquiredInfo, "executed");
+      const value = await action(actionContext);
       return {
-        outcome: "executed",
+        state: "executed",
         value,
-        lock: acquiredInfo,
+        context: actionContext,
       } as const;
     });
   } catch (error) {
@@ -322,7 +325,7 @@ const withLockImplementation = async <TContext extends object, TResult>(
       const waitingInfo = createInfo(
         baseInfo,
         prepared.initial,
-        "waiting",
+        false,
         Math.max(0, performance.now() - startedAt),
       );
       return createResult(undefined, waitingInfo, "timeout");
@@ -330,15 +333,15 @@ const withLockImplementation = async <TContext extends object, TResult>(
     throw error;
   }
 
-  if (result.outcome === "predicate-after") {
+  if (result.state === "predicate-after") {
     await onCheckFailed?.(result.context);
     return createResult(
       undefined,
       result.context.lock,
-      "predicate-after",
+      result.context.state,
     );
   }
-  return createResult(result.value, result.lock, "executed");
+  return createResult(result.value, result.context.lock, result.context.state);
 };
 
 /**
@@ -347,7 +350,8 @@ const withLockImplementation = async <TContext extends object, TResult>(
  * By default, memory, worker-thread, and cross-process file layers are held in
  * that order. When supplied, the predicate runs before waiting and again after
  * every requested layer has been acquired. Callbacks distinguish those phases
- * through context.acquired.
+ * through context.state; context.acquired is the corresponding convenience
+ * boolean.
  */
 export const withLock: WithLock = withLockImplementation;
 
@@ -371,10 +375,10 @@ export type {
   LockAction,
   LockBackendInfo,
   LockBackendScope,
+  LockCallbackState,
   LockCheckFailedHandler,
   LockContext,
   LockInfo,
-  LockOutcome,
   LockOptions,
   LockPredicate,
   LockResult,

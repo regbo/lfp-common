@@ -15,7 +15,18 @@ export type ResolvedLockType =
   | "poll"
   | "skipped";
 export type LockType = ResolvedLockType | "composite";
-export type LockState = "checking" | "waiting" | "acquired";
+export type LockState =
+  | "predicate-before"
+  | "predicate-after"
+  | "executed"
+  | "timeout";
+export type LockCallbackState = Exclude<LockState, "timeout">;
+
+type LockAcquired<TState extends LockState> = TState extends
+  | "predicate-before"
+  | "timeout"
+  ? false
+  : true;
 
 /** One requested lock layer and the implementation that satisfied it. */
 export interface LockBackendInfo {
@@ -33,7 +44,6 @@ export interface LockInfo {
   readonly scope: ResolvedLockScope;
   readonly type: LockType;
   readonly backends: readonly Readonly<LockBackendInfo>[];
-  readonly state: LockState;
   readonly strategy?: FileLockStrategy;
   readonly waitedMs: number;
   readonly acquiredAt?: string;
@@ -42,25 +52,27 @@ export interface LockInfo {
 /** The caller context plus immutable information about the current lock. */
 export type LockContext<
   TContext extends object,
-  TAcquired extends boolean = boolean,
+  TState extends LockCallbackState = LockCallbackState,
 > = Readonly<
-  Omit<TContext, "acquired" | "lock"> & {
+  Omit<TContext, "acquired" | "lock" | "state"> & {
+    /** Which branch of the lock attempt is invoking this callback. */
+    readonly state: TState;
     /** Whether this context snapshot was created after lock acquisition. */
-    readonly acquired: TAcquired;
+    readonly acquired: LockAcquired<TState>;
     readonly lock: Readonly<LockInfo>;
   }
 >;
 
 export type LockAction<TContext extends object, TResult> = (
-  context: LockContext<TContext, true>,
+  context: LockContext<TContext, "executed">,
 ) => TResult | PromiseLike<TResult>;
 
 export type LockPredicate<TContext extends object> = (
-  context: LockContext<TContext>,
+  context: LockContext<TContext, "predicate-before" | "predicate-after">,
 ) => boolean | PromiseLike<boolean>;
 
 export type LockCheckFailedHandler<TContext extends object> = (
-  context: LockContext<TContext>,
+  context: LockContext<TContext, "predicate-before" | "predicate-after">,
 ) => void | PromiseLike<void>;
 
 interface LockCallbacks<TContext extends object> {
@@ -86,15 +98,9 @@ export type ResolvedLockOptions<TContext extends object = object> = Omit<
 } &
   LockCallbacks<TContext>;
 
-export type LockOutcome =
-  | "executed"
-  | "predicate-before"
-  | "predicate-after"
-  | "timeout";
-
-/** Lock metadata plus the outcome of one withLock attempt. */
+/** Lock metadata plus the terminal state of one withLock attempt. */
 export interface LockStats extends LockInfo {
-  readonly outcome: LockOutcome;
+  readonly state: LockState;
   readonly acquired: boolean;
   readonly executed: boolean;
   readonly timedOut: boolean;
