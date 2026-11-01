@@ -11,6 +11,7 @@ on:
       - scripts/docker-zero-python.sh
       - scripts/pyfig.js
       - scripts/smoke-python-boundary.js
+      - scripts/smoke-prebuild.js
       - scripts/stage-prebuild.js
       - package.json
       - bun.lock
@@ -28,6 +29,7 @@ on:
       - scripts/docker-zero-python.sh
       - scripts/pyfig.js
       - scripts/smoke-python-boundary.js
+      - scripts/smoke-prebuild.js
       - scripts/stage-prebuild.js
       - package.json
       - bun.lock
@@ -121,6 +123,9 @@ jobs:
 
       - name: Stage prebuild
         run: node scripts/stage-prebuild.js
+
+      - name: Verify staged prebuild
+        run: node scripts/smoke-prebuild.js
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v7

@@ -34,6 +34,7 @@
           "-ldl"
         ],
         "ldflags": [
+          "-Wl,-rpath,<!(node -p \"process.env.PYNECT_PYTHON_LIBRARY_DIR || (() => { throw new Error('PYNECT_PYTHON_LIBRARY_DIR is required') })()\")",
           "-Wl,-rpath,'$$ORIGIN'",
           "-static-libgcc",
           "-static-libstdc++"

@@ -69,6 +69,8 @@ jobs:
         run: node scripts/smoke-python-boundary.js
       - name: Stage prebuild
         run: node scripts/stage-prebuild.js
+      - name: Verify staged prebuild
+        run: node scripts/smoke-prebuild.js
       - uses: actions/upload-artifact@v7
         with:
           name: pynect-prebuild-${{ matrix.platform }}-${{ matrix.arch }}

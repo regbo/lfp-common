@@ -35,7 +35,10 @@ if (process.platform === 'darwin') {
   const dependency = linked.stdout
     .split(/\r?\n/u)
     .map(line => line.trim().split(/\s+/u)[0])
-    .find(item => item && /libpython.*\.dylib$/u.test(item));
+    .find(item => item && (
+      /libpython.*\.dylib$/u.test(item) ||
+      /Python\.framework\/Versions\/[^/]+\/Python$/u.test(item)
+    ));
   if (!dependency) throw new Error('Could not find the linked Python dylib.');
   metadata.pythonLibraryName = path.basename(dependency);
   const rewritten = spawnSync(
