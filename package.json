@@ -11,6 +11,7 @@
   },
   "homepage": "https://github.com/regbo/loqkit#readme",
   "type": "module",
+  "packageManager": "bun@1.4.4",
   "sideEffects": false,
   "exports": {
     ".": {
@@ -27,6 +28,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "bun run typecheck && bun test && bun run build",
+    "prepack": "bun scripts/prepack.ts",
+    "release": "bun scripts/release.ts",
     "test": "bun test",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

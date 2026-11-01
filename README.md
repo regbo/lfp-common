@@ -147,3 +147,9 @@ sequenceDiagram
 ```
 
 The default file directory is local to the host. Containers coordinate only when they share the configured lock directory, and separate hosts still need a shared lock service or database-backed lock.
+
+## Releasing
+
+Run `bun run release` from a clean, synchronized `main` branch. Patch is the default increment; `minor`, `major`, and `--dry-run` are also supported. The existing untagged npm `0.0.1` requires the one-time bootstrap form `bun run release -- --initial`.
+
+The local command verifies the Git identity, derives the next version from remote GitHub tags, runs the full suite, and audits the package archive before atomically pushing the release commit and tag. [The tag workflow](.github/workflows/publish.yml) repeats verification because release tags are not protected, then publishes the exact audited archive through npm Trusted Publishing with provenance. It does not use an npm token.
