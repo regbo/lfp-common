@@ -67,6 +67,7 @@ public:
   void initializePython(
     const std::string& pythonHome,
     const std::string& pythonExecutable,
+    const std::string& pythonLibrary,
     const std::vector<std::string>& extraSysPaths,
     const std::vector<std::pair<std::string, std::string>>& envVars
   );

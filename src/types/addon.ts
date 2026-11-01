@@ -17,6 +17,8 @@ export interface AddonInitOptions {
   pythonHome: string;
   /** Path to Python executable */
   pythonExecutable: string;
+  /** Exact CPython embedding library selected by Pyfig */
+  pythonLibrary: string;
   /** Thread pool size */
   threadPoolSize: number;
   /** Max thread queue size */

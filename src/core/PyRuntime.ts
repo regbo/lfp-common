@@ -45,6 +45,7 @@ const logger = new Logger('PyRuntime');
 export class PyRuntime {
   private readonly _config: ResolvedPynectConfig;
   private _pythonExecutable: string;
+  private readonly _pythonLibrary: string;
   private readonly _addon: NativeAddon;
   private readonly _pluginManager: PluginManager;
   private readonly _memoryMonitor: MemoryMonitor;
@@ -52,9 +53,14 @@ export class PyRuntime {
   private _isolatedWorker?: IsolatedWorker;
   private _running = false;
 
-  private constructor(config: ResolvedPynectConfig, addon: NativeAddon) {
+  private constructor(
+    config: ResolvedPynectConfig,
+    addon: NativeAddon,
+    pythonLibrary: string,
+  ) {
     this._config = config;
     this._pythonExecutable = config.pythonExecutable;
+    this._pythonLibrary = pythonLibrary;
     this._addon = addon;
     this._pluginManager = new PluginManager();
     this._memoryMonitor = new MemoryMonitor({
@@ -133,7 +139,7 @@ export class PyRuntime {
       );
     }
 
-    const runtime = new PyRuntime(resolved, addon);
+    const runtime = new PyRuntime(resolved, addon, selected.embedding.libraryPath);
     try {
       await runtime._initialize(preparedConfig);
       return runtime;
@@ -175,6 +181,7 @@ export class PyRuntime {
     await this._addon.initializePython({
       pythonHome: this._config.pythonHome || '',
       pythonExecutable,
+      pythonLibrary: this._pythonLibrary,
       threadPoolSize: this._config.threadPoolSize,
       maxQueueSize: this._config.maxQueueSize,
       gilReleaseInterval: this._config.gil.releaseInterval,

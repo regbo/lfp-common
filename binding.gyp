@@ -32,6 +32,7 @@
     "conditions": [
       ["OS=='linux'", {
         "cflags_cc": ["-fvisibility=hidden"],
+        "libraries": ["-ldl"],
         "ldflags": [
           "-Wl,-rpath,<!(node -p \"process.env.PYNECT_PYTHON_LIBRARY_DIR || (() => { throw new Error('PYNECT_PYTHON_LIBRARY_DIR is required') })()\")"
         ]

@@ -141,6 +141,9 @@ static Napi::Value InitializePython(const Napi::CallbackInfo& info) {
   std::string pythonExecutable = opts.Has("pythonExecutable") ?
     opts.Get("pythonExecutable").As<Napi::String>().Utf8Value() : "python3";
 
+  std::string pythonLibrary = opts.Has("pythonLibrary") ?
+    opts.Get("pythonLibrary").As<Napi::String>().Utf8Value() : "";
+
   uint32_t threadPoolSize = opts.Has("threadPoolSize") ?
     opts.Get("threadPoolSize").As<Napi::Number>().Uint32Value() : 4;
 
@@ -177,6 +180,7 @@ static Napi::Value InitializePython(const Napi::CallbackInfo& info) {
     PythonBridge::getInstance().initializePython(
       pythonHome,
       pythonExecutable,
+      pythonLibrary,
       pythonPathExtra,
       envVars
     );

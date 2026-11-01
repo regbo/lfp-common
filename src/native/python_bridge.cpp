@@ -13,7 +13,40 @@
 #include <iostream>
 #include <algorithm>
 
+#ifdef __linux__
+#include <dlfcn.h>
+#endif
+
 namespace pynect {
+
+namespace {
+
+#ifdef __linux__
+void promotePythonLibrary(const std::string& libraryPath) {
+  if (libraryPath.empty()) {
+    throw std::runtime_error("Python library path is required on Linux");
+  }
+
+  // Node loads addons with local visibility. CPython extension modules are
+  // normally linked against symbols supplied by the embedding process, so
+  // promote the exact Pyfig-selected libpython before importing any of them.
+  void* handle = dlopen(libraryPath.c_str(), RTLD_NOW | RTLD_GLOBAL);
+  if (!handle) {
+    const char* detail = dlerror();
+    throw std::runtime_error(
+      "Failed to expose Python library symbols: " +
+      std::string(detail ? detail : "unknown dynamic loader error")
+    );
+  }
+
+  // CPython owns process-wide state, and unloading libpython before process
+  // exit is unsafe. Retain every promoted handle for the process lifetime.
+  static std::vector<void*> pythonLibraryHandles;
+  pythonLibraryHandles.push_back(handle);
+}
+#endif
+
+} // namespace
 
 // Singleton
 
@@ -27,12 +60,17 @@ PythonBridge& PythonBridge::getInstance() {
 void PythonBridge::initializePython(
   const std::string& pythonHome,
   const std::string& pythonExecutable,
+  const std::string& pythonLibrary,
   const std::vector<std::string>& extraSysPaths,
   const std::vector<std::pair<std::string, std::string>>& envVars
 ) {
   if (_initialized) {
     throw std::runtime_error("Python already initialized");
   }
+
+#ifdef __linux__
+  promotePythonLibrary(pythonLibrary);
+#endif
 
   // Set environment variables before initialization
   for (const auto& [key, val] : envVars) {
