@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { prepareFileBackend } from "../src/backends/file.js";
-import { memoize, withLock } from "../src/index.js";
+import { LockUnavailableError, memoize, withLock } from "../src/index.js";
 import { lockOptionsSchema } from "../src/schemas.js";
 import type { LockInfo } from "../src/types.js";
 
@@ -175,10 +175,10 @@ describe("withLock", () => {
     }
   });
 
-  test("falls back to proper-lockfile when native flock acquisition fails", async () => {
+  test("auto falls back to proper-lockfile when native flock acquisition fails", async () => {
     const root = await mkdtemp(join(tmpdir(), "loqkit-fallback-test-"));
     const options = lockOptionsSchema.parse({
-      fileStrategy: "flock",
+      fileStrategy: "auto",
       lockDirectory: root,
       scope: "file",
     });
@@ -190,7 +190,7 @@ describe("withLock", () => {
       type: "flock",
       backends: [{ scope: "file", type: "flock" }],
       state: "checking",
-      strategy: "flock",
+      strategy: "auto",
       waitedMs: 0,
     } as const satisfies LockInfo;
 
@@ -218,6 +218,61 @@ describe("withLock", () => {
         type: "poll",
         fallback: "native-flock-failed",
       });
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
+  test("explicit flock throws when native locking is unavailable or fails", async () => {
+    const root = await mkdtemp(join(tmpdir(), "loqkit-flock-test-"));
+    const options = lockOptionsSchema.parse({
+      fileStrategy: "flock",
+      lockDirectory: root,
+      scope: "file",
+    });
+    const info = {
+      id: "required-native",
+      name: "required-native",
+      namespace: "loqkit-test",
+      scope: "file",
+      type: "flock",
+      backends: [{ scope: "file", type: "flock" }],
+      state: "checking",
+      strategy: "flock",
+      waitedMs: 0,
+    } as const satisfies LockInfo;
+
+    try {
+      await expect(
+        prepareFileBackend(info, options, join(root, "unavailable"), {
+          loadFsExt: async () => undefined,
+        }),
+      ).rejects.toBeInstanceOf(LockUnavailableError);
+
+      const backend = await prepareFileBackend(
+        info,
+        options,
+        join(root, "failed"),
+        {
+          loadFsExt: async () => ({
+            flock(_fileDescriptor, _flags, callback) {
+              callback(
+                Object.assign(new Error("flock unsupported"), {
+                  code: "ENOTSUP",
+                }),
+              );
+            },
+          }),
+        },
+      );
+      let actionRan = false;
+
+      await expect(
+        backend.run(async () => {
+          actionRan = true;
+        }),
+      ).rejects.toMatchObject({ code: "LOQKIT_UNAVAILABLE" });
+      expect(actionRan).toBe(false);
     } finally {
       await rm(root, { force: true, recursive: true });
     }

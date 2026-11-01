@@ -1,6 +1,7 @@
 import { mkdir, open } from "node:fs/promises";
 import { dirname } from "node:path";
 import lockfile from "proper-lockfile";
+import { LockUnavailableError } from "../errors.js";
 import type { ResolvedLockOptions } from "../schemas.js";
 import type { LockBackendInfo, LockInfo } from "../types.js";
 import { throwIfAborted, waitForRetry } from "../waiting.js";
@@ -161,7 +162,11 @@ function prepareFlockBackend(
               await handle.close();
               return pollingFallback.run(callback);
             }
-            throw error;
+            throw new LockUnavailableError(
+              info,
+              "native flock acquisition failed",
+              error,
+            );
           }
         }
 
@@ -190,6 +195,12 @@ export async function prepareFileBackend(
 
   const fsExt = await dependencies.loadFsExt();
   if (!fsExt) {
+    if (options.fileStrategy === "flock") {
+      throw new LockUnavailableError(
+        info,
+        "native flock is unavailable on this platform",
+      );
+    }
     return preparePollingBackend(
       info,
       options,
@@ -210,6 +221,6 @@ export async function prepareFileBackend(
     info,
     options,
     flockFile,
-    fallback,
+    options.fileStrategy === "auto" ? fallback : undefined,
   );
 }

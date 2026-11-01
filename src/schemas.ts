@@ -19,7 +19,7 @@ export const lockOptionsSchema = z
     namespace: z.string().trim().min(1).max(214).optional(),
     /** Lock boundary. The default acquires memory, worker, and file layers. */
     scope: lockScopeSchema.default("all"),
-    /** Native flock preference for the file layer. */
+    /** Auto falls back to polling; flock requires native support; poll skips it. */
     fileStrategy: fileLockStrategySchema.default("auto"),
     /** Maximum total time spent waiting. Zero performs one immediate attempt. */
     timeoutMs: z.number().int().min(0).max(2_147_483_647).default(30_000),
