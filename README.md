@@ -139,6 +139,8 @@ Precedence is API or CLI option, environment variable, then default.
 
 `requiresPython` and `requiresUv` use PEP 440 specifiers. Comma-separated clauses, compatible releases (`~=`), exclusions (`!=`), wildcard equality, arbitrary equality (`===`), and pre-release versions are supported. For example: `requiresPython: '>=3.10,!=3.12.*,<4'` and `requiresUv: '==0.13.*'`. Pyfig reuses a compatible installed or cached uv first. When installation is necessary, it resolves the greatest published uv release satisfying `requiresUv` and containing the required platform assets.
 
+When embedding files are available, `PythonInfo.embedding.stableAbiLibraryPath` identifies the platform's Python 3 Stable ABI import library when the installation provides one. Consumers can use it to build a single Limited API binary for multiple CPython 3 minor versions while retaining `libraryPath` for version-specific embedding.
+
 | API option | Environment variable | Default |
 | --- | --- | --- |
 | `python` | `PYFIG_PYTHON` | uv discovery |

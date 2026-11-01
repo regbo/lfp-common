@@ -7,7 +7,7 @@
 | `withProvisioningLock` | `src/provision-lock.ts` | Bind Pyfig's idempotent provisioning checks to Loqkit's memory, worker, and file lock. | uv, Python, and venv provisioning |
 | Loqkit `memoize` | `src/client.ts` | Share the first successful resolution within one immutable scoped client. | Long-lived library consumers |
 | `resolveExecutable`, `run`, `runAsync` | `src/process.ts` | Resolve safe executables and run bounded argument-array child processes. | Probes, provisioning, coordination |
-| Python and tool probes | `src/probes.ts` | Probe Python capabilities and compatible uv executables. | Provisioning |
+| Python and tool probes | `src/probes.ts` | Probe Python capabilities, version-specific and Stable ABI embedding libraries, and compatible uv executables. | Provisioning |
 | PEP 440 version policy | `src/pep440.ts` | Validate and evaluate `requiresPython` and `requiresUv` specifiers consistently. | Configuration, probes |
 | uv target policy | `src/package-target.ts` | Pin `uv pip` and `uv run` to the selected environment. | Spawn runners |
 | Venv path utilities | `src/virtual-environment.ts` | Canonicalize venv paths, locate its interpreter, and activate child environments. | Probes, provisioning, runners |

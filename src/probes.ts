@@ -27,6 +27,7 @@ export interface PythonEmbeddingInfo {
   libraryDirectory: string;
   libraryName: string;
   libraryKind: 'import' | 'shared' | 'static';
+  stableAbiLibraryPath: string | null;
 }
 
 export interface UvInfo {
@@ -46,12 +47,14 @@ base_prefix = getattr(sys, "base_prefix", sys.prefix)
 include_directory = sysconfig.get_path("include") or ""
 header_path = os.path.join(include_directory, "Python.h") if include_directory else ""
 library_candidates = []
+stable_abi_library_candidates = []
 if os.name == "nt":
     library_directory = sysconfig.get_config_var("LIBDIR") or os.path.join(base_prefix, "libs")
     configured_library = sysconfig.get_config_var("LDLIBRARY") or ""
     if configured_library:
         library_candidates.append(os.path.join(library_directory, os.path.splitext(configured_library)[0] + ".lib"))
     library_candidates.append(os.path.join(library_directory, f"python{sys.version_info.major}{sys.version_info.minor}.lib"))
+    stable_abi_library_candidates.append(os.path.join(library_directory, "python3.lib"))
 else:
     library_directories = [
         sysconfig.get_config_var("LIBDIR"),
@@ -66,8 +69,17 @@ else:
         for name in library_names:
             if directory and name:
                 library_candidates.append(os.path.join(directory, name))
+        if directory:
+            stable_abi_library_candidates.extend([
+                os.path.join(directory, "libpython3.so"),
+                os.path.join(directory, "libpython3.dylib"),
+            ])
 
 library_path = next((candidate for candidate in library_candidates if os.path.isfile(candidate)), "")
+stable_abi_library_path = next(
+    (candidate for candidate in stable_abi_library_candidates if os.path.isfile(candidate)),
+    None,
+)
 embedding = None
 if os.path.isfile(header_path) and library_path:
     library_name = os.path.basename(library_path)
@@ -79,6 +91,7 @@ if os.path.isfile(header_path) and library_path:
         "libraryDirectory": os.path.dirname(library_path),
         "libraryName": library_name,
         "libraryKind": library_kind,
+        "stableAbiLibraryPath": stable_abi_library_path,
     }
 
 release_level = sys.version_info.releaselevel
