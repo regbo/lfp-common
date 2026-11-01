@@ -1,6 +1,6 @@
 {
   "name": "pyfig",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Prepare uv-first Python runtime environments without editing project files.",
   "type": "module",
   "main": "./dist/cjs/index.js",
