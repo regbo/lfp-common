@@ -4,6 +4,7 @@
  */
 
 import { availableParallelism } from 'os';
+import type { AutoSyncMode } from '../config/project';
 
 export type LogLevel = 'silent' | 'error' | 'warn' | 'info' | 'debug';
 export type ValidationMode = 'auto' | 'required' | 'off';
@@ -13,8 +14,8 @@ export interface DispatcherConfig {
   include?: string[];
   /** Glob patterns that always deny matching modules or callables. */
   exclude?: string[];
-  /** Require complete parameter and return annotations. */
-  annotatedOnly?: boolean;
+  /** Require complete parameter and return type hints. */
+  typedOnly?: boolean;
   /** Require the @pynect.export decorator. */
   exportedOnly?: boolean;
   /** Validate with Pydantic when available, require it, or disable it. */
@@ -27,13 +28,13 @@ export interface VirtualenvConfig {
    * @deprecated Pynect now always uses the Pyfig-managed repository `.venv`.
    */
   path?: string;
-  /** Python packages to install (e.g. ['pandas', 'numpy', 'scikit-learn']) */
+  /** @deprecated Declare Python dependencies in package.json pynect.requirements. */
   packages?: string[];
-  /** Automatically install missing packages at startup */
+  /** @deprecated Use pynect sync or the root autoSync policy. */
   autoInstall?: boolean;
-  /** pip index URL override */
+  /** @deprecated Configure uv through application-owned environment policy. */
   pipIndexUrl?: string;
-  /** Additional pip install args */
+  /** @deprecated Arbitrary install arguments are not accepted by project sync. */
   pipArgs?: string[];
 }
 
@@ -91,23 +92,39 @@ export interface PynectConfig {
   /** Shut down the shared runtime when the Node.js or Bun process exits. Default: true. */
   autoShutdown?: boolean;
 
+  /** Preferred Python executable used to create or validate the project `.venv`. */
+  python?: string;
+
   /**
    * Python executable to check first as the base for the repository `.venv`.
    * It must expose the CPython embedding development files; package and
    * runtime operations still target the root `.venv` rather than this path.
+   * @deprecated Use python instead.
    */
   pythonPath?: string;
+
+  /** Accepted Python version range. Default: Pyfig's supported range. */
+  requiresPython?: string;
 
   /** Repository root that owns `.venv`. Default: Pyfig project discovery. */
   projectRoot?: string;
 
-  /** Install a managed Python with uv when no compatible interpreter exists. Default: true. */
+  /** Allow Pyfig to install managed Python. Default: true. */
+  installPython?: boolean;
+
+  /** Allow Pyfig to install its pinned uv release. Default: true. */
+  installUv?: boolean;
+
+  /** Allow Pyfig to create the application-root `.venv`. Default: true. */
+  createVirtualEnvironment?: boolean;
+
+  /** @deprecated Use installPython instead. */
   autoInstallPython?: boolean;
 
-  /** Install pinned, checksum-verified uv when it is unavailable. Default: true. */
+  /** @deprecated Use installUv instead. */
   autoInstallUv?: boolean;
 
-  /** Create the repository-root `.venv` when it is unavailable. Default: true. */
+  /** @deprecated Use createVirtualEnvironment instead. */
   autoCreateVirtualEnvironment?: boolean;
 
   /** Managed Python version requested from uv. Default: '3.12'. */
@@ -116,9 +133,15 @@ export interface PynectConfig {
   /** Pinned uv release used by the checksum-verified bootstrap. */
   uvVersion?: string;
 
+  /** Synchronize the locked project environment when it is missing or stale. Default: 'never'. */
+  autoSync?: AutoSyncMode;
+
+  /** Project-relative Pynect lockfile. Default: 'pynect.lock'. */
+  lockfile?: string;
+
   /**
-   * Virtualenv configuration - creates and manages a dedicated virtualenv.
-   * Takes precedence over pythonPath if specified.
+   * Legacy root `.venv` compatibility settings. Package provisioning now uses
+   * the application `pynect` manifest and `pynect sync`.
    */
   virtualenv?: VirtualenvConfig;
 
@@ -207,8 +230,6 @@ export interface PynectConfig {
   experimental?: {
     /** Use SharedArrayBuffer for NumPy transfers. Default: true */
     sharedArrayBuffer?: boolean;
-    /** Cache Proxy chain resolutions. Default: true */
-    proxyCache?: boolean;
     /** Lazy attribute resolution. Default: true */
     lazyResolution?: boolean;
   };
@@ -222,11 +243,14 @@ export interface ResolvedPynectConfig {
   pythonExecutable: string;
   pythonHome: string;
   projectRoot: string;
+  requiresPython: string;
   autoInstallPython: boolean;
   autoInstallUv: boolean;
   autoCreateVirtualEnvironment: boolean;
   managedPython: string;
   uvVersion: string;
+  autoSync: AutoSyncMode;
+  lockfile: string;
   threadPoolSize: number;
   maxQueueSize: number;
   idleTimeout: number;
@@ -246,7 +270,6 @@ export interface ResolvedPynectConfig {
   profilingFile?: string;
   profilingSamplingInterval: number;
   sharedArrayBuffer: boolean;
-  proxyCache: boolean;
   lazyResolution: boolean;
   env: Record<string, string>;
   pythonPathExtra: string[];
@@ -255,14 +278,17 @@ export interface ResolvedPynectConfig {
 export function resolveConfig(config: PynectConfig = {}): ResolvedPynectConfig {
   return {
     autoShutdown: config.autoShutdown ?? true,
-    pythonExecutable: config.pythonPath ?? 'python3',
+    pythonExecutable: config.python ?? config.pythonPath ?? 'python3',
     pythonHome: '',
     projectRoot: config.projectRoot ?? process.cwd(),
-    autoInstallPython: config.autoInstallPython ?? true,
-    autoInstallUv: config.autoInstallUv ?? true,
-    autoCreateVirtualEnvironment: config.autoCreateVirtualEnvironment ?? true,
+    requiresPython: config.requiresPython ?? '>=3.10.0 <4.0.0',
+    autoInstallPython: config.installPython ?? config.autoInstallPython ?? true,
+    autoInstallUv: config.installUv ?? config.autoInstallUv ?? true,
+    autoCreateVirtualEnvironment: config.createVirtualEnvironment ?? config.autoCreateVirtualEnvironment ?? true,
     managedPython: config.managedPython ?? '3.12',
     uvVersion: config.uvVersion ?? '0.13.6',
+    autoSync: config.autoSync ?? 'never',
+    lockfile: config.lockfile ?? 'pynect.lock',
     threadPoolSize: config.threadPool?.size ?? config.threadPoolSize ?? Math.max(4, availableParallelism()),
     maxQueueSize: config.threadPool?.maxQueueSize ?? 1000,
     idleTimeout: config.threadPool?.idleTimeout ?? 30000,
@@ -280,7 +306,7 @@ export function resolveConfig(config: PynectConfig = {}): ResolvedPynectConfig {
     dispatcher: {
       include: config.dispatcher?.include ?? [],
       exclude: config.dispatcher?.exclude ?? [],
-      annotatedOnly: config.dispatcher?.annotatedOnly ?? false,
+      typedOnly: config.dispatcher?.typedOnly ?? false,
       exportedOnly: config.dispatcher?.exportedOnly ?? false,
       validation: config.dispatcher?.validation ?? 'auto',
     },
@@ -295,7 +321,6 @@ export function resolveConfig(config: PynectConfig = {}): ResolvedPynectConfig {
     profilingFile: config.profiling?.outputFile,
     profilingSamplingInterval: config.profiling?.samplingInterval ?? 1000,
     sharedArrayBuffer: config.experimental?.sharedArrayBuffer ?? true,
-    proxyCache: config.experimental?.proxyCache ?? true,
     lazyResolution: config.experimental?.lazyResolution ?? true,
     env: config.env ?? {},
     pythonPathExtra: config.pythonPath_extra ?? [],

@@ -24,7 +24,6 @@ import type { PyObjectId, AttributePath, PyCallableInfo } from '../types/python'
  */
 export class PyCallable extends PyProxy {
   private readonly _callableName: string;
-  private _info: PyCallableInfo | null = null;
 
   constructor(
     objectId: PyObjectId,
@@ -38,10 +37,8 @@ export class PyCallable extends PyProxy {
       objectId,
       path,
       addon,
-      isResolved: false,
       callTimeout,
       executionTimeout,
-      childCache: new Map(),
     });
     this._callableName = callableName;
   }
@@ -123,9 +120,6 @@ export class PyCallable extends PyProxy {
    * Get introspection information about this callable.
    */
   async getInfo(): Promise<PyCallableInfo | null> {
-    if (this._info) {return this._info;}
-
-    // Not yet implemented - would require Python introspection
     return null;
   }
 

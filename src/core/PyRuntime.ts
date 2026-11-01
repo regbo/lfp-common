@@ -5,6 +5,7 @@
  */
 
 import path from 'path';
+import { resolveProjectConfig } from '../config/project';
 import type { NativeAddon } from '../types/addon';
 import { resolveConfig } from '../types/config';
 import type { PynectConfig, ResolvedPynectConfig } from '../types/config';
@@ -16,6 +17,14 @@ import { IsolatedWorker, type IsolatedCallOptions } from './IsolatedWorker';
 import { PluginManager } from '../plugins/PluginManager';
 import { PackageInstaller } from '../env/PackageInstaller';
 import { ensurePynectPython } from '../env/PyfigAdapter';
+import {
+  createProjectPlan,
+  moduleDispatcherIncludes,
+  requiresProjectSync,
+  syncProject,
+  validateProjectEnvironment,
+  type PynectEnvironmentState,
+} from '../env/ProjectEnvironment';
 import { loadOrBuildNativeAddon } from '../native/NativeAddonLoader';
 import { MemoryMonitor } from '../utils/MemoryMonitor';
 import { Logger } from '../utils/Logger';
@@ -49,7 +58,6 @@ export class PyRuntime {
   private readonly _addon: NativeAddon;
   private readonly _pluginManager: PluginManager;
   private readonly _memoryMonitor: MemoryMonitor;
-  private readonly _moduleCache = new Map<string, PyModule>();
   private _isolatedWorker?: IsolatedWorker;
   private _running = false;
 
@@ -73,19 +81,89 @@ export class PyRuntime {
    * Create and initialize a PyRuntime instance.
    */
   static async create(config: PynectConfig = {}): Promise<PyRuntime> {
+    const project = resolveProjectConfig({
+      projectRoot: config.projectRoot,
+      python: config.python ?? config.pythonPath,
+      requiresPython: config.requiresPython,
+      managedPython: config.managedPython,
+      uvVersion: config.uvVersion,
+      installPython: config.installPython ?? config.autoInstallPython,
+      installUv: config.installUv ?? config.autoInstallUv,
+      createVirtualEnvironment:
+        config.createVirtualEnvironment ?? config.autoCreateVirtualEnvironment,
+      autoSync: config.autoSync,
+      lockfile: config.lockfile,
+      env: config.env,
+    });
+    const plan = createProjectPlan({
+      projectRoot: project.projectRoot,
+      python: project.python,
+      requiresPython: project.requiresPython,
+      managedPython: project.managedPython,
+      uvVersion: project.uvVersion,
+      installPython: project.installPython,
+      installUv: project.installUv,
+      createVirtualEnvironment: project.createVirtualEnvironment,
+      autoSync: project.autoSync,
+      lockfile: project.lockfile,
+      env: project.env as Record<string, string>,
+    });
+    let environmentState: PynectEnvironmentState | undefined;
+    if (requiresProjectSync(plan)) {
+      if (project.autoSync === 'if-missing') {
+        try {
+          environmentState = validateProjectEnvironment(plan);
+        } catch {
+          environmentState = (await syncProject({
+            projectRoot: project.projectRoot,
+            python: project.python,
+            requiresPython: project.requiresPython,
+            managedPython: project.managedPython,
+            uvVersion: project.uvVersion,
+            installPython: project.installPython,
+            installUv: project.installUv,
+            createVirtualEnvironment: project.createVirtualEnvironment,
+            lockfile: project.lockfile,
+            env: project.env as Record<string, string>,
+          })).state;
+        }
+      } else {
+        environmentState = validateProjectEnvironment(plan);
+      }
+    }
+
+    if (config.virtualenv?.autoInstall && (config.virtualenv.packages?.length ?? 0) > 0) {
+      throw new Error(
+        'virtualenv.autoInstall is no longer supported. Declare Python dependencies in the ' +
+        'root package.json pynect.requirements field and run "pynect sync".',
+      );
+    }
+
     // Resolve Python before loading the native addon. On Windows the addon
     // depends on the selected Python DLL, so its directory must already be on
     // PATH when Node loads the .node file.
     const { python: selected } = await ensurePynectPython({
-      autoInstallPython: config.autoInstallPython ?? true,
-      autoInstallUv: config.autoInstallUv ?? true,
-      autoCreateVirtualEnvironment: config.autoCreateVirtualEnvironment ?? true,
-      managedPython: config.managedPython ?? '3.12',
-      uvVersion: config.uvVersion ?? '0.13.6',
-      pythonPath: config.pythonPath,
-      projectRoot: config.projectRoot,
-      env: config.env,
+      autoInstallPython: project.installPython,
+      autoInstallUv: project.installUv,
+      autoCreateVirtualEnvironment: project.createVirtualEnvironment,
+      managedPython: project.managedPython,
+      uvVersion: project.uvVersion,
+      pythonRange: plan.pythonRange,
+      pythonPath: project.python,
+      projectRoot: project.projectRoot,
+      env: project.env as Record<string, string>,
     });
+    if (environmentState) {
+      const selectedAbi = `${selected.implementation}-${selected.version}-` +
+        `${selected.architecture}-${selected.pointerBits}`;
+      if (!pathsEqual(environmentState.pythonExecutable, selected.executable) ||
+        environmentState.pythonAbi !== selectedAbi) {
+        throw new Error(
+          'Pynect environment Python changed since the last sync. Run "pynect sync" before ' +
+          'starting the application.',
+        );
+      }
+    }
     const selectedProjectRoot = selected.virtualEnvironment
       ? path.dirname(selected.virtualEnvironment)
       : config.projectRoot ?? process.cwd();
@@ -99,8 +177,24 @@ export class PyRuntime {
     }
     const preparedConfig: PynectConfig = {
       ...config,
-      pythonPath: selected.executable,
+      python: selected.executable,
+      requiresPython: plan.pythonRange,
       projectRoot: selectedProjectRoot,
+      installPython: project.installPython,
+      installUv: project.installUv,
+      createVirtualEnvironment: project.createVirtualEnvironment,
+      managedPython: project.managedPython,
+      uvVersion: project.uvVersion,
+      autoSync: project.autoSync,
+      lockfile: project.lockfile,
+      env: project.env as Record<string, string>,
+      dispatcher: {
+        ...config.dispatcher,
+        include: [
+          ...(config.dispatcher?.include ?? []),
+          ...moduleDispatcherIncludes(plan),
+        ],
+      },
     };
     if (process.platform === 'win32') {
       const requiredDirectories = [
@@ -141,7 +235,7 @@ export class PyRuntime {
 
     const runtime = new PyRuntime(resolved, addon, selected.embedding.libraryPath);
     try {
-      await runtime._initialize(preparedConfig);
+      await runtime._initialize();
       return runtime;
     } catch (error) {
       if (addon.isInitialized()) {
@@ -153,11 +247,11 @@ export class PyRuntime {
 
   // Initialization
 
-  private async _initialize(config: PynectConfig): Promise<void> {
+  private async _initialize(): Promise<void> {
     const startTime = performance.now();
 
     // 1. Detect/setup Python environment
-    const pythonExecutable = await this._setupPythonEnvironment(config);
+    const pythonExecutable = await this._setupPythonEnvironment();
     this._pythonExecutable = pythonExecutable;
 
     if (this._config.isolation.enabled) {
@@ -212,24 +306,8 @@ export class PyRuntime {
     logger.success(`PyRuntime ready in ${elapsed}ms (Python: ${pythonExecutable})`);
   }
 
-  private async _setupPythonEnvironment(config: PynectConfig): Promise<string> {
+  private async _setupPythonEnvironment(): Promise<string> {
     const pythonExecutable = this._config.pythonExecutable;
-    const packages = config.virtualenv?.packages ?? [];
-    if (config.virtualenv?.autoInstall && packages.length > 0) {
-      const installer = new PackageInstaller({
-        pythonExecutable,
-        cwd: this._config.projectRoot,
-        indexUrl: config.virtualenv.pipIndexUrl,
-      });
-      const result = await installer.install(packages);
-      if (!result.success) {
-        throw new Error(
-          `Could not install configured Python packages: ${result.failed
-            .map(item => `${item.spec}: ${item.error}`)
-            .join('; ')}`,
-        );
-      }
-    }
     logger.info(`Using repository virtualenv: ${path.dirname(path.dirname(pythonExecutable))}`);
     return pythonExecutable;
   }
@@ -280,11 +358,6 @@ pynect_dispatcher.configure(
   async import(moduleName: string): Promise<PyModule> {
     this._ensureRunning();
 
-    // Check cache
-    if (this._moduleCache.has(moduleName)) {
-      return this._moduleCache.get(moduleName)!;
-    }
-
     logger.debug(`Importing Python module: ${moduleName}`);
 
     const result = await this._addon.importModule(moduleName) as {
@@ -320,9 +393,6 @@ pynect_dispatcher.configure(
       this._config.callTimeout,
       this._config.executionTimeout,
     );
-
-    // Cache
-    this._moduleCache.set(moduleName, module);
 
     logger.debug(`Module '${moduleName}' imported (id=${result.objectId})`);
     return module;
@@ -482,8 +552,6 @@ pynect_dispatcher.configure(
     });
     await installer.install(packages);
 
-    // Clear module cache so re-imports work
-    this._moduleCache.clear();
   }
 
   // Memory Management
@@ -538,8 +606,6 @@ pynect_dispatcher.configure(
     // Stop memory monitoring
     this._memoryMonitor.stopMonitoring();
 
-    // Clear caches
-    this._moduleCache.clear();
     await this._isolatedWorker?.close();
     this._isolatedWorker = undefined;
 
@@ -565,7 +631,6 @@ pynect_dispatcher.configure(
     if (!this._running) {return;}
     this._running = false;
     this._memoryMonitor.stopMonitoring();
-    this._moduleCache.clear();
     this._isolatedWorker?.closeSync();
     this._isolatedWorker = undefined;
     // Cannot await here - best effort

@@ -3,23 +3,18 @@
 const path = require('path');
 const fs = require('fs');
 
-let cachedPyfig;
-
 const REQUIRED_PYFIG_FUNCTIONS = [
   'createPyfig',
 ];
 
 function loadPyfig() {
-  if (cachedPyfig) return cachedPyfig;
   const configured = process.env.PYNECT_PYFIG_PATH;
   if (configured) {
-    cachedPyfig = requireCompatiblePyfig(path.resolve(configured), 'PYNECT_PYFIG_PATH');
-    return cachedPyfig;
+    return requireCompatiblePyfig(path.resolve(configured), 'PYNECT_PYFIG_PATH');
   }
   let packageError;
   try {
-    cachedPyfig = requireCompatiblePyfig('pyfig', 'installed pyfig package');
-    return cachedPyfig;
+    return requireCompatiblePyfig('pyfig', 'installed pyfig package');
   } catch (error) {
     packageError = error;
   }
@@ -28,8 +23,7 @@ function loadPyfig() {
   // resolve successfully. Prefer the sibling build when its API is compatible.
   const sibling = path.resolve(__dirname, '..', '..', 'pyfig', 'dist', 'cjs', 'index.js');
   if (fs.existsSync(sibling)) {
-    cachedPyfig = requireCompatiblePyfig(sibling, 'sibling pyfig build');
-    return cachedPyfig;
+    return requireCompatiblePyfig(sibling, 'sibling pyfig build');
   }
 
   const detail = packageError instanceof Error ? ` ${packageError.message}` : '';
@@ -56,20 +50,24 @@ function parseBoolean(value, fallback) {
 }
 
 function projectRoot(explicit) {
-  return path.resolve(
-    explicit || process.env.PYNECT_PROJECT_ROOT || process.env.INIT_CWD || process.cwd(),
-  );
+  const hint = explicit || process.env.PYNECT_PROJECT_ROOT || process.env.INIT_CWD;
+  return hint ? path.resolve(hint) : loadPyfig().resolveProjectRoot(process.cwd());
 }
 
 function pynectPyfigOptions(options = {}) {
-  const installPython = options.autoInstallPython ??
-    parseBoolean(process.env.PYNECT_AUTO_INSTALL, true);
+  const pyfig = loadPyfig();
+  const installPython = options.autoInstallPython ?? parseBoolean(
+    process.env.PYNECT_INSTALL_PYTHON ?? process.env.PYNECT_AUTO_INSTALL,
+    true,
+  );
   return {
     projectRoot: projectRoot(options.projectRoot),
     python: options.pythonPath || process.env.PYNECT_PYTHON || '',
-    pythonRange: options.pythonRange || '>=3.10.0 <4.0.0',
-    managedPython: options.managedPython || process.env.PYNECT_PYTHON_VERSION || '3.12',
-    uvVersion: options.uvVersion || process.env.PYNECT_UV_VERSION || '0.13.6',
+    pythonRange: options.pythonRange || process.env.PYNECT_REQUIRES_PYTHON ||
+      pyfig.DEFAULT_PYTHON_RANGE,
+    managedPython: options.managedPython || process.env.PYNECT_MANAGED_PYTHON ||
+      process.env.PYNECT_PYTHON_VERSION || pyfig.DEFAULT_MANAGED_PYTHON,
+    uvVersion: options.uvVersion || process.env.PYNECT_UV_VERSION || pyfig.DEFAULT_UV_VERSION,
     requireEmbedding: true,
     requireGil: true,
     installPython,

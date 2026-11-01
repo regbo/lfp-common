@@ -99,7 +99,7 @@ def _callable(
         "is_generator": any(isinstance(item, (ast.Yield, ast.YieldFrom)) for item in ast.walk(node)),
         "exported": _has_decorator(decorators, "export"),
         "excluded": _has_decorator(decorators, "exclude"),
-        "fully_annotated": node.returns is not None
+        "fully_typed": node.returns is not None
         and all(
             parameter["type"] != "Any"
             for parameter in parameters
@@ -122,7 +122,7 @@ def _class(node: ast.ClassDef) -> dict[str, Any]:
         "static_methods": [],
         "exported": _has_decorator(decorators, "export"),
         "excluded": _has_decorator(decorators, "exclude"),
-        "fully_annotated": False,
+        "fully_typed": False,
     }
     property_setters: set[str] = set()
     for item in node.body:
@@ -133,7 +133,7 @@ def _class(node: ast.ClassDef) -> dict[str, Any]:
                     "type": _annotation(item.annotation),
                     "read_only": False,
                     "docstring": "",
-                    "fully_annotated": True,
+                    "fully_typed": True,
                     "exported": False,
                     "excluded": False,
                 }
@@ -153,7 +153,7 @@ def _class(node: ast.ClassDef) -> dict[str, Any]:
                     "type": _annotation(item.returns),
                     "read_only": True,
                     "docstring": ast.get_docstring(item) or "",
-                    "fully_annotated": item.returns is not None,
+                    "fully_typed": item.returns is not None,
                     "exported": inspected["exported"],
                     "excluded": inspected["excluded"],
                 }
@@ -167,8 +167,8 @@ def _class(node: ast.ClassDef) -> dict[str, Any]:
     for prop in result["properties"]:
         if prop["name"] in property_setters:
             prop["read_only"] = False
-    result["fully_annotated"] = bool(result["members"]) or any(
-        method["fully_annotated"]
+    result["fully_typed"] = bool(result["members"]) or any(
+        method["fully_typed"]
         for key in ("methods", "class_methods", "static_methods")
         for method in result[key]
     )
@@ -219,7 +219,7 @@ def inspect_file(file_path: str, module_name: str) -> dict[str, Any]:
                     "type": _annotation(node.annotation),
                     "read_only": True,
                     "docstring": "",
-                    "fully_annotated": True,
+                    "fully_typed": True,
                     "exported": False,
                     "excluded": False,
                 }
@@ -236,7 +236,7 @@ def inspect_file(file_path: str, module_name: str) -> dict[str, Any]:
                         "type": _literal_type(node.value),
                         "read_only": True,
                         "docstring": "",
-                        "fully_annotated": False,
+                        "fully_typed": False,
                         "exported": False,
                         "excluded": False,
                     }

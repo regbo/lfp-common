@@ -83,21 +83,11 @@ export class VenvManager {
     this.selectedPython = environment.python;
     this.assertSelectedEnvironment(environment.python);
 
-    let packagesInstalled = false;
     if (this.config.autoInstall && this.config.packages.length > 0) {
-      const installer = this.installer();
-      const missing = installer.getMissing(this.config.packages);
-      if (missing.length > 0) {
-        const result = await installer.install(missing);
-        if (!result.success) {
-          throw new PackageInstallError(
-            missing,
-            result.failed.map(item => `${item.spec}: ${item.error}`).join('; '),
-          );
-        }
-        packagesInstalled = true;
-      }
-      this.updateState(installer);
+      throw new Error(
+        'VenvManager auto-install is no longer supported. Declare package.json ' +
+        'pynect.requirements and run "pynect sync".',
+      );
     }
 
     const manager = environment.packageManager as { executable: string };
@@ -106,7 +96,7 @@ export class VenvManager {
       pythonExecutable: environment.python.executable,
       pipExecutable: manager.executable,
       created: !existed,
-      packagesInstalled,
+      packagesInstalled: false,
     };
   }
 

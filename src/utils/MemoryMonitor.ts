@@ -5,6 +5,7 @@
 
 import { Logger } from './Logger';
 import type { NativeAddon } from '../types/addon';
+import { withPynectLock } from './Locking';
 
 export interface MemorySnapshot {
   timestamp: number;
@@ -33,7 +34,6 @@ export class MemoryMonitor {
   private _maxSnapshots = 100;
   private _monitorInterval: NodeJS.Timeout | null = null;
   private _thresholds: MemoryThresholds;
-  private _gcRunning = false;
 
   constructor(thresholds?: Partial<MemoryThresholds>) {
     this._logger = new Logger('MemoryMonitor');
@@ -112,15 +112,22 @@ export class MemoryMonitor {
   }
 
   async forceGC(): Promise<void> {
-    if (this._gcRunning || !this._addon) {return;}
-    this._gcRunning = true;
-    try {
-      this._logger.debug('Running Python garbage collection...');
-      await this._addon.collectGarbage();
-      this._logger.debug('Python GC completed');
-    } finally {
-      this._gcRunning = false;
-    }
+    await withPynectLock(
+      { operation: 'python-gc' },
+      async () => {
+        if (!this._addon) return;
+        this._logger.debug('Running Python garbage collection...');
+        await this._addon.collectGarbage();
+        this._logger.debug('Python GC completed');
+      },
+      async () => this._addon !== null,
+      {
+        key: 'pynect-python-gc',
+        name: 'Pynect Python garbage collection',
+        namespace: 'pynect',
+        scope: 'memory',
+      },
+    );
   }
 
   private async _checkMemory(): Promise<void> {

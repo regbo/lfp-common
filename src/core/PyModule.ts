@@ -24,7 +24,6 @@ const logger = new Logger('PyModule');
  */
 export class PyModule extends PyProxy {
   private readonly _moduleName: string;
-  private _inspection: PyModuleInspection | null = null;
 
   constructor(
     objectId: PyObjectId,
@@ -37,10 +36,8 @@ export class PyModule extends PyProxy {
       objectId,
       path: [],
       addon,
-      isResolved: false,
       callTimeout,
       executionTimeout,
-      childCache: new Map(),
     });
     this._moduleName = moduleName;
   }
@@ -56,12 +53,9 @@ export class PyModule extends PyProxy {
   }
 
   /**
-   * Inspect the module - returns detailed type information.
-   * Cached after first call.
+   * Inspect the module and return detailed type information.
    */
   async inspect(): Promise<PyModuleInspection> {
-    if (this._inspection) {return this._inspection;}
-
     const addon = this[PYPROXY_INTERNAL].addon;
 
     try {
@@ -113,15 +107,14 @@ json.dumps(_result)
       const r = result as { success?: boolean; resultJson?: string };
       if (r.success && r.resultJson) {
         const parsed = JSON.parse(r.resultJson.replace(/^"|"$/g, '').replace(/\\"/g, '"'));
-        this._inspection = parsed as PyModuleInspection;
-        return this._inspection;
+        return parsed as PyModuleInspection;
       }
     } catch (err) {
       logger.warn(`Failed to inspect module ${this._moduleName}`, err);
     }
 
     // Return minimal inspection
-    this._inspection = {
+    return {
       name: this._moduleName,
       docstring: '',
       functions: [],
@@ -129,8 +122,6 @@ json.dumps(_result)
       constants: [],
       submodules: [],
     };
-
-    return this._inspection;
   }
 
   /**
@@ -172,8 +163,6 @@ json.dumps(_result)
   async reload(): Promise<void> {
     const addon = this[PYPROXY_INTERNAL].addon;
     await addon.reloadModule(this.objectId as number);
-    this._inspection = null;  // Clear inspection cache
-    this[PYPROXY_INTERNAL].childCache.clear();  // Clear attribute cache
     logger.debug(`Module ${this._moduleName} reloaded`);
   }
 

@@ -18,7 +18,7 @@ from typing import Any, get_type_hints
 _CONFIG: dict[str, Any] = {
     "include": [],
     "exclude": [],
-    "annotated_only": False,
+    "typed_only": False,
     "exported_only": False,
     "validation": "auto",
 }
@@ -63,7 +63,7 @@ def configure(options: Mapping[str, Any] | None = None) -> None:
     _CONFIG.update(
         include=_patterns(incoming.get("include")),
         exclude=_patterns(incoming.get("exclude")),
-        annotated_only=bool(incoming.get("annotatedOnly", False)),
+        typed_only=bool(incoming.get("typedOnly", False)),
         exported_only=bool(incoming.get("exportedOnly", False)),
         validation=validation,
     )
@@ -182,14 +182,12 @@ def _callable_allowed(function: Callable[..., Any], qualified_name: str) -> bool
         return False
     if _CONFIG["exported_only"] and not getattr(function, "__pynect_export__", False):
         return False
-    if _CONFIG["annotated_only"] and not _fully_annotated(function):
+    if _CONFIG["typed_only"] and not _fully_typed(function):
         return False
     return True
 
 
-def _fully_annotated(function: Callable[..., Any]) -> bool:
-    if getattr(function, "__pynect_export__", False):
-        return True
+def _fully_typed(function: Callable[..., Any]) -> bool:
     signature = _safe_signature(function)
     if signature is None or signature.return_annotation is inspect.Signature.empty:
         return False

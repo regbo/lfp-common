@@ -45,7 +45,6 @@ function toLegacyPythonInfo(python: SelectedPython): PythonInfo {
     patch: python.patch,
     prefix: python.prefix,
     isVirtualenv: python.virtualEnvironment !== null,
-    isConda: false,
     platform: process.platform,
     arch: process.arch,
   };

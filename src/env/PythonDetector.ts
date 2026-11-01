@@ -23,8 +23,6 @@ export interface PythonInfo {
   patch: number;
   prefix: string;
   isVirtualenv: boolean;
-  isConda: boolean;
-  condaEnv?: string;
   platform: string;
   arch: string;
 }
@@ -196,7 +194,6 @@ function probeToPythonInfo(raw: ProbeResult): PythonInfo {
     patch: raw.patch,
     prefix: raw.prefix,
     isVirtualenv: raw.is_venv,
-    isConda: false,
     platform: raw.platform,
     arch: raw.arch,
   };
@@ -211,7 +208,6 @@ function toPythonInfo(python: SelectedPython): PythonInfo {
     patch: python.patch,
     prefix: python.prefix,
     isVirtualenv: python.virtualEnvironment !== null,
-    isConda: false,
     platform: process.platform,
     arch: process.arch,
   };

@@ -31,7 +31,7 @@ interface InspectionItem {
   docstring?: string;
   excluded?: boolean;
   exported?: boolean;
-  fully_annotated?: boolean;
+  fully_typed?: boolean;
   read_only?: boolean;
 }
 
@@ -57,7 +57,7 @@ interface CodegenConfig {
   src?: string[];
   include?: string[];
   exclude?: string[];
-  annotated?: boolean;
+  typed?: boolean;
   exported?: boolean;
   all?: boolean;
   clear?: boolean;
@@ -79,7 +79,7 @@ interface CodegenOptions extends ProjectContext {
   src: string[];
   include: string[];
   exclude: string[];
-  annotated: boolean;
+  typed: boolean;
   exported: boolean;
   all: boolean;
   clear: boolean;
@@ -121,10 +121,10 @@ export function createCodegenCommand(name = 'codegen'): Command {
     .option('--src <dir>', 'Python source root used for discovery and imports; repeatable', collect)
     .option('--include <glob>', 'restrict output to a glob; repeatable', collect)
     .option('--exclude <glob>', 'exclude a glob; repeatable', collect)
-    .option('--annotated', 'emit only fully annotated members')
+    .option('--typed', 'emit only fully typed members')
     .option('--exported', 'emit only @export-marked members')
-    .option('--all', 'regenerate every cached module')
-    .option('--list', 'list cached modules')
+    .option('--all', 'regenerate every module tracked in generated metadata')
+    .option('--list', 'list modules tracked in generated metadata')
     .option('--clear', 'remove generated declarations')
     .option('--no-configure', 'do not update tsconfig.json, package.json, or .gitignore')
     .option('--tsconfig <file>', 'tsconfig file to update when auto-configuration is enabled')
@@ -229,7 +229,7 @@ async function resolveOptions(program: Command): Promise<CodegenOptions> {
     src: src as string[],
     include: include as string[],
     exclude: exclude as string[],
-    annotated: chosen('annotated', false), exported: chosen('exported', false),
+    typed: chosen('typed', false), exported: chosen('exported', false),
     all: chosen('all', false), clear: chosen('clear', false), list: chosen('list', false),
     configure: chosen('configure', true),
     tsconfig: chosen('tsconfig', undefined),
@@ -316,7 +316,7 @@ function selected(item: InspectionItem, qualified: string, options: CodegenOptio
   const names = [item.name, qualified];
   if (options.exclude.some(p => names.some(n => glob(p, n)))) return false;
   if (options.include.length && !options.include.some(p => names.some(n => glob(p, n)))) return false;
-  if (options.annotated && !item.fully_annotated) return false;
+  if (options.typed && !item.fully_typed) return false;
   return !options.exported || item.exported === true;
 }
 

@@ -29,12 +29,12 @@ import { PynectNotInitializedError } from './utils/ErrorTranslator';
 import type { PynectConfig } from './types/config';
 import type { PyProxyInterface } from './types/python';
 import type { IsolatedCallOptions } from './core/IsolatedWorker';
+import { resolveExposedModule } from './env/ProjectEnvironment';
+import { withPynectLock } from './utils/Locking';
 
 // Singleton Runtime Management
 
 let _runtime: PyRuntime | null = null;
-let _initializing = false;
-let _initPromise: Promise<void> | null = null;
 let _autoShutdownEnabled = true;
 
 const _logger = new Logger('pynect');
@@ -106,31 +106,24 @@ export async function init(
   config?: PynectConfig,
   options?: { force?: boolean }
 ): Promise<void> {
-  // Already initialized
-  if (_runtime && !options?.force) {
-    _logger.debug('Pynect already initialized; skipping');
-    return;
-  }
-
-  // Initialization in progress - wait for it
-  if (_initializing && _initPromise) {
-    return _initPromise;
-  }
-
-  // Force re-init: shut down first
-  if (_runtime && options?.force) {
-    await shutdown();
-  }
-
-  _initializing = true;
-  _initPromise = _doInit(config);
-
-  try {
-    await _initPromise;
-  } finally {
-    _initializing = false;
-    _initPromise = null;
-  }
+  await withPynectLock(
+    { operation: 'init' },
+    async () => {
+      if (_runtime && !options?.force) {
+        _logger.debug('Pynect already initialized; skipping');
+        return;
+      }
+      if (_runtime && options?.force) await _doShutdown();
+      await _doInit(config);
+    },
+    undefined,
+    {
+      key: 'pynect-runtime-lifecycle',
+      name: 'Pynect runtime lifecycle',
+      namespace: 'pynect',
+      scope: 'memory',
+    },
+  );
 }
 
 async function _doInit(config?: PynectConfig): Promise<void> {
@@ -160,6 +153,20 @@ async function _doInit(config?: PynectConfig): Promise<void> {
  * ```
  */
 export async function shutdown(): Promise<void> {
+  await withPynectLock(
+    { operation: 'shutdown' },
+    async () => _doShutdown(),
+    undefined,
+    {
+      key: 'pynect-runtime-lifecycle',
+      name: 'Pynect runtime lifecycle',
+      namespace: 'pynect',
+      scope: 'memory',
+    },
+  );
+}
+
+async function _doShutdown(): Promise<void> {
   if (!_runtime) {
     _logger.debug('Pynect is not initialized; nothing to shut down');
     return;
@@ -218,7 +225,13 @@ export function importModule(moduleName: string): Promise<PyProxyInterface>;
 export async function importModule(moduleName: string): Promise<PyProxyInterface> {
   if (!_runtime) {await init();}
   if (!_runtime) {throw new PynectNotInitializedError();}
-  return _runtime.import(moduleName);
+  const exposed = moduleName.includes(':')
+    ? resolveExposedModule(moduleName, _runtime.getConfig().projectRoot)
+    : undefined;
+  if (moduleName.includes(':') && !exposed) {
+    throw new Error(`Unknown Pynect module id: ${moduleName}`);
+  }
+  return _runtime.import(exposed?.import ?? moduleName);
 }
 
 /** Call a JSON-compatible function through the optional killable Python worker. */
@@ -309,7 +322,6 @@ export async function collectGarbage(): Promise<void> {
 // Auto-cleanup on process exit
 
 let _cleanupRegistered = false;
-let _cleanupPromise: Promise<void> | null = null;
 
 function _registerCleanup(): void {
   if (_cleanupRegistered) {return;}
@@ -317,11 +329,7 @@ function _registerCleanup(): void {
 
   const cleanup = (): Promise<void> => {
     if (!_autoShutdownEnabled || !_runtime) {return Promise.resolve();}
-    if (_cleanupPromise) {return _cleanupPromise;}
-    _cleanupPromise = shutdown()
-      .catch(() => undefined)
-      .finally(() => {_cleanupPromise = null;});
-    return _cleanupPromise;
+    return shutdown().catch(() => undefined);
   };
 
   process.on('beforeExit', cleanup);
@@ -381,6 +389,15 @@ export {
 export { PythonDetector } from './env/PythonDetector';
 export { VenvManager } from './env/VenvManager';
 export { PackageInstaller } from './env/PackageInstaller';
+export {
+  createProjectPlan,
+  discoverPynectContributions,
+  moduleDispatcherIncludes,
+  resolveExposedModule,
+  syncProject,
+  validateProjectEnvironment,
+} from './env/ProjectEnvironment';
+export { resolveProjectConfig } from './config/project';
 
 // Plugins
 export { PluginManager } from './plugins/PluginManager';
@@ -391,6 +408,7 @@ export type {
   ResolvedPynectConfig,
   VirtualenvConfig,
   IsolationConfig,
+  DispatcherConfig,
   LogLevel,
   PyObjectId,
   PyTypeInfo,
@@ -410,6 +428,20 @@ export type {
   NativeAddon,
   PyCallOptions,
 } from './types/index';
+export type {
+  AutoSyncMode,
+  PynectModuleManifest,
+  PynectPackageManifest,
+  ResolvedProjectConfig,
+} from './config/project';
+export type {
+  ExposedModule,
+  PynectContribution,
+  PynectEnvironmentState,
+  PynectProjectPlan,
+  SyncProjectOptions,
+  SyncProjectResult,
+} from './env/ProjectEnvironment';
 
 // Default export
 export default {

@@ -110,7 +110,7 @@ def _inspect_callable(obj: Any, name: str) -> Dict[str, Any]:
         'is_generator':   inspect.isgeneratorfunction(obj),
         'exported':       bool(getattr(obj, '__pynect_export__', False)),
         'excluded':       bool(getattr(obj, '__pynect_exclude__', False)),
-        'fully_annotated': False,
+        'fully_typed': False,
     }
 
     try:
@@ -139,7 +139,7 @@ def _inspect_callable(obj: Any, name: str) -> Dict[str, Any]:
 
         ret_ann = hints.get('return') or sig.return_annotation
         result['return_type'] = _get_annotation(ret_ann)
-        result['fully_annotated'] = (
+        result['fully_typed'] = (
             sig.return_annotation is not inspect.Signature.empty
             and all(
                 parameter.annotation is not inspect.Parameter.empty
@@ -169,7 +169,7 @@ def _inspect_class(cls: type) -> Dict[str, Any]:
         'static_methods': [],
         'exported':       bool(getattr(cls, '__pynect_export__', False)),
         'excluded':       bool(getattr(cls, '__pynect_exclude__', False)),
-        'fully_annotated': bool(getattr(cls, '__annotations__', {})),
+        'fully_typed': bool(getattr(cls, '__annotations__', {})),
     }
 
     hints = _get_type_hints_safe(cls)
@@ -205,7 +205,7 @@ def _inspect_class(cls: type) -> Dict[str, Any]:
                 'type':      _get_annotation(ann) if ann else 'Any',
                 'read_only': raw_attr.fset is None,
                 'docstring': inspect.getdoc(raw_attr) or '',
-                'fully_annotated': ann is not None and ann != 'Any',
+                'fully_typed': ann is not None and ann != 'Any',
                 'exported': bool(getattr(raw_attr.fget, '__pynect_export__', False)),
                 'excluded': bool(getattr(raw_attr.fget, '__pynect_exclude__', False)),
             })
@@ -220,7 +220,7 @@ def _inspect_class(cls: type) -> Dict[str, Any]:
                 'type':      _get_annotation(ann),
                 'read_only': False,
                 'docstring': '',
-                'fully_annotated': mname in hints,
+                'fully_typed': mname in hints,
                 'exported': False,
                 'excluded': False,
             })
@@ -289,7 +289,7 @@ def inspect_module(module_name: str) -> Dict[str, Any]:
                 'type':      ann_type,
                 'read_only': True,
                 'docstring': '',
-                'fully_annotated': name in getattr(module, '__annotations__', {}),
+                'fully_typed': name in getattr(module, '__annotations__', {}),
                 'exported': bool(getattr(obj, '__pynect_export__', False)),
                 'excluded': bool(getattr(obj, '__pynect_exclude__', False)),
             })

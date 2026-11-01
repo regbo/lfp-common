@@ -4,6 +4,7 @@
 const { Command } = require('commander');
 const packageJson = require('../package.json');
 const { createCodegenCommand } = require('../dist/cli/codegen');
+const { createSyncCommand } = require('../dist/cli/sync');
 
 const program = new Command()
   .name('pynect')
@@ -12,6 +13,7 @@ const program = new Command()
   .showHelpAfterError();
 
 program.addCommand(createCodegenCommand());
+program.addCommand(createSyncCommand());
 
 program.parseAsync(process.argv).catch(error => {
   console.error(`pynect: ${error.message}`);

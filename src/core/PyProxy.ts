@@ -55,11 +55,8 @@ export interface PyProxyInternal {
   objectId: PyObjectId;
   path: AttributePath;
   addon: NativeAddon;
-  isResolved: boolean;
   callTimeout?: number;
   executionTimeout?: number;
-  /** Cache of child proxies keyed by attribute name */
-  childCache: Map<string, PyProxy>;
 }
 
 /**
@@ -183,30 +180,15 @@ export class PyProxy {
         return Reflect.get(target, prop, receiver);
       }
 
-      // Check child cache (optimization)
-      if (internal.childCache.has(prop)) {
-        return internal.childCache.get(prop);
-      }
-
       // Create lazy child PyProxy
       const childInternal: PyProxyInternal = {
         objectId: internal.objectId,
         path: [...internal.path, prop],
         addon: internal.addon,
-        isResolved: false,
         callTimeout: internal.callTimeout,
         executionTimeout: internal.executionTimeout,
-        childCache: new Map(),
       };
-
-      const child = new PyProxy(childInternal);
-
-      // Cache it for repeated access
-      if (internal.addon) {
-        internal.childCache.set(prop, child);
-      }
-
-      return child;
+      return new PyProxy(childInternal);
     },
 
     // Function call (proxy() or proxy.method())
@@ -251,7 +233,6 @@ export class PyProxy {
         internal.addon.deleteAttribute(internal.objectId as number, prop).catch(err => {
           logger.error(`Failed to delete Python attribute '${prop}'`, err);
         });
-        internal.childCache.delete(prop);
       }
       return true;
     },
@@ -483,8 +464,6 @@ export class PyProxy {
       propName,
       serialized
     );
-    // Invalidate cache
-    internal.childCache.delete(propName);
   }
 
   // Static Helpers
@@ -500,10 +479,8 @@ export class PyProxy {
       objectId,
       path,
       addon,
-      isResolved: false,
       callTimeout,
       executionTimeout,
-      childCache: new Map(),
     });
   }
 

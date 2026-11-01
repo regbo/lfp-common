@@ -3,7 +3,6 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const lockfile = require('proper-lockfile');
 
 const ROOT = path.resolve(__dirname, '..');
 const BUILD_DIRECTORY = path.join(ROOT, 'build');
@@ -67,18 +66,17 @@ async function main() {
   }
 
   fs.mkdirSync(BUILD_DIRECTORY, { recursive: true });
-  const release = await lockfile.lock(BUILD_DIRECTORY, {
-    realpath: false,
-    stale: 10 * 60 * 1000,
-    update: 30 * 1000,
-    retries: { retries: 120, minTimeout: 250, maxTimeout: 1000, factor: 1.2 },
-  });
-  try {
-    if (!force && loads()) return;
-    build();
-  } finally {
-    await release();
-  }
+  const { withLock } = await import('loqkit');
+  await withLock(
+    { buildDirectory: BUILD_DIRECTORY },
+    async () => build(),
+    async () => force || !loads(),
+    {
+      key: `pynect-native:${normalize(BUILD_DIRECTORY)}`,
+      name: 'Pynect native build',
+      namespace: 'pynect',
+    },
+  );
 }
 
 main().catch(error => {
