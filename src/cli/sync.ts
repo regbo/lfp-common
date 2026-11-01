@@ -25,7 +25,7 @@ export function createSyncCommand(): Command {
     .option('--python <path>', 'preferred base Python executable')
     .option('--requires-python <range>', 'accepted Python version range')
     .option('--managed-python <version>', 'managed Python request used as a fallback')
-    .option('--uv-version <version>', 'pinned uv version Pyfig may install')
+    .option('--uv-version <specifier>', 'PEP 440 uv version specifier Pyfig may install')
     .addOption(booleanOption('--install-python <boolean>', 'allow managed Python installation'))
     .addOption(booleanOption('--install-uv <boolean>', 'allow uv installation'))
     .addOption(booleanOption(

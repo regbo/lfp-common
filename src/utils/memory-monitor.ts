@@ -125,7 +125,7 @@ export class MemoryMonitor {
         key: 'pynect-python-gc',
         name: 'Pynect Python garbage collection',
         namespace: 'pynect',
-        scope: 'memory',
+        scope: { memory: true, worker: false, flock: false, poll: false },
       },
     );
   }

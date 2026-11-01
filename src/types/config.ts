@@ -4,6 +4,7 @@
  */
 
 import { availableParallelism } from 'os';
+import { DEFAULT_REQUIRES_UV } from 'pyfig';
 import type { AutoSyncMode, PynectPackageManifest } from '../config/project';
 
 export type LogLevel = 'silent' | 'error' | 'warn' | 'info' | 'debug';
@@ -130,7 +131,7 @@ export interface PynectConfig extends PynectPackageManifest {
   /** Managed Python version requested from uv. Default: '3.12'. */
   managedPython?: string;
 
-  /** Pinned uv release used by the checksum-verified bootstrap. */
+  /** PEP 440 uv version specifier used by the checksum-verified bootstrap. */
   uvVersion?: string;
 
   /** Synchronize the locked project environment when it is missing or stale. Default: 'never'. */
@@ -290,7 +291,7 @@ export function resolveConfig(config: PynectConfig = {}): ResolvedPynectConfig {
     autoInstallUv: config.installUv ?? config.autoInstallUv ?? true,
     autoCreateVirtualEnvironment: config.createVirtualEnvironment ?? config.autoCreateVirtualEnvironment ?? true,
     managedPython: config.managedPython ?? '3.12',
-    uvVersion: config.uvVersion ?? '0.13.6',
+    uvVersion: config.uvVersion ?? DEFAULT_REQUIRES_UV,
     autoSync: config.autoSync ?? 'never',
     lockfile: config.lockfile ?? 'pynect.lock',
     generatedDirectory: config.generatedDirectory ?? '',

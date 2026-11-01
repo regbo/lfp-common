@@ -4,7 +4,7 @@ import { createHash } from 'crypto';
 import {
   DEFAULT_MANAGED_PYTHON,
   DEFAULT_REQUIRES_PYTHON,
-  DEFAULT_UV_VERSION,
+  DEFAULT_REQUIRES_UV,
   resolveProjectRoot,
 } from 'pyfig';
 
@@ -124,7 +124,7 @@ const DEFAULTS = {
   python: '',
   requiresPython: DEFAULT_REQUIRES_PYTHON,
   managedPython: DEFAULT_MANAGED_PYTHON,
-  uvVersion: DEFAULT_UV_VERSION,
+  uvVersion: DEFAULT_REQUIRES_UV,
   installPython: true,
   installUv: true,
   createVirtualEnvironment: true,
@@ -178,6 +178,7 @@ export function resolveProjectConfig(
   const uvVersion = first(
     overrides.uvVersion,
     apiTool.uvVersion,
+    env['PYNECT_REQUIRES_UV'],
     env['PYNECT_UV_VERSION'],
     packageTool.uvVersion,
     DEFAULTS.uvVersion,

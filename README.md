@@ -43,7 +43,7 @@ await init({
 
 When lifecycle scripts are disabled or Pynect is not trusted, run `bunx --bun pynect sync` explicitly.
 
-Current Bun releases and Node.js 22 or newer are supported. Bun-only systems do not need a `node` executable. A preinstalled Python or uv is also unnecessary: Pynect uses Pyfig 0.5 to reuse a compatible application environment or create `<project-root>/node_modules/.pyfig/venv`, installing its pinned uv and a managed GIL-enabled Python 3.12 when no compatible embeddable CPython exists. A matching Python 3.12 prebuild is loaded when available; other Python minors and incompatible platform baselines fall back to compiling with the active JavaScript runtime from `process.execPath` and require a C++ toolchain.
+Current Bun releases and Node.js 22 or newer are supported. Bun-only systems do not need a `node` executable. A preinstalled Python or uv is also unnecessary: Pynect uses Pyfig 0.6 to reuse a compatible application environment or create `<project-root>/node_modules/.pyfig/venv`, installing compatible uv and managed GIL-enabled Python releases when necessary. A matching Python 3.12 prebuild is loaded when available; other Python minors and incompatible platform baselines fall back to compiling with the active JavaScript runtime from `process.execPath` and require a C++ toolchain.
 
 ## Quick start
 
@@ -236,7 +236,7 @@ Package and programmatic configuration use the same JSON pyproject projection. C
 | `tool.pynect.python` | `PYNECT_PYTHON` | `--python` | auto-detect |
 | `project["requires-python"]` | `PYNECT_REQUIRES_PYTHON` | `--requires-python` | `>=3.10.0 <4.0.0` |
 | `tool.pynect.managedPython` | `PYNECT_MANAGED_PYTHON` | `--managed-python` | `3.12` |
-| `tool.pynect.uvVersion` | `PYNECT_UV_VERSION` | `--uv-version` | Pyfig's pinned release |
+| `tool.pynect.uvVersion` | `PYNECT_REQUIRES_UV` | `--uv-version` | `>=0.10,<1` |
 | `tool.pynect.installPython` | `PYNECT_INSTALL_PYTHON` | `--install-python` | `true` |
 | `tool.pynect.installUv` | `PYNECT_INSTALL_UV` | `--install-uv` | `true` |
 | `tool.pynect.createVirtualEnvironment` | `PYNECT_CREATE_VIRTUAL_ENVIRONMENT` | `--create-virtual-environment` | `true` |

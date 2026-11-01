@@ -121,7 +121,7 @@ export async function init(
       key: 'pynect-runtime-lifecycle',
       name: 'Pynect runtime lifecycle',
       namespace: 'pynect',
-      scope: 'memory',
+      scope: { memory: true, worker: false, flock: false, poll: false },
     },
   );
 }
@@ -161,7 +161,7 @@ export async function shutdown(): Promise<void> {
       key: 'pynect-runtime-lifecycle',
       name: 'Pynect runtime lifecycle',
       namespace: 'pynect',
-      scope: 'memory',
+      scope: { memory: true, worker: false, flock: false, poll: false },
     },
   );
 }

@@ -53,6 +53,11 @@ function pep440PythonRange(value) {
   return value.trim().replace(/\s+(?=[<>=!~])/gu, ',');
 }
 
+function pep440UvRange(value) {
+  const trimmed = value.trim();
+  return /^\d+(?:\.\d+){1,2}$/u.test(trimmed) ? `==${trimmed}` : trimmed;
+}
+
 function projectRoot(explicit) {
   const hint = explicit || process.env.PYNECT_PROJECT_ROOT || process.env.INIT_CWD;
   return hint ? path.resolve(hint) : loadPyfig().resolveProjectRoot(process.cwd());
@@ -73,7 +78,10 @@ function pynectPyfigOptions(options = {}) {
     ),
     managedPython: options.managedPython || process.env.PYNECT_MANAGED_PYTHON ||
       process.env.PYNECT_PYTHON_VERSION || pyfig.DEFAULT_MANAGED_PYTHON,
-    uvVersion: options.uvVersion || process.env.PYNECT_UV_VERSION || pyfig.DEFAULT_UV_VERSION,
+    requiresUv: pep440UvRange(
+      options.uvVersion || process.env.PYNECT_REQUIRES_UV ||
+        process.env.PYNECT_UV_VERSION || pyfig.DEFAULT_REQUIRES_UV,
+    ),
     requireEmbedding: true,
     requireGil: true,
     installPython,

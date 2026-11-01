@@ -24,6 +24,9 @@ describe('loqkit integration', () => {
     expect(peak).toBe(1);
     expect(results.every(result => result.context.state === 'executed')).toBe(true);
     expect(results.map(result => result.value)).toEqual([0, 1, 2, 3]);
-    expect(results[0]?.context.lock.scope).toEqual(['memory', 'worker', 'file']);
+    const scope = results[0]?.context.lock.scope;
+    expect(scope?.memory).toBe(true);
+    expect(scope?.worker === true || scope?.worker === 'skipped').toBe(true);
+    expect(scope?.flock === true || scope?.poll === true).toBe(true);
   });
 });

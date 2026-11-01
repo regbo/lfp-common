@@ -8,12 +8,12 @@
         "@msgpack/msgpack": "^3.1.2",
         "commander": "^14.0.2",
         "jsonc-parser": "^3.3.1",
-        "loqkit": "^0.0.3",
+        "loqkit": ">=0.0.5 <0.1.0",
         "node-addon-api": "^8.5.0",
         "node-gyp": "^11.5.0",
         "node-gyp-build": "^4.8.4",
         "pacwich": "^0.7.3",
-        "pyfig": "^0.5.0",
+        "pyfig": "^0.6.0",
         "semver": "^7.8.5",
       },
       "devDependencies": {
@@ -196,7 +196,7 @@
 
     "jsonc-parser": ["jsonc-parser@3.3.1", "", {}, "sha512-HUgH65KyejrUFPvHFPbqOY0rsFip3Bo5wb4ngvdi1EpCYWUQDC5V+Y7mZws+DLkr4M//zQJoanu1SP+87Dv1oQ=="],
 
-    "loqkit": ["loqkit@0.0.3", "", { "dependencies": { "async-mutex": "^0.5.0", "ohash": "^2.0.12", "proper-lockfile": "^4.1.2", "read-package-up": "^12.0.0", "zod": "^4.6.7" }, "optionalDependencies": { "fs-ext": "^2.1.1" } }, "sha512-OxS+BBynsZw/+QkMetKHRAnAUMZQDk/X6mLKOxxnc2cSWHGjnKkZCwdEc8/BkCkm2BEwTiPAeJ+g6q39fNlAow=="],
+    "loqkit": ["loqkit@0.0.5", "", { "dependencies": { "async-mutex": "^0.5.0", "ohash": "^2.0.12", "proper-lockfile": "^4.1.2", "read-package-up": "^12.0.0", "zod": "^4.6.7" }, "optionalDependencies": { "fs-ext": "^2.1.1" } }, "sha512-cP0lE85XBKtZb9TtqbIuolnkkQJzX+w3Z+1AtoUp608lfdCFOPjE7ak/E+fz9R5tOj1kafwsakGDcXYfL7MIOg=="],
 
     "lru-cache": ["lru-cache@10.4.3", "", {}, "sha512-JNAzZcXrCt42VGLuYz0zfAzDfAvJWW6AfYlDBQyDV5DClI2m5sAmK+OIO7s59XfsRsWHp02jAJrRadPRGTt6SQ=="],
 
@@ -258,7 +258,7 @@
 
     "proper-lockfile": ["proper-lockfile@4.1.2", "", { "dependencies": { "graceful-fs": "^4.2.4", "retry": "^0.12.0", "signal-exit": "^3.0.2" } }, "sha512-TjNPblN4BwAWMXU8s9AEz4JmQxnD1NNL7bNOY/AKUzyamc379FWASUhc/K1pL2noVb+XmZKLL68cjzLsiOAMaA=="],
 
-    "pyfig": ["pyfig@0.5.0", "", { "dependencies": { "@renovatebot/pep440": "^5.0.1", "commander": "^14.0.3", "env-paths": "^4.0.0", "fflate": "^0.8.3", "loqkit": "^0.0.5", "semver": "^7.8.5", "tar": "^7.4.3", "undici": "^7.30.1", "which": "^6.0.1" }, "bin": { "pyfig": "dist/cli.js" } }, "sha512-F6MO5AiirpLn6ZUyFozDVQkEWfQfdYJqTbCe6Kf9KDXwXBs/bt9JVjW8slIMrG6fK+3glUpT1dB/ajp+bpIf4Q=="],
+    "pyfig": ["pyfig@0.6.0", "", { "dependencies": { "@renovatebot/pep440": "^5.0.1", "commander": "^14.0.3", "env-paths": "^4.0.0", "fflate": "^0.8.3", "loqkit": "^0.0.5", "tar": "^7.4.3", "undici": "^7.30.1", "which": "^6.0.1" }, "bin": { "pyfig": "dist/cli.js" } }, "sha512-C90tYygY0rUm8moZUh12qQgYjsAYYAh/iWAt1KbjhkM+r9KiY7xg0RfSXLPGy7pqWHTtOPcXB5d7tNAn30UYIg=="],
 
     "read-package-up": ["read-package-up@12.0.0", "", { "dependencies": { "find-up-simple": "^1.0.1", "read-pkg": "^10.0.0", "type-fest": "^5.2.0" } }, "sha512-Q5hMVBYur/eQNWDdbF4/Wqqr9Bjvtrw2kjGxxBbKLbx8bVCL8gcArjTy8zDUuLGQicftpMuU0riQNcAsbtOVsw=="],
 
@@ -351,8 +351,6 @@
     "parse-json/type-fest": ["type-fest@4.41.0", "", {}, "sha512-TeTSQ6H5YHvpqVwBRcnLDCBnDOHWYu7IvGbHT6N8AOymcr9PJGjc1GTtiWZTYg0NCgYwvnYWEkVChQAr9bjfwA=="],
 
     "pyfig/env-paths": ["env-paths@4.0.0", "", { "dependencies": { "is-safe-filename": "^0.1.0" } }, "sha512-pxP8eL2SwwaTRi/KHYwLYXinDs7gL3jxFcBYmEdYfZmZXbaVDvdppd0XBU8qVz03rDfKZMXg1omHCbsJjZrMsw=="],
-
-    "pyfig/loqkit": ["loqkit@0.0.5", "", { "dependencies": { "async-mutex": "^0.5.0", "ohash": "^2.0.12", "proper-lockfile": "^4.1.2", "read-package-up": "^12.0.0", "zod": "^4.6.7" }, "optionalDependencies": { "fs-ext": "^2.1.1" } }, "sha512-cP0lE85XBKtZb9TtqbIuolnkkQJzX+w3Z+1AtoUp608lfdCFOPjE7ak/E+fz9R5tOj1kafwsakGDcXYfL7MIOg=="],
 
     "pyfig/which": ["which@6.0.1", "", { "dependencies": { "isexe": "^4.0.0" }, "bin": { "node-which": "bin/which.js" } }, "sha512-oGLe46MIrCRqX7ytPUf66EAYvdeMIZYn3WaocqqKZAxrBpkqHfL/qvTyJ/bTk5+AqHCjXmrv3CEWgy368zhRUg=="],
 
