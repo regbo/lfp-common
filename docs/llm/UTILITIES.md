@@ -2,13 +2,14 @@
 
 - `scripts/pyfig.js`: shared build-time and runtime policy adapter; creates the scoped Pyfig client used for every Python, pip, and uv operation and requires an embeddable, GIL-enabled repository `.venv`.
 - `scripts/ensure-native.js`: loqkit-coordinated native builder invoked through the active JavaScript runtime when no addon can be loaded.
+- `scripts/postinstall.js`: lifecycle entrypoint that finds the application through `INIT_CWD` and runs the same uv project sync when installed npm packages contribute Pynect manifests.
 - `scripts/build-typescript.js`: clean TypeScript build entrypoint; removes only `dist` before invoking the repository compiler so deleted source files cannot leak into npm artifacts.
 - `src/native/NativeAddonLoader.ts`: exact-Python local-addon loader and lazy build boundary; validates `build/pynect-python.json` and relaunches `process.execPath`, never a hard-coded Node executable.
 - `scripts/python-provisioner.js`: compatibility wrapper around `scripts/pyfig.js`.
 - `scripts/docker-zero-python.sh`: clean Linux container proof for uv/Python bootstrap, native build, and shared-interpreter smoke coverage.
 - `src/env/PyfigAdapter.ts`: typed access to the same adapter from compiled CommonJS source.
 - `src/config/project.ts`: canonical package.json, environment, API, and CLI project policy resolver. Precedence is explicit overrides, environment, root package.json, then defaults.
-- `src/env/ProjectEnvironment.ts`: transitive `pynect` manifest discovery, Python constraint aggregation, namespaced module registry, loqkit-coordinated uv sync, and runtime environment fingerprint validation.
+- `src/env/ProjectEnvironment.ts`: transitive `pynect` manifest discovery, generated non-package uv project, namespaced module registry, loqkit-coordinated `uv sync`, and runtime environment fingerprint validation. uv owns package resolution and lock validation.
 - `src/env/PythonDetector.ts`: legacy discovery facade constrained to the Pyfig-selected root `.venv`; it never probes a host interpreter directly.
 - `src/env/PythonProvisioner.ts`: compatibility wrapper around the centralized Pyfig selection.
 - `src/env/VenvManager.ts`: compatibility facade that delegates root `.venv` and package operations to Pyfig.

@@ -2,6 +2,7 @@ import { createHash } from 'crypto';
 import type { ChildProcess } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import semver from 'semver';
 import {
   resolveProjectConfig,
   validatePackageManifest,
@@ -14,11 +15,10 @@ import { createPynectPyfig } from './PyfigAdapter';
 import { withPynectLock } from '../utils/Locking';
 
 const GENERATED_DIRECTORY = '.pynect';
-const REQUIREMENTS_INPUT = 'requirements.in';
-const OVERRIDES_INPUT = 'overrides.txt';
+const PYPROJECT_FILE = 'pyproject.toml';
+const UV_LOCK_FILE = 'uv.lock';
 const MODULES_FILE = 'modules.json';
 const STATE_FILE = '.pynect-state.json';
-const LOCK_FINGERPRINT = '# pynect-manifest-sha256: ';
 const TRANSITIVE_KEYS = new Set(['schemaVersion', 'requiresPython', 'requirements', 'modules']);
 
 export interface PynectContribution {
@@ -41,10 +41,11 @@ export interface PynectProjectPlan {
   overrides: string[];
   modules: Record<string, ExposedModule>;
   pythonRange: string;
+  pythonRequirement: string;
   manifestHash: string;
   generatedDirectory: string;
-  requirementsInput: string;
-  overridesInput: string;
+  pyprojectFile: string;
+  generatedLockfile: string;
   modulesFile: string;
   stateFile: string;
 }
@@ -105,13 +106,14 @@ export function createProjectPlan(
         packageName: contribution.packageName,
       })),
   ];
-  const pythonRange = combinePythonRanges(pythonConstraints);
+  const { pythonRange, pythonRequirement } = combinePythonRequirements(pythonConstraints);
   if (!config.managedPythonExplicit && !pythonVersionSatisfies(config.managedPython, pythonRange)) {
     config = { ...config, managedPython: managedPythonForRange(pythonRange) };
   }
   const manifestHash = sha256(stableJson({
     schemaVersion: 1,
     pythonRange,
+    pythonRequirement,
     requirements: [...requirements].sort(compareRequirements),
     overrides: requirementOverrides,
     modules,
@@ -125,10 +127,11 @@ export function createProjectPlan(
     overrides: requirementOverrides,
     modules,
     pythonRange,
+    pythonRequirement,
     manifestHash,
     generatedDirectory,
-    requirementsInput: path.join(generatedDirectory, REQUIREMENTS_INPUT),
-    overridesInput: path.join(generatedDirectory, OVERRIDES_INPUT),
+    pyprojectFile: path.join(generatedDirectory, PYPROJECT_FILE),
+    generatedLockfile: path.join(generatedDirectory, UV_LOCK_FILE),
     modulesFile: path.join(generatedDirectory, MODULES_FILE),
     stateFile: path.join(config.projectRoot, '.venv', STATE_FILE),
   };
@@ -206,8 +209,8 @@ async function syncProjectUnlocked(
   plan: PynectProjectPlan,
   options: SyncProjectOptions,
 ): Promise<SyncProjectResult> {
-  writeGeneratedInputs(plan);
-  if (options.frozen) assertFrozenLock(plan);
+  writeGeneratedProject(plan);
+  if (options.frozen) stageFrozenLock(plan);
 
   const client = createPynectPyfig({
     projectRoot: plan.config.projectRoot,
@@ -222,34 +225,23 @@ async function syncProjectUnlocked(
   });
   const environment = await client.prepare();
 
-  if (!options.frozen) {
-    const compileArgs = [
-      'pip', 'compile', plan.requirementsInput,
-      '--universal',
-      '--generate-hashes',
-      '--no-header',
-      '--output-file', plan.config.lockfile,
-    ];
-    if (plan.overrides.length > 0) compileArgs.push('--overrides', plan.overridesInput);
-    if (options.offline) compileArgs.push('--offline');
-    const compiled = await runChild(await client.uv(compileArgs, {
-      cwd: plan.config.projectRoot,
-      env: plan.config.env,
-    }));
-    if (compiled.code !== 0) throw resolutionError(plan, compiled.output);
-    const lockBody = fs.readFileSync(plan.config.lockfile, 'utf8').replace(/^\uFEFF/, '');
-    atomicWrite(plan.config.lockfile, `${LOCK_FINGERPRINT}${plan.manifestHash}\n${lockBody}`);
-  }
-
-  const syncArgs = ['sync', '--require-hashes', plan.config.lockfile];
+  const syncArgs = ['sync', '--project', plan.generatedDirectory, '--no-dev'];
+  if (options.frozen) syncArgs.push('--locked');
   if (options.offline) syncArgs.push('--offline');
-  const synced = await runChild(await client.pip(syncArgs, {
+  const synced = await runChild(await client.uv(syncArgs, {
     cwd: plan.config.projectRoot,
-    env: plan.config.env,
+    env: {
+      ...plan.config.env,
+      UV_PROJECT_ENVIRONMENT: path.join(plan.config.projectRoot, '.venv'),
+    },
   }));
   if (synced.code !== 0) {
-    throw new Error(`Unable to synchronize ${plan.config.lockfile}:\n${synced.output.trim()}`);
+    throw resolutionError(plan, synced.output);
   }
+  if (!options.frozen) atomicWrite(
+    plan.config.lockfile,
+    fs.readFileSync(plan.generatedLockfile, 'utf8'),
+  );
 
   const lockHash = sha256(fs.readFileSync(plan.config.lockfile));
   const python = environment.python;
@@ -330,36 +322,45 @@ export function resolveExposedModule(
   return plan.modules[id];
 }
 
-function writeGeneratedInputs(plan: PynectProjectPlan): void {
-  const requirements = [...new Set(plan.requirements.map(item => item.requirement))].sort();
-  atomicWrite(plan.requirementsInput, requirements.length > 0 ? `${requirements.join('\n')}\n` : '');
-  atomicWrite(plan.overridesInput, plan.overrides.length > 0 ? `${plan.overrides.join('\n')}\n` : '');
+function writeGeneratedProject(plan: PynectProjectPlan): void {
+  atomicWrite(plan.pyprojectFile, renderUvProject(plan));
   atomicWrite(plan.modulesFile, `${JSON.stringify(plan.modules, null, 2)}\n`);
 }
 
-function assertFrozenLock(plan: PynectProjectPlan): void {
+export function renderUvProject(plan: PynectProjectPlan): string {
+  const requirements = [...new Set(plan.requirements.map(item => item.requirement))].sort();
+  const lines = [
+    '# Generated by Pynect. Declare dependencies in package.json, not here.',
+    '[project]',
+    'name = "pynect-environment"',
+    'version = "0.0.0"',
+    `requires-python = ${JSON.stringify(plan.pythonRequirement)}`,
+    'dependencies = [',
+    ...requirements.map(requirement => `  ${JSON.stringify(requirement)},`),
+    ']',
+    '',
+    '[tool.uv]',
+    'package = false',
+  ];
+  if (plan.overrides.length > 0) {
+    lines.push(
+      'override-dependencies = [',
+      ...plan.overrides.map(requirement => `  ${JSON.stringify(requirement)},`),
+      ']',
+    );
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+function stageFrozenLock(plan: PynectProjectPlan): void {
   if (!fs.existsSync(plan.config.lockfile)) {
     throw new Error(`Frozen sync requires an existing lockfile at ${plan.config.lockfile}.`);
   }
-  const firstLine = fs.readFileSync(plan.config.lockfile, 'utf8').split(/\r?\n/, 1)[0];
-  if (firstLine !== `${LOCK_FINGERPRINT}${plan.manifestHash}`) {
-    throw new Error(
-      `Frozen sync rejected ${plan.config.lockfile} because package manifests changed. ` +
-      'Run pynect sync without --frozen and commit the updated lockfile.',
-    );
-  }
+  atomicWrite(plan.generatedLockfile, fs.readFileSync(plan.config.lockfile, 'utf8'));
 }
 
 function resolutionError(plan: PynectProjectPlan, output: string): Error {
-  const grouped = new Map<string, Array<{ requirement: string; packageName: string }>>();
-  for (const item of plan.requirements) {
-    const distribution = distributionName(item.requirement);
-    const entries = grouped.get(distribution) ?? [];
-    entries.push(item);
-    grouped.set(distribution, entries);
-  }
-  const relevant = [...grouped.values()].filter(entries => entries.length > 1).flat();
-  const origins = (relevant.length > 0 ? relevant : plan.requirements)
+  const origins = plan.requirements
     .map(item => `  ${item.packageName} requires ${item.requirement}`)
     .join('\n');
   return new Error(
@@ -394,103 +395,34 @@ interface PythonConstraint {
   packageName: string;
 }
 
-interface VersionBound {
-  version: [number, number, number];
-  inclusive: boolean;
-  source: PythonConstraint;
-}
-
-function combinePythonRanges(constraints: PythonConstraint[]): string {
-  let lower: VersionBound | undefined;
-  let upper: VersionBound | undefined;
-  for (const constraint of constraints) {
-    for (const token of constraint.range.split(/[\s,]+/).filter(Boolean)) {
-      const match = /^(>=|<=|>|<|==)?(\d+)(?:\.(\d+))?(?:\.(\d+))?$/.exec(token);
-      if (!match) {
-        throw new TypeError(
-          `${constraint.packageName} has unsupported requiresPython value ${constraint.range}. ` +
-          'Use numeric comparisons such as >=3.11,<3.13.',
-        );
-      }
-      const operator = match[1] ?? '==';
-      const version: [number, number, number] = [
-        Number(match[2]), Number(match[3] ?? 0), Number(match[4] ?? 0),
-      ];
-      if (operator === '>=' || operator === '>') {
-        const candidate = { version, inclusive: operator === '>=', source: constraint };
-        if (!lower || compareVersions(candidate.version, lower.version) > 0 ||
-          (compareVersions(candidate.version, lower.version) === 0 && !candidate.inclusive)) lower = candidate;
-      } else if (operator === '<=' || operator === '<') {
-        const candidate = { version, inclusive: operator === '<=', source: constraint };
-        if (!upper || compareVersions(candidate.version, upper.version) < 0 ||
-          (compareVersions(candidate.version, upper.version) === 0 && !candidate.inclusive)) upper = candidate;
-      } else {
-        const exact = { version, inclusive: true, source: constraint };
-        if (!lower || compareVersions(exact.version, lower.version) > 0) lower = exact;
-        if (!upper || compareVersions(exact.version, upper.version) < 0) upper = exact;
-      }
-    }
+function combinePythonRequirements(constraints: PythonConstraint[]): {
+  pythonRange: string;
+  pythonRequirement: string;
+} {
+  const pythonRequirement = constraints
+    .map(constraint => constraint.range.trim().replace(/\s+(?=[<>=!~])/g, ','))
+    .filter(Boolean)
+    .join(',');
+  const candidate = pythonRequirement.replace(/,/g, ' ');
+  const pythonRange = semver.validRange(candidate);
+  if (!pythonRange || !semver.minVersion(pythonRange)) {
+    throw new Error(
+      'Unable to resolve Python version requirements:\n\n' +
+      constraints.map(item => `  ${item.packageName} requires Python ${item.range}`).join('\n'),
+    );
   }
-  if (lower && upper) {
-    const comparison = compareVersions(lower.version, upper.version);
-    if (comparison > 0 || (comparison === 0 && (!lower.inclusive || !upper.inclusive))) {
-      throw new Error(
-        'Unable to resolve Python version requirements:\n\n' +
-        constraints.map(item => `  ${item.packageName} requires Python ${item.range}`).join('\n'),
-      );
-    }
-  }
-  const parts: string[] = [];
-  if (lower) parts.push(`${lower.inclusive ? '>=' : '>'}${formatVersion(lower.version)}`);
-  if (upper) parts.push(`${upper.inclusive ? '<=' : '<'}${formatVersion(upper.version)}`);
-  return parts.join(' ') || '>=3.10.0 <4.0.0';
-}
-
-function compareVersions(left: [number, number, number], right: [number, number, number]): number {
-  for (let index = 0; index < 3; index += 1) {
-    const difference = left[index]! - right[index]!;
-    if (difference !== 0) return difference;
-  }
-  return 0;
-}
-
-function formatVersion(version: [number, number, number]): string {
-  return version.join('.');
+  return { pythonRange, pythonRequirement };
 }
 
 function pythonVersionSatisfies(version: string, range: string): boolean {
-  const parsed = parseVersion(version);
-  return range.split(/\s+/).filter(Boolean).every(token => {
-    const match = /^(>=|<=|>|<|==)(\d+\.\d+\.\d+)$/.exec(token);
-    if (!match) return false;
-    const comparison = compareVersions(parsed, parseVersion(match[2]!));
-    switch (match[1]) {
-      case '>=': return comparison >= 0;
-      case '>': return comparison > 0;
-      case '<=': return comparison <= 0;
-      case '<': return comparison < 0;
-      default: return comparison === 0;
-    }
-  });
+  const normalized = semver.coerce(version)?.version;
+  return normalized !== undefined && semver.satisfies(normalized, range);
 }
 
 function managedPythonForRange(range: string): string {
-  const lower = /(?:^|\s)>?=(\d+)\.(\d+)\.\d+/.exec(range);
-  if (lower) return `${lower[1]}.${lower[2]}`;
-  const upper = /(?:^|\s)(<|<=)(\d+)\.(\d+)\.\d+/.exec(range);
-  if (upper) {
-    const major = Number(upper[2]);
-    const minor = Number(upper[3]);
-    if (upper[1] === '<' && minor > 0) return `${major}.${minor - 1}`;
-    return `${major}.${minor}`;
-  }
-  return '3.12';
-}
-
-function parseVersion(value: string): [number, number, number] {
-  const match = /^(\d+)(?:\.(\d+))?(?:\.(\d+))?/.exec(value);
-  if (!match) throw new TypeError(`Invalid Python version: ${value}`);
-  return [Number(match[1]), Number(match[2] ?? 0), Number(match[3] ?? 0)];
+  const minimum = semver.minVersion(range);
+  if (!minimum) throw new TypeError(`Python range has no installable version: ${range}`);
+  return `${minimum.major}.${minimum.minor}`;
 }
 
 interface PackageJson {
@@ -526,12 +458,6 @@ function resolveInstalledPackage(fromDirectory: string, packageName: string): st
     if (parent === current) return undefined;
     current = parent;
   }
-}
-
-function distributionName(requirement: string): string {
-  return (requirement.match(/^\s*([A-Za-z0-9][A-Za-z0-9._-]*)/)?.[1] ?? requirement)
-    .toLowerCase()
-    .replace(/[._-]+/g, '-');
 }
 
 async function runChild(child: ChildProcess): Promise<{ code: number; output: string }> {

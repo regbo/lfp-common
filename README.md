@@ -7,10 +7,10 @@ Python remains responsible for normalization and validation. If Pydantic 1 or 2 
 ## Install
 
 ```sh
-bun add pynect
+bun add --trust pynect
 ```
 
-Declare application Python dependencies and synchronize the locked environment:
+Declare application Python dependencies. Pynect's trusted postinstall creates the uv project and synchronizes the locked environment:
 
 ```json
 {
@@ -22,9 +22,7 @@ Declare application Python dependencies and synchronize the locked environment:
 }
 ```
 
-```sh
-bunx --bun pynect sync
-```
+When lifecycle scripts are disabled or Pynect is not trusted, run `bunx --bun pynect sync` explicitly.
 
 Current Bun releases and Node.js 22 or newer are supported. Bun-only systems do not need a `node` executable. A preinstalled Python or uv is also unnecessary: Pynect uses Pyfig to create `<project-root>/.venv`, installing its pinned uv and a managed GIL-enabled Python 3.12 when no compatible embeddable CPython exists. When a matching prebuilt addon is unavailable, the first `init()` or `importModule()` compiles it with the active JavaScript runtime from `process.execPath`; a C++ toolchain is still required for that fallback.
 
@@ -160,9 +158,9 @@ One application owns one `.venv` and one `pynect.lock`. Reusable npm packages co
 }
 ```
 
-`pynect sync` walks the installed npm dependency graph, combines every compatible requirement, resolves it with uv, writes `pynect.lock`, and synchronizes the root `.venv`. uv's shared cache avoids repeated downloads across environments. Pynect records the manifest hash, lock hash, Python ABI, platform, and contributing packages in `.venv/.pynect-state.json`.
+`pynect sync` walks the installed npm dependency graph and writes one minimal generated uv project at `.pynect/pyproject.toml`. uv performs dependency resolution, writes its native universal lock, and exactly synchronizes the root `.venv`; Pynect copies that native lock to the configured `pynect.lock` path for check-in. uv's shared cache avoids repeated downloads across environments. Pynect records the manifest hash, lock hash, Python ABI, platform, and contributing packages in `.venv/.pynect-state.json`.
 
-Conflicting requirements fail before runtime and list the npm packages that contributed them. Dependency manifests may declare only `schemaVersion`, `requiresPython`, `requirements`, and `modules`; Python selection, installation policy, lockfile placement, indexes, and credentials remain application-owned.
+Pynect does not implement a Python package resolver. Conflicts and platform-specific selections are handled by uv, while Pynect adds the npm packages that contributed each top-level requirement to failure output. Dependency manifests may declare only `schemaVersion`, `requiresPython`, `requirements`, and `modules`; Python selection, installation policy, lockfile placement, indexes, and credentials remain application-owned.
 
 The root application may resolve a known conflict explicitly without changing a dependency package:
 
@@ -176,7 +174,7 @@ The root application may resolve a known conflict explicitly without changing a 
 }
 ```
 
-Overrides are passed to uv's resolver and included in the manifest fingerprint. Configure private indexes with uv's application environment variables such as `UV_DEFAULT_INDEX`; keep credentials outside `package.json`.
+Overrides are emitted as uv's native `tool.uv.override-dependencies` configuration and included in the manifest fingerprint. Configure private indexes with uv's application environment variables such as `UV_DEFAULT_INDEX`; keep credentials outside `package.json`.
 
 Exposed module ids are namespaced by npm package name:
 
@@ -195,6 +193,16 @@ Normal runtime startup validates the lock and environment state without network 
 bunx --bun pynect sync --frozen
 ```
 
+Pynect's postinstall runs the same sync automatically when a reachable npm package contributes a `pynect` manifest. Set `PYNECT_SKIP_POSTINSTALL=1` to opt out. npm users can also use `--ignore-scripts`; Bun users must explicitly trust `pynect` because Bun blocks dependency lifecycle scripts by default:
+
+```json
+{
+  "trustedDependencies": ["pynect"]
+}
+```
+
+An application may always keep installation side-effect free and run `pynect sync` explicitly instead.
+
 Configuration precedence is API or CLI, environment, root `package.json`, then default:
 
 | package.json / API | Environment | CLI | Default |
@@ -209,7 +217,7 @@ Configuration precedence is API or CLI, environment, root `package.json`, then d
 | `autoSync` | `PYNECT_AUTO_SYNC` | n/a | `never` |
 | `lockfile` | `PYNECT_LOCKFILE` | `--lockfile` | `pynect.lock` |
 
-`--offline` prohibits network access. `--frozen` refuses to rewrite the lock when package manifests change. The deprecated `PYNECT_AUTO_INSTALL` and runtime `autoInstallPython` names remain compatibility aliases; new configuration should use the names above. Runtime `virtualenv.autoInstall` is no longer supported because independent startup installs cannot resolve the complete npm dependency graph safely.
+`--offline` prohibits network access. `--frozen` passes uv's `--locked` check and refuses to rewrite an outdated lock. The deprecated `PYNECT_AUTO_INSTALL` and runtime `autoInstallPython` names remain compatibility aliases; new configuration should use the names above. Runtime `virtualenv.autoInstall` is no longer supported because independent startup installs cannot resolve the complete npm dependency graph safely.
 
 Pynect uses [loqkit](https://www.npmjs.com/package/loqkit) for JavaScript critical sections. Project sync and native builds use its default layered memory, worker-thread, and cross-process file locks. Runtime lifecycle and Python garbage collection use memory-scoped locks because those resources belong to one JavaScript process. Pynect does not maintain separate promise, module, inspection, or proxy memo caches; new memoized getters should use loqkit's `memoize` primitive.
 

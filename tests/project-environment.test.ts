@@ -2,11 +2,13 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import semver from 'semver';
 import { resolveProjectConfig } from '../src/config/project';
 import {
   createProjectPlan,
   discoverPynectContributions,
   moduleDispatcherIncludes,
+  renderUvProject,
   validateProjectEnvironment,
 } from '../src/env/ProjectEnvironment';
 
@@ -74,7 +76,9 @@ describe('manifest aggregation', () => {
 
     const plan = createProjectPlan({ projectRoot: root });
 
-    expect(plan.pythonRange).toBe('>=3.12.0 <3.13.0');
+    expect(plan.pythonRequirement).toBe('>=3.11,<3.14,>=3.12,<3.13');
+    expect(semver.satisfies('3.12.0', plan.pythonRange)).toBe(true);
+    expect(semver.satisfies('3.13.0', plan.pythonRange)).toBe(false);
     expect(plan.config.managedPython).toBe('3.12');
     expect(plan.requirements).toEqual([{
       requirement: 'name-generator>=1,<2',
@@ -86,6 +90,8 @@ describe('manifest aggregation', () => {
       include: ['generate_name'],
     });
     expect(moduleDispatcherIncludes(plan)).toEqual(['name_generator.generate_name']);
+    expect(renderUvProject(plan)).toContain('requires-python = ">=3.11,<3.14,>=3.12,<3.13"');
+    expect(renderUvProject(plan)).toContain('override-dependencies = [\n  "packaging==24.2",\n]');
   });
 
   test('derives an unconfigured managed Python fallback from the combined range', () => {
