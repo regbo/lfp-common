@@ -99,8 +99,15 @@
     "node": ">=22.0.0",
     "bun": ">=1.2.0"
   },
-  "os": ["linux", "darwin", "win32"],
-  "cpu": ["x64", "arm64"],
+  "os": [
+    "linux",
+    "darwin",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
   "binary": {
     "module_name": "pynect_addon",
     "module_path": "./prebuilds/{platform}-{arch}"
