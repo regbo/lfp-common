@@ -17,6 +17,7 @@ import { createPyfig } from 'pyfig';
 
 const pyfig = createPyfig({
   requiresPython: '>=3.11,<4',
+  requiresUv: '>=0.10,<1',
   requireEmbedding: true,
   requireGil: true,
 });
@@ -136,15 +137,14 @@ The package exposes matching ESM and CommonJS entry points. Probe, download, loc
 
 Precedence is API or CLI option, environment variable, then default.
 
-`requiresPython` uses the same PEP 440 specifier syntax as `[project].requires-python` in `pyproject.toml`. Comma-separated clauses, compatible releases (`~=`), exclusions (`!=`), wildcard equality (`==3.12.*`), arbitrary equality (`===`), and pre-release versions are supported. For example: `>=3.10,!=3.12.*,<4`.
+`requiresPython` and `requiresUv` use PEP 440 specifiers. Comma-separated clauses, compatible releases (`~=`), exclusions (`!=`), wildcard equality, arbitrary equality (`===`), and pre-release versions are supported. For example: `requiresPython: '>=3.10,!=3.12.*,<4'` and `requiresUv: '==0.13.*'`. Pyfig reuses a compatible installed or cached uv first. When installation is necessary, it resolves the greatest published uv release satisfying `requiresUv` and containing the required platform assets.
 
 | API option | Environment variable | Default |
 | --- | --- | --- |
 | `python` | `PYFIG_PYTHON` | uv discovery |
 | `requiresPython` | `PYFIG_REQUIRES_PYTHON` | `>=3.10,<4` |
 | `managedPython` | `PYFIG_MANAGED_PYTHON` | `3.12` |
-| `uvVersion` | `PYFIG_UV_VERSION` | `0.13.6` |
-| `uvRange` | `PYFIG_UV_RANGE` | `>=0.10.0 <1.0.0` |
+| `requiresUv` | `PYFIG_REQUIRES_UV` | `>=0.10,<1` |
 | `cacheDir` | `PYFIG_HOME` | OS cache directory |
 | `projectRoot` | `PYFIG_PROJECT_ROOT` | `INIT_CWD`, Git root, or current directory |
 | `requireEmbedding` | `PYFIG_REQUIRE_EMBEDDING` | `false` |
@@ -166,6 +166,7 @@ Set `PYFIG_UV` to choose an explicit uv executable. Set `PYFIG_AUTO_INSTALL=0` o
 bunx --bun pyfig
 bunx --bun pyfig --check
 bunx --bun pyfig --requires-python '>=3.12,<3.14'
+bunx --bun pyfig --requires-uv '>=0.12,<1'
 bunx --bun pyfig --require-embedding --require-gil
 bunx --bun pyfig --project-root /path/to/repository
 bunx --bun pyfig --json
@@ -175,9 +176,9 @@ bunx --bun pyfig --json
 
 ## Concurrency and installation safety
 
-Pyfig downloads an exact uv release archive over HTTPS, verifies its adjacent SHA-256 checksum, validates the staged executable version, and atomically publishes it in Pyfig's cache. It does not execute installer scripts or modify shell profiles.
+Pyfig resolves a compatible uv release from Astral's GitHub releases, downloads that exact archive over HTTPS, verifies its adjacent SHA-256 checksum, validates the staged executable version, and atomically publishes it in Pyfig's cache. It does not execute installer scripts or modify shell profiles.
 
-Provisioning mutations use Loqkit's layered in-memory, worker, native-file-lock-when-available, and portable-file coordination with capability checks before and after acquisition. uv supplies its own target-environment lock for installs. Base client preparation is memoized; dependency preparation is intentionally rerun so uv can cheaply verify current inputs through its shared cache.
+Provisioning mutations use Loqkit's layered in-memory, worker, native-file-lock-when-available, and portable-file coordination with capability checks before and after acquisition. Compatible managed uv executables are cached by resolved version; Loqkit coordinates both the `requiresUv` policy lookup and exact release publication. uv supplies its own target-environment lock for installs. Base client preparation is memoized; dependency preparation is intentionally rerun so uv can cheaply verify current inputs through its shared cache.
 
 ## Platform support
 

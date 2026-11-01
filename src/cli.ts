@@ -7,9 +7,8 @@ import { ensureEnvironment } from './provision.js';
 interface CliOptions {
   python?: string;
   requiresPython?: string;
+  requiresUv?: string;
   managedPython?: string;
-  uvVersion?: string;
-  uvRange?: string;
   home?: string;
   projectRoot?: string;
   requireEmbedding: boolean;
@@ -29,8 +28,7 @@ const program = new Command()
   .option('--python <path>', 'Python executable to check first')
   .option('--requires-python <specifier>', 'accepted Python PEP 440 specifier')
   .option('--managed-python <request>', 'Python version request passed to uv')
-  .option('--uv-version <version>', 'pinned uv installer version')
-  .option('--uv-range <range>', 'accepted system uv SemVer range')
+  .option('--requires-uv <specifier>', 'accepted uv PEP 440 specifier')
   .option('--home <path>', 'cache and managed-tool directory')
   .option('--project-root <path>', 'root that owns node_modules/.pyfig')
   .option('--require-embedding', 'require Python.h and a linkable CPython library', false)
@@ -42,8 +40,7 @@ const program = new Command()
       python: cli.python,
       requiresPython: cli.requiresPython,
       managedPython: cli.managedPython,
-      uvVersion: cli.uvVersion,
-      uvRange: cli.uvRange,
+      requiresUv: cli.requiresUv,
       cacheDir: cli.home,
       projectRoot: cli.projectRoot,
       requireEmbedding: cli.requireEmbedding,

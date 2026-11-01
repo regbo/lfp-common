@@ -1,15 +1,16 @@
 import path from 'node:path';
 import * as envPaths from 'env-paths';
-import semver from 'semver';
+import {
+  isValidPep440Specifier,
+  pep440VersionSatisfies,
+} from './pep440.js';
 import { resolveProjectRoot } from './project-root.js';
-import { isValidPythonSpecifier, pythonVersionSatisfies } from './python-version.js';
 
 export const DEFAULT_REQUIRES_PYTHON = '>=3.10,<4';
 export const DEFAULT_MANAGED_PYTHON = '3.12';
-export const DEFAULT_UV_VERSION = '0.13.6';
 // External uv only needs to support the command and isolation flags Pyfig uses.
-// Keep that compatibility floor separate from the newer version Pyfig installs.
-export const DEFAULT_UV_RANGE = '>=0.10.0 <1.0.0';
+// The installer resolves the greatest published release allowed by this policy.
+export const DEFAULT_REQUIRES_UV = '>=0.10,<1';
 
 const DEFAULT_PROBE_TIMEOUT_MS = 10_000;
 const DEFAULT_INSTALL_TIMEOUT_MS = 10 * 60_000;
@@ -34,10 +35,8 @@ export interface PyfigOptions {
   requiresPython?: string;
   /** uv Python request used only when no compatible interpreter exists. */
   managedPython?: string;
-  /** Exact uv release installed into Pyfig's private cache. */
-  uvVersion?: string;
-  /** Accepted range for an externally installed uv executable. */
-  uvRange?: string;
+  /** PEP 440 version specifier accepted for an existing or managed uv executable. */
+  requiresUv?: string;
   /** Require Python development headers and a linkable CPython library. */
   requireEmbedding?: boolean;
   /** Reject free-threaded CPython builds when the consumer requires the GIL ABI. */
@@ -46,7 +45,7 @@ export interface PyfigOptions {
   autoInstall?: boolean;
   /** Allow uv to install a managed Python when no compatible interpreter exists. */
   installPython?: boolean;
-  /** Allow Pyfig to install its pinned, checksum-verified uv executable. */
+  /** Allow Pyfig to install a compatible, checksum-verified uv executable. */
   installUv?: boolean;
   /** Allow creation of Pyfig's private environment under node_modules. */
   createVirtualEnvironment?: boolean;
@@ -70,8 +69,7 @@ export interface ResolvedPyfigOptions {
   python: string;
   requiresPython: string;
   managedPython: string;
-  uvVersion: string;
-  uvRange: string;
+  requiresUv: string;
   requireEmbedding: boolean;
   requireGil: boolean;
   autoInstall: boolean;
@@ -93,15 +91,13 @@ export function resolveOptions(options: PyfigOptions = {}): ResolvedPyfigOptions
   const env = { ...(options.env ?? process.env) };
   const requiresPython = options.requiresPython ??
     env['PYFIG_REQUIRES_PYTHON'] ?? DEFAULT_REQUIRES_PYTHON;
-  const uvRange = options.uvRange ?? env['PYFIG_UV_RANGE'] ?? DEFAULT_UV_RANGE;
-  assertPythonSpecifier(requiresPython);
-  assertRange('uv', uvRange);
+  const requiresUv = options.requiresUv ?? env['PYFIG_REQUIRES_UV'] ?? DEFAULT_REQUIRES_UV;
+  assertPep440Specifier('requires-python', requiresPython);
+  assertPep440Specifier('requires-uv', requiresUv);
 
   const managedPython = options.managedPython ??
     env['PYFIG_MANAGED_PYTHON'] ?? DEFAULT_MANAGED_PYTHON;
-  const uvVersion = options.uvVersion ?? env['PYFIG_UV_VERSION'] ?? DEFAULT_UV_VERSION;
   assertManagedPythonRequest(managedPython, requiresPython);
-  assertUvVersion(uvVersion, uvRange);
 
   const probeTimeoutMs = resolveDuration(
     'probeTimeoutMs',
@@ -141,8 +137,7 @@ export function resolveOptions(options: PyfigOptions = {}): ResolvedPyfigOptions
     python: options.python ?? env['PYFIG_PYTHON'] ?? '',
     requiresPython,
     managedPython,
-    uvVersion,
-    uvRange,
+    requiresUv,
     requireEmbedding: options.requireEmbedding ?? parseBoolean(env['PYFIG_REQUIRE_EMBEDDING'], false),
     requireGil: options.requireGil ?? parseBoolean(env['PYFIG_REQUIRE_GIL'], false),
     autoInstall,
@@ -171,24 +166,9 @@ export function uvEnvironment(options: ResolvedPyfigOptions): NodeJS.ProcessEnv 
   };
 }
 
-function assertRange(tool: string, range: string): void {
-  if (!semver.validRange(range)) {
-    throw new TypeError(`Invalid ${tool} SemVer range: ${range}`);
-  }
-}
-
-function assertUvVersion(version: string, range: string): void {
-  if (!semver.valid(version)) {
-    throw new TypeError(`Invalid exact uv version: ${version}`);
-  }
-  if (!semver.satisfies(version, range)) {
-    throw new TypeError(`Pinned uv ${version} does not satisfy supported range ${range}.`);
-  }
-}
-
-function assertPythonSpecifier(specifier: string): void {
-  if (!isValidPythonSpecifier(specifier)) {
-    throw new TypeError(`Invalid requires-python PEP 440 specifier: ${specifier}`);
+function assertPep440Specifier(name: string, specifier: string): void {
+  if (!isValidPep440Specifier(specifier)) {
+    throw new TypeError(`Invalid ${name} PEP 440 specifier: ${specifier}`);
   }
 }
 
@@ -198,7 +178,7 @@ function assertManagedPythonRequest(request: string, requiresPython: string): vo
   }
   if (/^\d+\.\d+(?:\.\d+)?$/u.test(request)) {
     const normalized = request.split('.').length === 2 ? `${request}.0` : request;
-    if (!pythonVersionSatisfies(normalized, requiresPython)) {
+    if (!pep440VersionSatisfies(normalized, requiresPython)) {
       throw new TypeError(
         `Managed Python ${request} cannot satisfy requires-python ${requiresPython}.`,
       );

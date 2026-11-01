@@ -28,6 +28,10 @@ import {
 import { withProvisioningLock } from './provision-lock.js';
 import { sanitizeUvEnvironment, uvCommandEnvironment } from './package-target.js';
 import {
+  maxPep440Version,
+  normalizePep440Version,
+} from './pep440.js';
+import {
   findUv,
   probePython,
   probeUv,
@@ -373,25 +377,34 @@ async function ensureUvResolved(options: ResolvedPyfigOptions): Promise<UvInfo> 
   if (existing) return existing;
   if (!options.installUv) {
     throw new Error(
-      `Compatible uv is unavailable (required ${options.uvRange}), and uv installation is disabled.`,
+      `Compatible uv is unavailable (requires-uv ${options.requiresUv}), and uv installation is disabled.`,
     );
   }
 
-  const installDir = uvInstallDirectory(options);
-  const executable = uvExecutable(options);
+  const policyKey = createHash('sha256').update(options.requiresUv).digest('hex');
   return withProvisioningLock({
-    key: `uv:${canonicalPath(installDir)}`,
+    key: `uv-policy:${canonicalPath(uvInstallRoot(options))}:${policyKey}`,
     timeoutMs: options.coordinationTimeoutMs,
     check: () => findAvailableUv(options),
     mutate: async () => {
-      await installUv(installDir, options);
-      const result = probeUv(executable, options);
-      if (!result || result.version !== options.uvVersion) {
-        throw new Error(
-          `Expected managed uv ${options.uvVersion}, but the installed executable did not match.`,
-        );
-      }
-      return result;
+      const release = await resolveUvRelease(options);
+      const installDir = uvInstallDirectory(options, release.version);
+      const executable = uvExecutable(options, release.version);
+      return withProvisioningLock({
+        key: `uv-release:${canonicalPath(installDir)}`,
+        timeoutMs: options.coordinationTimeoutMs,
+        check: () => findAvailableUv(options),
+        mutate: async () => {
+          await installUv(installDir, release, options);
+          const result = probeUv(executable, options);
+          if (!result || result.version !== release.version) {
+            throw new Error(
+              `Expected managed uv ${release.version}, but the installed executable did not match.`,
+            );
+          }
+          return result;
+        },
+      });
     },
   });
 }
@@ -399,8 +412,22 @@ async function ensureUvResolved(options: ResolvedPyfigOptions): Promise<UvInfo> 
 async function findAvailableUv(options: ResolvedPyfigOptions): Promise<UvInfo | null> {
   const external = await findUv(options);
   if (external) return external;
-  const managed = probeUv(uvExecutable(options), options);
-  return managed?.version === options.uvVersion ? managed : null;
+  return findManagedUv(options);
+}
+
+async function findManagedUv(options: ResolvedPyfigOptions): Promise<UvInfo | null> {
+  const entries = await readdir(uvInstallRoot(options), { withFileTypes: true }).catch(() => []);
+  let versions = entries
+    .filter(entry => entry.isDirectory() && normalizePep440Version(entry.name) === entry.name)
+    .map(entry => entry.name);
+  while (versions.length > 0) {
+    const selected = maxPep440Version(versions, options.requiresUv);
+    if (!selected) return null;
+    const candidate = probeUv(uvExecutable(options, selected), options);
+    if (candidate?.version === selected) return candidate;
+    versions = versions.filter(version => version !== selected);
+  }
+  return null;
 }
 
 function normalizeDependencies(dependencies: readonly string[]): string[] {
@@ -495,20 +522,95 @@ async function virtualEnvironmentMatchesConfiguredPython(
   return pathsEqual(configuredBase, virtualEnvironment.baseExecutable);
 }
 
-function uvInstallDirectory(options: ResolvedPyfigOptions): string {
-  return path.join(options.cacheDir, 'tools', 'uv', options.uvVersion);
+interface UvRelease {
+  tag: string;
+  version: string;
 }
 
-function uvExecutable(options: ResolvedPyfigOptions): string {
-  return path.join(uvInstallDirectory(options), process.platform === 'win32' ? 'uv.exe' : 'uv');
+const UV_RELEASE_PAGE_SIZE = 100;
+const UV_RELEASE_MAX_PAGES = 20;
+
+async function resolveUvRelease(options: ResolvedPyfigOptions): Promise<UvRelease> {
+  const dispatcher = proxyDispatcher(options.env);
+  const releases = new Map<string, string>();
+  const asset = uvAsset();
+  let exhausted = false;
+  try {
+    for (let page = 1; page <= UV_RELEASE_MAX_PAGES; page += 1) {
+      const text = await downloadText(
+        `https://api.github.com/repos/astral-sh/uv/releases?per_page=${UV_RELEASE_PAGE_SIZE}&page=${page}`,
+        options.downloadTimeoutMs,
+        dispatcher,
+        {
+          Accept: 'application/vnd.github+json',
+          'User-Agent': 'pyfig',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+      );
+      const payload = JSON.parse(text) as unknown;
+      if (!Array.isArray(payload)) {
+        throw new Error('GitHub returned invalid uv release metadata.');
+      }
+      for (const candidate of payload) {
+        if (!candidate || typeof candidate !== 'object') continue;
+        const release = candidate as { assets?: unknown; draft?: unknown; tag_name?: unknown };
+        if (release.draft === true || typeof release.tag_name !== 'string') continue;
+        const assetNames = releaseAssetNames(release.assets);
+        if (!assetNames.includes(asset) || !assetNames.includes(`${asset}.sha256`)) continue;
+        const version = normalizePep440Version(release.tag_name);
+        if (version) releases.set(version, release.tag_name);
+      }
+      if (payload.length < UV_RELEASE_PAGE_SIZE) {
+        exhausted = true;
+        break;
+      }
+    }
+  } finally {
+    await dispatcher?.close();
+  }
+
+  if (!exhausted) {
+    throw new Error(`uv release catalog exceeded ${UV_RELEASE_MAX_PAGES} pages.`);
+  }
+  const version = maxPep440Version([...releases.keys()], options.requiresUv);
+  const tag = version ? releases.get(version) : undefined;
+  if (!version || !tag) {
+    throw new Error(`No published uv release satisfies requires-uv ${options.requiresUv}.`);
+  }
+  return { tag, version };
+}
+
+function releaseAssetNames(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap(entry => {
+    if (!entry || typeof entry !== 'object') return [];
+    const name = (entry as { name?: unknown }).name;
+    return typeof name === 'string' ? [name] : [];
+  });
+}
+
+function uvInstallRoot(options: ResolvedPyfigOptions): string {
+  return path.join(options.cacheDir, 'tools', 'uv');
+}
+
+function uvInstallDirectory(options: ResolvedPyfigOptions, version: string): string {
+  return path.join(uvInstallRoot(options), version);
+}
+
+function uvExecutable(options: ResolvedPyfigOptions, version: string): string {
+  return path.join(
+    uvInstallDirectory(options, version),
+    process.platform === 'win32' ? 'uv.exe' : 'uv',
+  );
 }
 
 async function installUv(
   installDir: string,
+  release: UvRelease,
   options: ResolvedPyfigOptions,
 ): Promise<void> {
   const asset = uvAsset();
-  const baseUrl = `https://github.com/astral-sh/uv/releases/download/${options.uvVersion}`;
+  const baseUrl = `https://github.com/astral-sh/uv/releases/download/${release.tag}`;
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'pyfig-uv-'));
   const dispatcher = proxyDispatcher(options.env);
   try {
@@ -528,7 +630,7 @@ async function installUv(
     await mkdir(extracted, { recursive: true });
     const source = await extractUvExecutable(archive, asset, extracted);
     if (!source) throw new Error(`uv archive did not contain the expected executable: ${asset}`);
-    await publishUvAtomically(source, installDir, options);
+    await publishUvAtomically(source, installDir, release.version, options);
   } finally {
     await dispatcher?.close();
     await rm(temporary, { recursive: true, force: true });
@@ -563,10 +665,11 @@ async function extractUvExecutable(
 async function publishUvAtomically(
   source: string,
   installDir: string,
+  version: string,
   options: ResolvedPyfigOptions,
 ): Promise<void> {
   await mkdir(installDir, { recursive: true });
-  const executable = uvExecutable(options);
+  const executable = uvExecutable(options, version);
   const staged = path.join(
     installDir,
     `.${path.basename(executable)}.${process.pid}.${randomUUID()}.tmp`,
@@ -575,8 +678,8 @@ async function publishUvAtomically(
     await copyFile(source, staged);
     if (process.platform !== 'win32') await chmod(staged, 0o755);
     const stagedUv = probeUv(staged, options);
-    if (!stagedUv || stagedUv.version !== options.uvVersion) {
-      throw new Error(`Downloaded uv executable is not version ${options.uvVersion}.`);
+    if (!stagedUv || stagedUv.version !== version) {
+      throw new Error(`Downloaded uv executable is not version ${version}.`);
     }
     if (process.platform === 'win32') await rm(executable, { force: true });
     await rename(staged, executable);
@@ -623,9 +726,11 @@ async function downloadText(
   url: string,
   timeoutMs: number,
   dispatcher: EnvHttpProxyAgent | undefined,
+  headers?: Record<string, string>,
 ): Promise<string> {
   const response = await fetch(url, {
     dispatcher,
+    headers,
     redirect: 'follow',
     signal: AbortSignal.timeout(timeoutMs),
   });

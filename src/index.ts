@@ -1,8 +1,7 @@
 export {
   DEFAULT_MANAGED_PYTHON,
   DEFAULT_REQUIRES_PYTHON,
-  DEFAULT_UV_RANGE,
-  DEFAULT_UV_VERSION,
+  DEFAULT_REQUIRES_UV,
 } from './config.js';
 export type { PyfigOptions } from './config.js';
 export { createPyfig } from './client.js';

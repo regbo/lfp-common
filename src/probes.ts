@@ -1,7 +1,6 @@
-import semver from 'semver';
 import type { ResolvedPyfigOptions } from './config.js';
+import { normalizePep440Version, pep440VersionSatisfies } from './pep440.js';
 import { resolveExecutable, run, type CommandSpec } from './process.js';
-import { isValidPythonVersion, pythonVersionSatisfies } from './python-version.js';
 
 export interface PythonInfo {
   executable: string;
@@ -116,7 +115,7 @@ export function pythonSatisfiesPolicy(
   python: PythonInfo,
   options: Pick<ResolvedPyfigOptions, 'requiresPython' | 'requireEmbedding' | 'requireGil'>,
 ): boolean {
-  return pythonVersionSatisfies(python.version, options.requiresPython) &&
+  return pep440VersionSatisfies(python.version, options.requiresPython) &&
     (!options.requireEmbedding || (
       python.implementation === 'cpython' &&
       python.embedding !== null &&
@@ -139,7 +138,7 @@ export async function probePython(
       options.probeTimeoutMs,
     );
     const info = JSON.parse(stdout.trim()) as PythonInfo;
-    return isValidPythonVersion(info.version) ? info : null;
+    return normalizePep440Version(info.version) ? info : null;
   } catch {
     return null;
   }
@@ -149,7 +148,7 @@ export async function findUv(options: ResolvedPyfigOptions): Promise<UvInfo | nu
   const configured = options.env['PYFIG_UV'] ?? 'uv';
   const executable = await resolveExecutable(configured, options.env);
   const uv = executable ? probeUv(executable, options) : null;
-  return uv && semver.satisfies(uv.version, options.uvRange) ? uv : null;
+  return uv && pep440VersionSatisfies(uv.version, options.requiresUv) ? uv : null;
 }
 
 export function probeUv(
@@ -167,7 +166,7 @@ export function probeUv(
 
 function normalizeVersion(value: string | undefined): string | null {
   if (!value) return null;
-  return semver.valid(value) ?? semver.coerce(value)?.version ?? null;
+  return normalizePep440Version(value);
 }
 
 function pythonArchitectureMatchesRuntime(python: PythonInfo): boolean {

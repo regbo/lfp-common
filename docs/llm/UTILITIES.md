@@ -8,12 +8,12 @@
 | Loqkit `memoize` | `src/client.ts` | Share the first successful resolution within one immutable scoped client. | Long-lived library consumers |
 | `resolveExecutable`, `run`, `runAsync` | `src/process.ts` | Resolve safe executables and run bounded argument-array child processes. | Probes, provisioning, coordination |
 | Python and tool probes | `src/probes.ts` | Probe Python capabilities and compatible uv executables. | Provisioning |
-| Python version policy | `src/python-version.ts` | Validate and evaluate PEP 440 `requires-python` specifiers consistently. | Configuration, probes |
+| PEP 440 version policy | `src/pep440.ts` | Validate and evaluate `requiresPython` and `requiresUv` specifiers consistently. | Configuration, probes |
 | uv target policy | `src/package-target.ts` | Pin `uv pip` and `uv run` to the selected environment. | Spawn runners |
 | Venv path utilities | `src/virtual-environment.ts` | Canonicalize venv paths, locate its interpreter, and activate child environments. | Probes, provisioning, runners |
 | `runtimeFile` | `src/runtime-files.ts` | Locate helper entry points without shared globals in ESM and CJS builds. | Synchronous runners |
 | `createPyfig` | `src/client.ts` | Bind one options object to the consumer-facing preparation and spawn API. | Long-lived library consumers |
-| Provisioning API | `src/provision.ts` | Prefer system Python, reuse compatible venvs, bootstrap uv/Python, and add PEP 508 runtime dependencies without editing project files. | Public API, CLI, sync bridge |
+| Provisioning API | `src/provision.ts` | Prefer system Python, resolve/cache compatible uv releases, reuse compatible venvs, bootstrap Python, and add PEP 508 runtime dependencies without editing project files. | Public API, CLI, sync bridge |
 | Spawn API | `src/runners.ts` | Run uv and bind its pip/run commands to the selected environment. | Public API, Pynect |
 | `sync-resolver` | `src/sync-resolver.ts` | Perform async preparation behind synchronous caller APIs using `process.execPath`. | Synchronous runners |
 | CLI | `src/cli.ts` | Expose validated preparation and check-only policy through Commander. | End users |
