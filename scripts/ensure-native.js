@@ -7,6 +7,7 @@ const { spawnSync } = require('child_process');
 const ROOT = path.resolve(__dirname, '..');
 const BUILD_DIRECTORY = path.join(ROOT, 'build');
 const METADATA = path.join(BUILD_DIRECTORY, 'pynect-python.json');
+let lastLoadError;
 
 function normalize(value) {
   const resolved = path.resolve(value);
@@ -33,12 +34,14 @@ function matchingAddonPath() {
 }
 
 function loads() {
+  lastLoadError = undefined;
   const addon = matchingAddonPath();
   if (!addon || !fs.existsSync(addon)) return false;
   try {
     require(addon);
     return true;
-  } catch {
+  } catch (error) {
+    lastLoadError = error;
     return false;
   }
 }
@@ -55,7 +58,10 @@ function build() {
   if (result.status !== 0) {
     throw new Error(`Native addon build failed with exit code ${result.status}.`);
   }
-  if (!loads()) throw new Error('Native addon did not load after it was built.');
+  if (!loads()) {
+    const detail = lastLoadError instanceof Error ? ` ${lastLoadError.message}` : '';
+    throw new Error(`Native addon did not load after it was built.${detail}`);
+  }
 }
 
 async function main() {

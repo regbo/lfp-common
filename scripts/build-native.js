@@ -14,11 +14,9 @@ async function main() {
     pythonPath: process.env.PYNECT_PYTHON,
   });
   const embedding = python.embedding;
-  const stableAbiLibrary = embedding.stableAbiLibraryPath || (
-    process.platform === 'win32'
-      ? path.join(embedding.libraryDirectory, 'python3.lib')
-      : ''
-  );
+  const stableAbiLibrary = process.platform === 'win32'
+    ? embedding.stableAbiLibraryPath || path.join(embedding.libraryDirectory, 'python3.lib')
+    : '';
   const linkLibrary = stableAbiLibrary && fs.existsSync(stableAbiLibrary)
     ? stableAbiLibrary
     : embedding.libraryPath;
