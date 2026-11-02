@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { createPyEnvironment, type PyfigOptions } from '../src/index.ts';
+import { Python, type PyfigOptions } from '../src/index.ts';
 
 interface BenchmarkRequest {
   cacheDir: string;
@@ -30,7 +30,7 @@ const options: PyfigOptions = {
   requiresPython: request.requiresPython,
 };
 
-const pyenv = createPyEnvironment(options);
+const pyenv = new Python(options);
 const started = performance.now();
 const environment = await pyenv.prepare();
 const apiMs = performance.now() - started;

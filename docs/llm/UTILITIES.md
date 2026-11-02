@@ -13,8 +13,8 @@
 | uv target policy | `src/package-target.ts` | Pin `uv pip` and `uv run` to the selected environment. | Spawn runners |
 | Venv path utilities | `src/virtual-environment.ts` | Canonicalize venv paths, locate its interpreter, and activate child environments. | Probes, provisioning, runners |
 | `runtimeFile` | `src/runtime-files.ts` | Locate helper entry points without shared globals in ESM and CJS builds. | Synchronous runners |
-| `createPyEnvironment` | `src/client.ts` | Bind one venv configuration to the consumer-facing preparation and spawn API. | Long-lived library consumers |
-| Provisioning API | `src/provision.ts` | Prefer system Python, resolve/cache compatible uv releases, reuse dependency-free external venvs, and provision isolated hashed venvs without editing project files. | Public API, CLI, sync bridge |
+| `Python` | `src/client.ts` | Bind one venv configuration to the consumer-facing preparation and spawn API. | Long-lived library consumers |
+| Provisioning API | `src/provision.ts` | Prefer system Python, resolve/cache compatible uv releases, reuse dependency-free external venvs, and provision isolated hashed venvs from explicit runtime inputs. | Public API, CLI, sync bridge |
 | Spawn API | `src/runners.ts` | Run uv and bind its pip/run commands to the selected environment. | Public API, Pynect |
 | `sync-resolver` | `src/sync-resolver.ts` | Perform async preparation behind synchronous caller APIs using `process.execPath`. | Synchronous runners |
 | CLI | `src/cli.ts` | Expose validated preparation and check-only policy through Commander. | End users |

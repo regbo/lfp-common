@@ -4,8 +4,7 @@ export {
   DEFAULT_REQUIRES_UV,
 } from './config.js';
 export type { PyfigOptions } from './config.js';
-export { createPyEnvironment } from './client.js';
-export type { PyEnvironmentClient } from './client.js';
+export { Python } from './client.js';
 export { resolveProjectRoot } from './project-root.js';
 export type {
   PythonEmbeddingInfo,

@@ -9,9 +9,9 @@ import {
   readdir,
   rename,
   rm,
+  stat,
   writeFile,
 } from 'node:fs/promises';
-import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
@@ -20,7 +20,7 @@ import { unzipSync } from 'fflate';
 import * as tar from 'tar';
 import { EnvHttpProxyAgent, fetch } from 'undici';
 import {
-  hasDependencyProfile,
+  hasRuntimeRequirements,
   resolveOptions,
   uvEnvironment,
   type PyfigOptions,
@@ -77,14 +77,15 @@ export async function ensureUv(options: PyfigOptions = {}): Promise<UvInfo> {
 
 /**
  * Select an external dependency-free venv or a private content-addressed venv.
- * Project dependency files are read-only resolution inputs.
+ * Only caller-provided dependency specifiers and requirements files are resolved.
  */
 export async function ensureEnvironment(
   options: PyfigOptions = {},
 ): Promise<PythonEnvironment> {
   const resolved = resolveOptions(options);
+  await validateRequirementsFiles(resolved.requirements);
   const uv = await ensureUvResolved(resolved);
-  if (!hasDependencyProfile(resolved)) {
+  if (!hasRuntimeRequirements(resolved)) {
     const external = await findReusableExternalEnvironment(resolved);
     if (external) {
       return { managed: false, python: external, uv, venvId: null };
@@ -328,35 +329,23 @@ async function resolveRuntimeDependencies(
   python: PythonInfo,
   options: ResolvedPyfigOptions,
 ): Promise<RuntimeResolution> {
-  if (!hasDependencyProfile(options)) {
+  if (!hasRuntimeRequirements(options)) {
     return { content: '', sha256: requirementsDigest('') };
   }
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'pyfig-resolution-'));
   try {
     const additions = path.join(temporary, 'runtime-dependencies.txt');
     const output = path.join(temporary, 'resolved-dependencies.txt');
-    const pyproject = path.join(options.projectRoot, 'pyproject.toml');
-    const hasPyproject = fs.existsSync(pyproject);
-    if (!hasPyproject && (
-      options.extras.length > 0 || options.groups.length > 0 || options.allExtras
-    )) {
-      throw new Error('Runtime extras and groups require an existing pyproject.toml.');
-    }
-    const sources = hasPyproject ? [pyproject] : [];
+    const sources = [...options.requirements];
     if (options.dependencies.length > 0) {
       await writeFile(additions, `${options.dependencies.join('\n')}\n`, 'utf8');
       sources.push(additions);
     }
-    const selectionArgs = [
-      ...options.extras.flatMap((extra) => ['--extra', extra]),
-      ...options.groups.flatMap((group) => ['--group', group]),
-      ...(options.allExtras ? ['--all-extras'] : []),
-    ];
     await runAsync(
       uv.executable,
       [
         'pip', 'compile', '--no-config', '--no-header', '--no-annotate',
-        '--generate-hashes', '--python', python.executable, ...selectionArgs,
+        '--generate-hashes', '--python', python.executable,
         ...sources, '--output-file', output,
       ],
       isolatedUvEnvironment(options),
@@ -368,6 +357,20 @@ async function resolveRuntimeDependencies(
     return { content, sha256: requirementsDigest(content) };
   } finally {
     await rm(temporary, { recursive: true, force: true });
+  }
+}
+
+async function validateRequirementsFiles(requirements: readonly string[]): Promise<void> {
+  for (const requirement of requirements) {
+    let information;
+    try {
+      information = await stat(requirement);
+    } catch (error) {
+      throw new Error(`Requirements file is unavailable: ${requirement}`, { cause: error });
+    }
+    if (!information.isFile()) {
+      throw new Error(`Requirements path is not a file: ${requirement}`);
+    }
   }
 }
 

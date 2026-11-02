@@ -6,7 +6,7 @@ import path from 'node:path';
 import {
   DEFAULT_REQUIRES_PYTHON,
   DEFAULT_REQUIRES_UV,
-  createPyEnvironment,
+  Python,
   ensureEnvironment,
   ensureUv,
   resolveProjectRoot,
@@ -68,7 +68,7 @@ describe('pyfig', () => {
     };
     const options = resolveOptions({
       dependencies: [' sniffio==1.3.1 ', 'idna==3.10', 'idna==3.10'],
-      extras: ['Data_Base', 'data-base'],
+      requirements: [' requirements/base.txt ', 'requirements/base.txt'],
       requiresPython: '==3.12.*',
       requiresUv: '==0.13.*',
       env,
@@ -78,7 +78,9 @@ describe('pyfig', () => {
     expect(options.requiresPython).toBe('==3.12.*');
     expect(options.requiresUv).toBe('==0.13.*');
     expect(options.dependencies).toEqual(['idna==3.10', 'sniffio==1.3.1']);
-    expect(options.extras).toEqual(['data-base']);
+    expect(options.requirements).toEqual([
+      path.join(projectRoot, 'requirements', 'base.txt'),
+    ]);
     expect(options.projectRoot).toBe(projectRoot);
     expect(resolveOptions({ env: { PYFIG_AUTO_INSTALL: '0' } }).installPython).toBe(false);
   });
@@ -103,8 +105,11 @@ describe('pyfig', () => {
     expect(() => resolveOptions({ dependencies: ['bad\nvalue'] })).toThrow(
       'Invalid runtime dependency',
     );
-    expect(() => resolveOptions({ allExtras: true, extras: ['runtime'] })).toThrow(
-      'allExtras cannot be combined',
+    expect(() => resolveOptions({ requirements: ['bad\npath'] })).toThrow(
+      'Invalid requirements file path',
+    );
+    expect(() => resolveOptions({ requirements: ['pyproject.toml'] })).toThrow(
+      'not Python project metadata',
     );
     expect(() => resolveOptions({
       managedPython: '3.9',
@@ -153,7 +158,7 @@ describe('pyfig', () => {
     expect(pathsEqual(environment.python.virtualEnvironment ?? '', existing)).toBe(true);
     expect(await fileExists(path.join(root, 'node_modules', '.pyfig', 'venvs'))).toBe(false);
 
-    const prepared = await createPyEnvironment({
+    const prepared = await new Python({
       dependencies: ['idna==3.10'],
       projectRoot: root,
     }).prepare();
@@ -230,23 +235,19 @@ describe('pyfig', () => {
     expect(path.resolve(String(synchronous.stdout).trim())).toBe(path.resolve(expected));
   }, 60_000);
 
-  test('leaves project inputs unchanged while installing runtime dependencies', async () => {
+  test('uses only explicit dependencies and requirements files', async () => {
     const root = path.join(temporaryRoot, 'runtime-dependencies');
     const pyproject = path.join(root, 'pyproject.toml');
     const requirements = path.join(root, 'requirements.txt');
     await mkdir(root, { recursive: true });
-    await writeFile(
-      pyproject,
-      '[project]\nname="runtime-test"\nversion="0.0.0"\ndependencies=[]\n' +
-      '[project.optional-dependencies]\nruntime=["idna==3.10"]\n',
-    );
-    await writeFile(requirements, 'do-not-edit==1\n');
+    await writeFile(pyproject, 'invalid project metadata that must never be read\n');
+    await writeFile(requirements, 'idna==3.10\n');
     const beforeProject = await readFile(pyproject, 'utf8');
     const beforeRequirements = await readFile(requirements, 'utf8');
-    const pyenv = createPyEnvironment({
+    const pyenv = new Python({
       dependencies: ['sniffio==1.3.1'],
-      extras: ['runtime'],
       projectRoot: root,
+      requirements: ['requirements.txt'],
     });
     const environment = await pyenv.prepare();
     expect(await readFile(pyproject, 'utf8')).toBe(beforeProject);
@@ -260,18 +261,27 @@ describe('pyfig', () => {
     expect(environment.python.virtualEnvironment).toBeTruthy();
   }, 60_000);
 
+  test('rejects unavailable requirements files before creating a venv', async () => {
+    const root = path.join(temporaryRoot, 'missing-requirements');
+    await mkdir(root, { recursive: true });
+    await expect(ensureEnvironment({
+      projectRoot: root,
+      requirements: ['missing.txt'],
+    })).rejects.toThrow('Requirements file is unavailable');
+  }, 30_000);
+
   test('isolates different dependency sets and deduplicates identical resolutions', async () => {
     const root = path.join(temporaryRoot, 'multiple-environments');
     await mkdir(root, { recursive: true });
-    const firstPyenv = createPyEnvironment({
+    const firstPyenv = new Python({
       dependencies: ['idna==3.10', 'sniffio==1.3.1'],
       projectRoot: root,
     });
-    const equivalentPyenv = createPyEnvironment({
+    const equivalentPyenv = new Python({
       dependencies: ['sniffio==1.3.1', 'idna==3.10'],
       projectRoot: root,
     });
-    const differentPyenv = createPyEnvironment({
+    const differentPyenv = new Python({
       dependencies: ['urllib3==2.0.7'],
       projectRoot: root,
     });
@@ -326,7 +336,7 @@ describe('pyfig', () => {
       'DEFAULT_MANAGED_PYTHON',
       'DEFAULT_REQUIRES_PYTHON',
       'DEFAULT_REQUIRES_UV',
-      'createPyEnvironment',
+      'Python',
       'ensureEnvironment',
       'ensureUv',
       'resolveProjectRoot',
@@ -338,7 +348,7 @@ describe('pyfig', () => {
   test('memoizes venv preparation within one configured environment', async () => {
     const root = path.join(temporaryRoot, 'memoized-environment');
     await mkdir(root, { recursive: true });
-    const pyenv = createPyEnvironment({ projectRoot: root });
+    const pyenv = new Python({ projectRoot: root });
     const first = pyenv.prepare();
     const second = pyenv.prepare();
     expect(second).toBe(first);
@@ -346,7 +356,7 @@ describe('pyfig', () => {
   }, 60_000);
 
   test('memoizes uv resolution within a configured environment', async () => {
-    const pyenv = createPyEnvironment({ projectRoot });
+    const pyenv = new Python({ projectRoot });
     const first = pyenv.uvInfo();
     const second = pyenv.uvInfo();
     expect(second).toBe(first);

@@ -5,10 +5,8 @@ import { Command } from 'commander';
 import { ensureEnvironment } from './provision.js';
 
 interface CliOptions {
-  dependencies: string[];
-  extras: string[];
-  groups: string[];
-  allExtras: boolean;
+  dependency: string[];
+  requirement: string[];
   python?: string;
   requiresPython?: string;
   requiresUv?: string;
@@ -30,9 +28,7 @@ const program = new Command()
   .description('Prepare uv and an isolated Python venv.')
   .version(packageVersion)
   .option('--dependency <specifier>', 'PEP 508 runtime dependency; repeatable', collect, [])
-  .option('--extra <name>', 'pyproject optional-dependency extra; repeatable', collect, [])
-  .option('--group <name>', 'pyproject dependency group; repeatable', collect, [])
-  .option('--all-extras', 'include every pyproject optional-dependency extra', false)
+  .option('--requirement <path>', 'requirements file; repeatable', collect, [])
   .option('--python <path>', 'Python executable to check first')
   .option('--requires-python <specifier>', 'accepted Python PEP 440 specifier')
   .option('--managed-python <request>', 'Python version request passed to uv')
@@ -45,10 +41,8 @@ const program = new Command()
   .option('--json', 'print machine-readable JSON', false)
   .action(async (cli: CliOptions) => {
     const environment = await ensureEnvironment({
-      dependencies: cli.dependencies,
-      extras: cli.extras,
-      groups: cli.groups,
-      allExtras: cli.allExtras,
+      dependencies: cli.dependency,
+      requirements: cli.requirement,
       python: cli.python,
       requiresPython: cli.requiresPython,
       managedPython: cli.managedPython,

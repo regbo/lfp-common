@@ -1,12 +1,9 @@
 flowchart TD
-    A["Create pyenv with runtime dependencies"] --> B["Create temporary dependency input"]
-    B --> C{"pyproject.toml exists?"}
-    C -->|Yes| D["Read project dependencies and selected extras"]
-    C -->|No| E["Use temporary dependencies only"]
-    D --> F["uv pip compile exact versions and artifact hashes"]
-    E --> F
+    A["Create pyenv with explicit runtime inputs"] --> B["Validate passed requirements files"]
+    B --> C["Create temporary file for passed dependency specifiers"]
+    C --> F["uv pip compile only those explicit inputs"]
     F --> G{"Resolution succeeds?"}
-    G -->|No| H["Stop; existing venvs and project files stay unchanged"]
+    G -->|No| H["Stop; existing venvs and input files stay unchanged"]
     G -->|Yes| I["Hash interpreter and exact resolution"]
     I --> J{"Matching complete venv exists?"}
     J -->|Yes| K["Reuse the hashed venv"]

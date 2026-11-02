@@ -2,7 +2,7 @@
 
 `pyfig` prepares uv and compatible Python venvs from Bun or Node.js. It prefers a valid uv already on the system and searches system Python with downloads disabled before considering a managed Python download.
 
-Pyfig never invokes standalone `pip`, never writes `pyproject.toml` or requirements files, and never creates a project-root `.venv`. Dependency-free callers can reuse a compatible active or project-root venv. A caller that declares dependencies gets a content-addressed private venv under `<project-root>/node_modules/.pyfig/venvs/`, so independent libraries cannot replace or downgrade each other's environments.
+Pyfig never invokes standalone `pip`, discovers Python project metadata, edits caller-owned requirements files, or creates a project-root `.venv`. Dependency-free callers can reuse a compatible active or project-root venv. A caller that passes dependencies or requirements files gets a content-addressed private venv under `<project-root>/node_modules/.pyfig/venvs/`, so independent libraries cannot replace or downgrade each other's environments.
 
 ## Install
 
@@ -13,11 +13,11 @@ bun add pyfig
 ## Use
 
 ```ts
-import { createPyEnvironment } from 'pyfig';
+import { Python } from 'pyfig';
 
-const pyenv = createPyEnvironment({
+const pyenv = new Python({
   dependencies: ['requests>=2.32'],
-  extras: ['database'],
+  requirements: ['requirements/runtime.txt'],
   requiresPython: '>=3.11,<4',
   requiresUv: '>=0.10,<1',
   requireEmbedding: true,
@@ -37,7 +37,7 @@ await pyenv.uv(
 );
 ```
 
-`dependencies` accepts PEP 508 specifiers. `extras`, `groups`, and `allExtras` select dependency sections from an existing `pyproject.toml`. Configuration is bound when `createPyEnvironment()` is called, so `prepare()`, `uv()`, and `uvSync()` always target the same venv. Temporary resolution inputs are created outside the repository and removed afterward.
+`dependencies` accepts PEP 508 specifiers. `requirements` accepts explicit requirements-file paths, with relative paths resolved from `projectRoot`. Pyfig does not discover or read `pyproject.toml`, Python lockfiles, or dependency groups. Configuration is bound by the `Python` constructor, so `prepare()`, `uv()`, and `uvSync()` always target the same venv. Temporary resolution inputs are created outside the repository and removed afterward.
 
 The same uv-only surface handles direct commands:
 
@@ -62,13 +62,13 @@ Pyfig uses this order:
 
 1. A compatible configured or `PATH` uv.
 2. Pyfig's cached, checksum-verified uv.
-3. For dependency-free callers, a compatible explicitly configured venv, active `VIRTUAL_ENV`, or root `.venv`.
+3. For callers without dependencies or requirements files, a compatible explicitly configured venv, active `VIRTUAL_ENV`, or root `.venv`.
 4. A compatible base interpreter from those venvs, then every installed system Python reported by uv with downloads disabled.
 5. An already-cached uv-managed Python that passes the same checks.
 6. A managed Python download, only when installation policy allows it.
 7. An existing hashed venv for the exact interpreter and resolved dependencies, or a new venv below `node_modules/.pyfig/venvs`.
 
-An explicit `python` option is strict: an unavailable or incompatible interpreter is an error. Without dependencies, an explicitly configured compatible venv can be reused. With dependencies, its base interpreter is used for a private venv. Incompatible external venvs are always preserved. Only an incomplete or damaged Pyfig-managed venv may be rebuilt.
+An explicit `python` option is strict: an unavailable or incompatible interpreter is an error. Without runtime requirements, an explicitly configured compatible venv can be reused. With dependencies or requirements files, its base interpreter is used for a private venv. Incompatible external venvs are always preserved. Only an incomplete or damaged Pyfig-managed venv may be rebuilt.
 
 ![Pyfig prefers existing uv, compatible venvs, and system Python before managed downloads](docs/diagrams/python-selection.png)
 
@@ -79,10 +79,9 @@ Native consumers can set `requireEmbedding: true` to require CPython, `Python.h`
 ## Runtime dependency resolution
 
 ```ts
-const pyenv = createPyEnvironment({
+const pyenv = new Python({
   dependencies: ['orjson>=3.10', 'httpx[http2]'],
-  extras: ['postgres'],
-  groups: ['runtime'],
+  requirements: ['requirements/runtime.txt'],
 });
 
 await pyenv.prepare();
@@ -91,8 +90,8 @@ await pyenv.prepare();
 Resolution follows the equivalent of:
 
 ```sh
-uv pip compile pyproject.toml /temporary/runtime-dependencies.txt \
-  --extra postgres --group runtime \
+uv pip compile /project/requirements/runtime.txt \
+  /temporary/runtime-dependencies.txt \
   --python /selected/base/python \
   --no-header --no-annotate --generate-hashes \
   --output-file /temporary/resolved-dependencies.txt
@@ -107,9 +106,9 @@ uv pip install \
 
 The venv identity includes the exact base interpreter, platform, architecture, GIL/ABI properties, and SHA-256 of uv's hash-pinned resolution. Equivalent declarations can share one venv; a different resolution creates another. The metadata file inside each venv is written last and acts as its publication marker.
 
-When no `pyproject.toml` exists, only the temporary dependency input is compiled. Extras and dependency groups require an existing `pyproject.toml`. Pyfig does not use `uv add` or `uv pip sync`, so it neither edits project metadata nor removes packages from an externally owned venv.
+Only the explicit `dependencies` values and `requirements` files participate in resolution. Known Python project metadata and lockfile paths are rejected as requirements inputs. Pyfig does not use `uv add` or `uv pip sync`, so it neither edits project metadata nor removes packages from an externally owned venv.
 
-Raw `pyenv.uv(['pip', ...])` remains an intentional low-level escape hatch. It can mutate the selected venv after publication and bypass the content-addressing guarantee. Use constructor-level `dependencies` when isolation and repeatability matter.
+Raw `pyenv.uv(['pip', ...])` remains an intentional low-level escape hatch. It can mutate the selected venv after publication and bypass the content-addressing guarantee. Use constructor-level `dependencies` or `requirements` when isolation and repeatability matter.
 
 Separate venvs work for subprocesses and isolated workers. Native libraries that initialize CPython in the same JavaScript process must use one combined compatible dependency set or move each interpreter into a separate worker process; two venv directories cannot provide two independent process-global CPython runtimes.
 
@@ -119,7 +118,7 @@ Separate venvs work for subprocesses and isolated workers. Native libraries that
 
 ## Project root
 
-Pyfig does not interpret `package.json`, workspace metadata, `pyproject.toml`, or lockfiles to choose ownership. Root precedence is:
+Pyfig does not interpret `package.json`, workspace metadata, `pyproject.toml`, or lockfiles. The root only locates private venv storage and resolves relative requirements-file paths. Root precedence is:
 
 1. `projectRoot`
 2. `PYFIG_PROJECT_ROOT`
@@ -132,7 +131,7 @@ Set `projectRoot` explicitly in reusable libraries and unusual workspace layouts
 
 | Export | Responsibility |
 | --- | --- |
-| `createPyEnvironment(options)` | Bind one immutable venv configuration and memoize its preparation. |
+| `new Python(options)` | Bind one immutable venv configuration and memoize its preparation. |
 | `pyenv.prepare()` | Resolve and prepare that configuration's exact venv. |
 | `pyenv.pythonInfo()` | Return the selected interpreter and embedding metadata. |
 | `pyenv.uvInfo()` | Return the selected uv executable and version. |
@@ -155,9 +154,7 @@ When embedding files are available, `PythonInfo.embedding.stableAbiLibraryPath` 
 | API option | Environment variable | Default |
 | --- | --- | --- |
 | `dependencies` | — | `[]` |
-| `extras` | — | `[]` |
-| `groups` | — | `[]` |
-| `allExtras` | — | `false` |
+| `requirements` | — | `[]` |
 | `python` | `PYFIG_PYTHON` | uv discovery |
 | `requiresPython` | `PYFIG_REQUIRES_PYTHON` | `>=3.10,<4` |
 | `managedPython` | `PYFIG_MANAGED_PYTHON` | `3.12` |
@@ -184,7 +181,7 @@ bunx --bun pyfig
 bunx --bun pyfig --check
 bunx --bun pyfig --requires-python '>=3.12,<3.14'
 bunx --bun pyfig --requires-uv '>=0.12,<1'
-bunx --bun pyfig --dependency 'requests>=2.32' --extra database
+bunx --bun pyfig --dependency 'requests>=2.32' --requirement requirements/runtime.txt
 bunx --bun pyfig --require-embedding --require-gil
 bunx --bun pyfig --project-root /path/to/repository
 bunx --bun pyfig --json

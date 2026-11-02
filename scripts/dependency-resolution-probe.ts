@@ -2,8 +2,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  createPyEnvironment,
-  type PyEnvironmentClient,
+  Python,
 } from '../src/index.ts';
 
 const INITIAL_URLLIB3 = '2.8.0';
@@ -27,9 +26,9 @@ try {
 }
 
 async function compatibleIsolation(): Promise<object> {
-  const project = await createProject('compatible-isolation', 'urllib3>=1.25.4,<3');
-  const baselinePyenv = project.createPyenv([`urllib3==${INITIAL_URLLIB3}`, 'idna==3.10']);
-  const botocorePyenv = project.createPyenv([`botocore==${BOTOCORE}`, 'idna==3.10']);
+  const fixture = await createFixture('compatible-isolation', 'urllib3>=1.25.4,<3');
+  const baselinePyenv = fixture.createPyenv([`urllib3==${INITIAL_URLLIB3}`, 'idna==3.10']);
+  const botocorePyenv = fixture.createPyenv([`botocore==${BOTOCORE}`, 'idna==3.10']);
   const baselineEnvironment = await baselinePyenv.prepare();
   const started = performance.now();
   const botocoreEnvironment = await botocorePyenv.prepare();
@@ -46,22 +45,22 @@ async function compatibleIsolation(): Promise<object> {
     'different resolutions shared one environment',
   );
   assert(
-    await readFile(path.join(project.projectRoot, 'pyproject.toml'), 'utf8') === project.pyproject,
-    'pyproject changed',
+    await readFile(fixture.requirements, 'utf8') === fixture.requirementsContent,
+    'requirements file changed',
   );
   return {
     baseline,
     botocore,
     elapsedMs,
     environmentsIsolated: true,
-    projectFileChanged: false,
+    requirementsFileChanged: false,
   };
 }
 
 async function rejectedConflict(): Promise<object> {
-  const project = await createProject('rejected-conflict', 'urllib3>=2.2,<3');
-  const baselinePyenv = project.createPyenv([`urllib3==${INITIAL_URLLIB3}`, 'idna==3.10']);
-  const conflictingPyenv = project.createPyenv([`botocore==${BOTOCORE}`]);
+  const fixture = await createFixture('rejected-conflict', 'urllib3>=2.2,<3');
+  const baselinePyenv = fixture.createPyenv([`urllib3==${INITIAL_URLLIB3}`, 'idna==3.10']);
+  const conflictingPyenv = fixture.createPyenv([`botocore==${BOTOCORE}`]);
   await baselinePyenv.prepare();
   const before = await environmentState(baselinePyenv);
   const started = performance.now();
@@ -78,8 +77,8 @@ async function rejectedConflict(): Promise<object> {
   assert(before.idna === '3.10' && after.idna === '3.10', 'baseline idna changed');
   assert(after.botocore === null, 'conflict leaked into the baseline environment');
   assert(
-    await readFile(path.join(project.projectRoot, 'pyproject.toml'), 'utf8') === project.pyproject,
-    'pyproject changed',
+    await readFile(fixture.requirements, 'utf8') === fixture.requirementsContent,
+    'requirements file changed',
   );
   return {
     after,
@@ -87,13 +86,13 @@ async function rejectedConflict(): Promise<object> {
     elapsedMs,
     environmentChanged: false,
     error: firstUsefulLine(error),
-    projectFileChanged: false,
+    requirementsFileChanged: false,
   };
 }
 
 async function rawPipConflict(): Promise<object> {
-  const project = await createProject('raw-pip-conflict', 'urllib3>=2.2,<3');
-  const pyenv = project.createPyenv([`urllib3==${INITIAL_URLLIB3}`, 'idna==3.10']);
+  const fixture = await createFixture('raw-pip-conflict', 'urllib3>=2.2,<3');
+  const pyenv = fixture.createPyenv([`urllib3==${INITIAL_URLLIB3}`, 'idna==3.10']);
   await pyenv.prepare();
   const before = await environmentState(pyenv);
   const started = performance.now();
@@ -110,46 +109,45 @@ async function rawPipConflict(): Promise<object> {
   assert(after.idna === '3.10', 'raw pip install removed unrelated idna');
   assert(pipCheck.status === 0, String(pipCheck.stderr || `pip check exited ${pipCheck.status}`));
   assert(
-    await readFile(path.join(project.projectRoot, 'pyproject.toml'), 'utf8') === project.pyproject,
-    'pyproject changed',
+    await readFile(fixture.requirements, 'utf8') === fixture.requirementsContent,
+    'requirements file changed',
   );
   return {
     after,
     before,
     elapsedMs,
     pipCheckPassed: true,
-    projectConstraintSatisfied: false,
-    projectFileChanged: false,
+    requirementsConstraintSatisfied: false,
+    requirementsFileChanged: false,
   };
 }
 
-async function createProject(
+async function createFixture(
   name: string,
   urllib3Range: string,
 ): Promise<{
-  createPyenv: (dependencies: readonly string[]) => PyEnvironmentClient;
-  projectRoot: string;
-  pyproject: string;
+  createPyenv: (dependencies: readonly string[]) => Python;
+  requirements: string;
+  requirementsContent: string;
 }> {
   const projectRoot = path.join(temporaryRoot, name);
   await mkdir(projectRoot, { recursive: true });
-  const pyproject = [
-    '[project]',
-    `name = "${name}"`,
-    'version = "0.0.0"',
-    'requires-python = ">=3.10"',
-    `dependencies = ["${urllib3Range}"]`,
-    '',
-  ].join('\n');
-  await writeFile(path.join(projectRoot, 'pyproject.toml'), pyproject, 'utf8');
+  const requirements = path.join(projectRoot, 'requirements.txt');
+  const requirementsContent = `${urllib3Range}\n`;
+  await writeFile(requirements, requirementsContent, 'utf8');
   return {
-    createPyenv: (dependencies) => createPyEnvironment({ cacheDir, dependencies, projectRoot }),
-    projectRoot,
-    pyproject,
+    createPyenv: (dependencies) => new Python({
+      cacheDir,
+      dependencies,
+      projectRoot,
+      requirements: [requirements],
+    }),
+    requirements,
+    requirementsContent,
   };
 }
 
-async function environmentState(pyenv: PyEnvironmentClient): Promise<{
+async function environmentState(pyenv: Python): Promise<{
   botocore: string | null;
   idna: string | null;
   python: string;
@@ -166,7 +164,7 @@ async function environmentState(pyenv: PyEnvironmentClient): Promise<{
   };
 }
 
-function installedVersion(pyenv: PyEnvironmentClient, distribution: string): string | null {
+function installedVersion(pyenv: Python, distribution: string): string | null {
   const script = [
     'import importlib.metadata as metadata',
     `name = ${JSON.stringify(distribution)}`,
@@ -179,7 +177,7 @@ function installedVersion(pyenv: PyEnvironmentClient, distribution: string): str
   return output === '<missing>' ? null : output;
 }
 
-function uvOutput(pyenv: PyEnvironmentClient, args: string[]): string {
+function uvOutput(pyenv: Python, args: string[]): string {
   const result = pyenv.uvSync(args, { encoding: 'utf8' });
   if (result.status !== 0) {
     throw new Error(String(result.stderr || `${args.slice(0, 2).join(' ')} exited ${result.status}`));

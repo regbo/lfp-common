@@ -31,15 +31,11 @@ const envPathsFunction = (() => {
 export interface PyfigOptions {
   /** PEP 508 runtime dependencies resolved into this environment's private venv. */
   dependencies?: readonly string[];
-  /** Optional-dependency extras read from an existing pyproject.toml. */
-  extras?: readonly string[];
-  /** Dependency groups read from an existing pyproject.toml. */
-  groups?: readonly string[];
-  /** Include every optional-dependency extra from an existing pyproject.toml. */
-  allExtras?: boolean;
+  /** Explicit requirements files resolved into this environment's private venv. */
+  requirements?: readonly string[];
   /** Exact interpreter path that an existing or newly created venv must derive from. */
   python?: string;
-  /** PEP 440 Python version specifier, matching pyproject.toml requires-python. */
+  /** PEP 440 Python version specifier accepted for the selected interpreter. */
   requiresPython?: string;
   /** uv Python request used only when no compatible interpreter exists. */
   managedPython?: string;
@@ -75,9 +71,7 @@ export interface PyfigOptions {
 
 export interface ResolvedPyfigOptions {
   dependencies: readonly string[];
-  extras: readonly string[];
-  groups: readonly string[];
-  allExtras: boolean;
+  requirements: readonly string[];
   python: string;
   requiresPython: string;
   managedPython: string;
@@ -145,18 +139,11 @@ export function resolveOptions(options: PyfigOptions = {}): ResolvedPyfigOptions
     : resolveProjectRoot(env['INIT_CWD'] ?? process.cwd());
   const autoInstall = options.autoInstall ?? parseBoolean(env['PYFIG_AUTO_INSTALL'], true);
   const dependencies = normalizeDependencies(options.dependencies ?? []);
-  const extras = normalizeNames('extra', options.extras ?? []);
-  const groups = normalizeNames('dependency group', options.groups ?? []);
-  const allExtras = options.allExtras ?? false;
-  if (allExtras && extras.length > 0) {
-    throw new TypeError('allExtras cannot be combined with explicit extras.');
-  }
+  const requirements = normalizeRequirements(options.requirements ?? [], projectRoot);
 
   return {
     dependencies,
-    extras,
-    groups,
-    allExtras,
+    requirements,
     python: options.python ?? env['PYFIG_PYTHON'] ?? '',
     requiresPython,
     managedPython,
@@ -178,11 +165,10 @@ export function resolveOptions(options: PyfigOptions = {}): ResolvedPyfigOptions
   };
 }
 
-export function hasDependencyProfile(
-  options: Pick<ResolvedPyfigOptions, 'dependencies' | 'extras' | 'groups' | 'allExtras'>,
+export function hasRuntimeRequirements(
+  options: Pick<ResolvedPyfigOptions, 'dependencies' | 'requirements'>,
 ): boolean {
-  return options.dependencies.length > 0 || options.extras.length > 0 ||
-    options.groups.length > 0 || options.allExtras;
+  return options.dependencies.length > 0 || options.requirements.length > 0;
 }
 
 /** Keep uv data private while preferring a compatible system interpreter. */
@@ -248,12 +234,36 @@ function normalizeDependencies(dependencies: readonly string[]): string[] {
   return [...new Set(normalized)].sort();
 }
 
-function normalizeNames(kind: string, names: readonly string[]): string[] {
-  const normalized = names.map((name) => name.trim().toLowerCase().replace(/[-_.]+/gu, '-'));
-  for (const name of normalized) {
-    if (!name || !/^[a-z0-9][a-z0-9-]*$/u.test(name)) {
-      throw new TypeError(`Invalid ${kind}: ${JSON.stringify(name)}`);
+function normalizeRequirements(requirements: readonly string[], projectRoot: string): string[] {
+  const normalized: string[] = [];
+  for (const requirement of requirements) {
+    const candidate = requirement.trim();
+    if (!candidate || /[\0\r\n]/u.test(candidate)) {
+      throw new TypeError(`Invalid requirements file path: ${JSON.stringify(candidate)}`);
     }
+    const absolute = path.resolve(projectRoot, candidate);
+    const basename = path.basename(absolute).toLowerCase();
+    if (isPythonProjectFile(basename)) {
+      throw new TypeError(
+        `Expected a requirements file, not Python project metadata: ${absolute}`,
+      );
+    }
+    if (!normalized.includes(absolute)) normalized.push(absolute);
   }
-  return [...new Set(normalized)].sort();
+  return normalized;
+}
+
+const PYTHON_PROJECT_FILES = new Set([
+  'pdm.lock',
+  'pipfile',
+  'pipfile.lock',
+  'poetry.lock',
+  'pyproject.toml',
+  'setup.cfg',
+  'setup.py',
+  'uv.lock',
+]);
+
+function isPythonProjectFile(basename: string): boolean {
+  return PYTHON_PROJECT_FILES.has(basename) || /^pylock(?:\.[^.]+)?\.toml$/u.test(basename);
 }

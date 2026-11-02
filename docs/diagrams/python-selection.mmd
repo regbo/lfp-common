@@ -5,13 +5,13 @@ flowchart TD
     D -->|No| Z["Fail without changing the system"]
     D -->|Yes| E["Install checksum-verified uv"]
     E --> C
-    C --> F{"Runtime dependencies declared?"}
+    C --> F{"Explicit dependencies or requirements files?"}
     F -->|No| G{"Compatible external venv exists?"}
     G -->|Yes| N["Return existing venv"]
     G -->|No| H["Find compatible base Python"]
     F -->|Yes| H
     H --> I{"System Python passes every capability check?"}
-    I -->|Yes| O["Resolve dependencies and hash exact venv contents"]
+    I -->|Yes| O["Resolve explicit inputs and hash exact venv contents"]
     I -->|No| K{"Compatible managed Python cached?"}
     K -->|Yes| O
     K -->|No| L{"Python installation allowed?"}

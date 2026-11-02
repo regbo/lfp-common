@@ -2,7 +2,7 @@
 
 Date: 2026-11-01. Pyfig source: `v0.4.0` (`6b77101`). Warm samples: three fresh Bun processes per scenario.
 
-This is a historical report for the single-venv layout measured at that tag. Current releases use content-addressed paths below `node_modules/.pyfig/venvs/`; the timings and mutation counts below have not been relabeled as measurements of the newer layout.
+This is a historical report for the single-venv, project-aware API measured at that tag. Current releases use content-addressed paths below `node_modules/.pyfig/venvs/` and resolve only explicitly passed dependencies or requirements files. The timings, mutation counts, and project-aware examples below describe `v0.4.0`; they have not been relabeled as measurements of the current API.
 
 ## Summary
 
