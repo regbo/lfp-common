@@ -1,7 +1,15 @@
 import { decode, encode } from '@msgpack/msgpack';
 import type { Socket } from 'node:net';
 import { PythonError, VenvClosedError, type RemotePythonError } from './errors';
+import {
+  isWireValueType,
+  MESSAGE_KIND,
+  RPC_OPERATION,
+  WIRE_VALUE_TYPE,
+  type RpcOperation,
+} from './protocol';
 import { createPythonObject, getPythonReference } from './python-object';
+import { withTimeout } from './utils/timing';
 
 const PROTOCOL_VERSION = 1;
 const MAX_FRAME_BYTES = 256 * 1024 * 1024;
@@ -21,7 +29,7 @@ interface FinalizedReference {
 type JavaScriptCallback = (...args: any[]) => unknown;
 
 const referenceFinalizer = new FinalizationRegistry<FinalizedReference>(({ client, id }) => {
-  client.deref()?.notify('release', { target: id });
+  client.deref()?.notify(RPC_OPERATION.release, { target: id });
 });
 
 export class RpcClient {
@@ -82,7 +90,10 @@ export class RpcClient {
     return this.#closed;
   }
 
-  request(operation: string, payload: Readonly<Record<string, unknown>> = {}): Promise<unknown> {
+  request(
+    operation: RpcOperation,
+    payload: Readonly<Record<string, unknown>> = {},
+  ): Promise<unknown> {
     if (this.#closed) return Promise.reject(new VenvClosedError());
     const id = this.#nextRequestId++;
     if (this.#autoUnref) this.#socket.ref();
@@ -99,24 +110,24 @@ export class RpcClient {
     });
     void this.#send({
       id,
-      kind: 'request',
+      kind: MESSAGE_KIND.request,
       op: operation,
       payload: this.#encodeValue(payload),
     }).catch(error => this.#rejectPending(id, error));
     return promise.finally(() => this.#unrefWhenIdle());
   }
 
-  notify(operation: string, payload: Readonly<Record<string, unknown>> = {}): void {
+  notify(operation: RpcOperation, payload: Readonly<Record<string, unknown>> = {}): void {
     if (this.#closed) return;
     void this.#send({
-      kind: 'notify',
+      kind: MESSAGE_KIND.notify,
       op: operation,
       payload: this.#encodeValue(payload),
     }).catch(() => undefined);
   }
 
   release(id: number): Promise<void> {
-    return this.request('release', { target: id }).then(() => undefined);
+    return this.request(RPC_OPERATION.release, { target: id }).then(() => undefined);
   }
 
   trackReference(value: object, id: number): void {
@@ -126,7 +137,11 @@ export class RpcClient {
   async close(): Promise<void> {
     if (this.#closed) return;
     try {
-      await withTimeout(this.request('shutdown'), 2_000, 'Python worker shutdown timed out.');
+      await withTimeout(
+        this.request(RPC_OPERATION.shutdown),
+        2_000,
+        'Python worker shutdown timed out.',
+      );
     } catch {
       // The owning Venv terminates an unresponsive child after this transport closes.
     }
@@ -169,13 +184,13 @@ export class RpcClient {
       throw new TypeError('Python worker sent an invalid message.');
     }
     switch (value['kind']) {
-      case 'hello':
+      case MESSAGE_KIND.hello:
         this.#handleHello(value);
         return;
-      case 'response':
+      case MESSAGE_KIND.response:
         this.#handleResponse(value);
         return;
-      case 'callback':
+      case MESSAGE_KIND.callback:
         void this.#handleCallback(value);
         return;
       default:
@@ -226,7 +241,7 @@ export class RpcClient {
       const result = await callback(...args);
       await this.#send({
         id: requestId,
-        kind: 'callback_result',
+        kind: MESSAGE_KIND.callbackResult,
         ok: true,
         value: this.#encodeValue(result),
       });
@@ -234,7 +249,7 @@ export class RpcClient {
       await this.#send({
         error: serializeJavaScriptError(error),
         id: requestId,
-        kind: 'callback_result',
+        kind: MESSAGE_KIND.callbackResult,
         ok: false,
       }).catch(() => undefined);
     } finally {
@@ -247,7 +262,7 @@ export class RpcClient {
       value === null || typeof value === 'string' || typeof value === 'boolean' ||
       typeof value === 'number' || typeof value === 'bigint'
     ) return value;
-    if (value === undefined) return { [WIRE_TYPE]: 'undefined' };
+    if (value === undefined) return { [WIRE_TYPE]: WIRE_VALUE_TYPE.undefined };
 
     const reference = getPythonReference(value);
     if (reference) {
@@ -257,7 +272,7 @@ export class RpcClient {
       if (reference.path.length > 0) {
         throw new TypeError('Await a Python attribute before passing it back to Python.');
       }
-      return { [WIRE_TYPE]: 'reference', id: reference.id };
+      return { [WIRE_TYPE]: WIRE_VALUE_TYPE.reference, id: reference.id };
     }
 
     if (typeof value === 'function') {
@@ -268,7 +283,7 @@ export class RpcClient {
         this.#callbackIds.set(callback, id);
         this.#callbacks.set(id, callback);
       }
-      return { [WIRE_TYPE]: 'callback', id };
+      return { [WIRE_TYPE]: WIRE_VALUE_TYPE.callback, id };
     }
     if (typeof value !== 'object') {
       throw new TypeError(`Cannot pass ${typeof value} values to Python.`);
@@ -276,15 +291,20 @@ export class RpcClient {
     if (seen.has(value)) throw new TypeError('Cannot pass circular JavaScript values to Python.');
     seen.add(value);
     try {
-      if (value instanceof Date) return { [WIRE_TYPE]: 'datetime', value: value.toISOString() };
+      if (value instanceof Date) {
+        return { [WIRE_TYPE]: WIRE_VALUE_TYPE.datetime, value: value.toISOString() };
+      }
       if (value instanceof Uint8Array) return value;
       if (Array.isArray(value)) return value.map(item => this.#encodeValue(item, seen));
       if (value instanceof Set) {
-        return { [WIRE_TYPE]: 'set', value: [...value].map(item => this.#encodeValue(item, seen)) };
+        return {
+          [WIRE_TYPE]: WIRE_VALUE_TYPE.set,
+          value: [...value].map(item => this.#encodeValue(item, seen)),
+        };
       }
       if (value instanceof Map) {
         return {
-          [WIRE_TYPE]: 'map',
+          [WIRE_TYPE]: WIRE_VALUE_TYPE.map,
           value: [...value].map(([key, item]) => [
             this.#encodeValue(key, seen),
             this.#encodeValue(item, seen),
@@ -294,7 +314,7 @@ export class RpcClient {
       const record = value as Record<string, unknown>;
       if (WIRE_TYPE in record) {
         return {
-          [WIRE_TYPE]: 'map',
+          [WIRE_TYPE]: WIRE_VALUE_TYPE.map,
           value: Object.entries(record).map(([key, item]) => [key, this.#encodeValue(item, seen)]),
         };
       }
@@ -310,8 +330,11 @@ export class RpcClient {
     if (Array.isArray(value)) return value.map(item => this.#decodeValue(item));
     if (!isRecord(value)) return value;
     const type = value[WIRE_TYPE];
+    if (type !== undefined && !isWireValueType(type)) {
+      throw new TypeError(`Python worker sent an unknown wire value type: ${String(type)}`);
+    }
     switch (type) {
-      case 'reference': {
+      case WIRE_VALUE_TYPE.reference: {
         const id = value['id'];
         if (typeof id !== 'number') throw new TypeError('Python reference has no numeric id.');
         return createPythonObject(
@@ -320,18 +343,18 @@ export class RpcClient {
           typeof value['pythonType'] === 'string' ? value['pythonType'] : undefined,
         );
       }
-      case 'undefined': return undefined;
-      case 'datetime':
-      case 'date': {
+      case WIRE_VALUE_TYPE.undefined: return undefined;
+      case WIRE_VALUE_TYPE.datetime:
+      case WIRE_VALUE_TYPE.date: {
         const date = new Date(String(value['value']));
         return Number.isNaN(date.valueOf()) ? String(value['value']) : date;
       }
-      case 'time': return String(value['value']);
-      case 'set': {
+      case WIRE_VALUE_TYPE.time: return String(value['value']);
+      case WIRE_VALUE_TYPE.set: {
         const items = value['value'];
         return new Set(Array.isArray(items) ? items.map(item => this.#decodeValue(item)) : []);
       }
-      case 'map': {
+      case WIRE_VALUE_TYPE.map: {
         const entries = value['value'];
         if (!Array.isArray(entries)) return new Map();
         return new Map(entries.map(entry => {
@@ -406,21 +429,4 @@ function serializeJavaScriptError(error: unknown): Record<string, string> {
     return { message: error.message, stack: error.stack ?? '', type: error.name };
   }
   return { message: String(error), stack: '', type: 'Error' };
-}
-
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
-    timer.unref();
-    promise.then(
-      value => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      error => {
-        clearTimeout(timer);
-        reject(error);
-      },
-    );
-  });
 }

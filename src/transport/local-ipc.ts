@@ -3,6 +3,7 @@ import { chmod, rm } from 'node:fs/promises';
 import net, { type Server, type Socket } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { withTimeout } from '../utils/timing';
 
 export class LocalIpcServer {
   readonly endpoint: string;
@@ -78,21 +79,4 @@ function createEndpoint(): string {
   return process.platform === 'win32'
     ? `\\\\.\\pipe\\pynect-${suffix}`
     : path.join(os.tmpdir(), `pynect-${suffix}.sock`);
-}
-
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
-    timer.unref();
-    promise.then(
-      value => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      error => {
-        clearTimeout(timer);
-        reject(error);
-      },
-    );
-  });
 }

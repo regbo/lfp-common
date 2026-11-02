@@ -1,4 +1,5 @@
 import type { RpcClient } from './rpc-client';
+import { RPC_OPERATION, type RpcOperation } from './protocol';
 
 export const PYTHON_REFERENCE = Symbol('pynect.pythonReference');
 const PYTHON_KWARGS = Symbol('pynect.pythonKwargs');
@@ -91,24 +92,25 @@ function getProperty(state: ProxyState, property: string | symbol): unknown {
       args: readonly unknown[] = [],
       keywordArguments: Readonly<Record<string, unknown>> = {},
     ) => call(state, args, keywordArguments);
-    case '$dir': return () => request(state, 'dir');
-    case '$get': return (name: string) => request(state, 'get', [...state.path, name]);
+    case '$dir': return () => request(state, RPC_OPERATION.dir);
+    case '$get': return (name: string) => request(state, RPC_OPERATION.get, [...state.path, name]);
     case '$release': return () => release(state);
-    case '$repr': return () => request(state, 'repr');
+    case '$repr': return () => request(state, RPC_OPERATION.repr);
     case '$set': return (name: string, value: unknown) =>
-      request(state, 'set', [...state.path, name], { value }).then(() => undefined);
-    case '$value': return () => request(state, 'value');
+      request(state, RPC_OPERATION.set, [...state.path, name], { value }).then(() => undefined);
+    case '$value': return () => request(state, RPC_OPERATION.value);
     case 'toString': return () => `[PythonObject ${state.type ?? `#${state.id}`}]`;
     case 'then':
       if (state.path.length === 0) return undefined;
       return (resolve?: (value: unknown) => unknown, reject?: (error: unknown) => unknown) =>
-        request(state, 'get').then(resolve, reject);
+        request(state, RPC_OPERATION.get).then(resolve, reject);
     case 'catch':
       if (state.path.length === 0) return undefined;
-      return (reject?: (error: unknown) => unknown) => request(state, 'get').catch(reject);
+      return (reject?: (error: unknown) => unknown) =>
+        request(state, RPC_OPERATION.get).catch(reject);
     case 'finally':
       if (state.path.length === 0) return undefined;
-      return (handler?: () => void) => request(state, 'get').finally(handler);
+      return (handler?: () => void) => request(state, RPC_OPERATION.get).finally(handler);
     default:
       return createProxy({ ...state, path: [...state.path, property] }, false);
   }
@@ -126,7 +128,7 @@ function call(
   keywordArguments: Readonly<Record<string, unknown>>,
 ): Promise<unknown> {
   assertOpen(state);
-  return state.client.request('call', {
+  return state.client.request(RPC_OPERATION.call, {
     args,
     kwargs: keywordArguments,
     path: state.path,
@@ -136,7 +138,7 @@ function call(
 
 function request(
   state: ProxyState,
-  operation: string,
+  operation: RpcOperation,
   path = state.path,
   extra: Readonly<Record<string, unknown>> = {},
 ): Promise<any> {
@@ -151,12 +153,14 @@ async function release(state: ProxyState): Promise<void> {
 }
 
 function createAsyncIterator(state: ProxyState): AsyncIterator<unknown> {
-  const iterator = request(state, 'iter') as Promise<PythonObject>;
+  const iterator = request(state, RPC_OPERATION.iter) as Promise<PythonObject>;
   return {
     async next(): Promise<IteratorResult<unknown>> {
       const reference = getPythonReference(await iterator);
       if (!reference) throw new TypeError('Python did not return an iterator reference.');
-      return reference.client.request('next', { target: reference.id }) as Promise<IteratorResult<unknown>>;
+      return reference.client.request(RPC_OPERATION.next, {
+        target: reference.id,
+      }) as Promise<IteratorResult<unknown>>;
     },
     async return(): Promise<IteratorResult<unknown>> {
       const reference = getPythonReference(await iterator);

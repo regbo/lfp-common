@@ -5,7 +5,6 @@ import concurrent.futures
 import dataclasses
 import datetime as dt
 import enum
-import hmac
 import importlib
 import importlib.util
 import inspect
@@ -15,16 +14,49 @@ import sys
 import threading
 import time
 import traceback
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any, Callable, get_type_hints
+from typing import Any, get_type_hints
 
 import msgpack
-
 
 PROTOCOL_VERSION = 1
 MAX_FRAME_BYTES = 256 * 1024 * 1024
 WIRE_TYPE = "__pynect_wire_type__"
+
+
+class MessageKind(str, enum.Enum):
+    CALLBACK = "callback"
+    CALLBACK_RESULT = "callback_result"
+    HELLO = "hello"
+    NOTIFY = "notify"
+    REQUEST = "request"
+    RESPONSE = "response"
+
+
+class Operation(str, enum.Enum):
+    CALL = "call"
+    DIR = "dir"
+    GET = "get"
+    IMPORT = "import"
+    ITER = "iter"
+    NEXT = "next"
+    RELEASE = "release"
+    REPR = "repr"
+    SET = "set"
+    SHUTDOWN = "shutdown"
+    VALUE = "value"
+
+
+class WireValueType(str, enum.Enum):
+    CALLBACK = "callback"
+    DATE = "date"
+    DATETIME = "datetime"
+    MAP = "map"
+    REFERENCE = "reference"
+    SET = "set"
+    TIME = "time"
+    UNDEFINED = "undefined"
 
 
 class JavaScriptError(RuntimeError):
@@ -49,7 +81,9 @@ class ObjectRegistry:
             try:
                 return self._objects[object_id]
             except KeyError as error:
-                raise ReferenceError(f"Python object #{object_id} has been released") from error
+                raise ReferenceError(
+                    f"Python object #{object_id} has been released"
+                ) from error
 
     def release(self, object_id: int) -> None:
         with self._lock:
@@ -133,8 +167,7 @@ class PydanticValidator:
                 )
             elif parameter.kind is inspect.Parameter.VAR_KEYWORD:
                 bound.arguments[name] = {
-                    key: self._validate(annotation, item)
-                    for key, item in value.items()
+                    key: self._validate(annotation, item) for key, item in value.items()
                 }
             else:
                 bound.arguments[name] = self._validate(annotation, value)
@@ -280,7 +313,7 @@ class PendingCallback:
 
 
 class JavaScriptCallback:
-    def __init__(self, bridge: "Bridge", callback_id: int) -> None:
+    def __init__(self, bridge: Bridge, callback_id: int) -> None:
         self._bridge = bridge
         self._callback_id = callback_id
 
@@ -313,7 +346,11 @@ class Bridge:
 
     def run(self) -> None:
         self.connection.write(
-            {"kind": "hello", "protocol": PROTOCOL_VERSION, "token": self.token}
+            {
+                "kind": MessageKind.HELLO.value,
+                "protocol": PROTOCOL_VERSION,
+                "token": self.token,
+            }
         )
         try:
             while not self._stopped.is_set():
@@ -341,18 +378,18 @@ class Bridge:
             self.connection.close()
 
     def _dispatch_message(self, message: dict[str, Any]) -> None:
-        kind = message.get("kind")
-        if kind == "callback_result":
+        kind = parse_message_kind(message.get("kind"))
+        if kind is MessageKind.CALLBACK_RESULT:
             self._resolve_callback(message)
             return
-        if kind not in {"request", "notify"}:
+        if kind not in {MessageKind.REQUEST, MessageKind.NOTIFY}:
             raise TypeError(f"Unknown RPC message kind: {kind}")
-        operation = str(message.get("op", ""))
-        if operation == "shutdown" and kind == "request":
+        operation = parse_operation(message.get("op"))
+        if operation is Operation.SHUTDOWN and kind is MessageKind.REQUEST:
             self.connection.write(
                 {
                     "id": message.get("id"),
-                    "kind": "response",
+                    "kind": MessageKind.RESPONSE.value,
                     "ok": True,
                     "value": None,
                 }
@@ -363,22 +400,25 @@ class Bridge:
 
     def _handle_request(self, message: dict[str, Any]) -> None:
         request_id = message.get("id")
-        expects_response = message.get("kind") == "request"
+        expects_response = (
+            parse_message_kind(message.get("kind")) is MessageKind.REQUEST
+        )
         try:
             payload = decode_wire(message.get("payload", {}), self)
             if not isinstance(payload, dict):
                 raise TypeError("RPC request payload must be a map")
-            result = self._operate(str(message.get("op", "")), payload)
+            result = self._operate(parse_operation(message.get("op")), payload)
             if expects_response:
                 self.connection.write(
                     {
                         "id": request_id,
-                        "kind": "response",
+                        "kind": MessageKind.RESPONSE.value,
                         "ok": True,
                         "value": encode_wire(result, self),
                     }
                 )
-        except BaseException as error:
+        # Even SystemExit from user code must become a response instead of stranding the host.
+        except BaseException as error:  # noqa: BLE001
             if expects_response:
                 self.connection.write(
                     {
@@ -388,36 +428,36 @@ class Bridge:
                             "type": type(error).__name__,
                         },
                         "id": request_id,
-                        "kind": "response",
+                        "kind": MessageKind.RESPONSE.value,
                         "ok": False,
                     }
                 )
 
-    def _operate(self, operation: str, payload: dict[str, Any]) -> Any:
-        if operation == "import":
+    def _operate(self, operation: Operation, payload: dict[str, Any]) -> Any:
+        if operation is Operation.IMPORT:
             return import_python_module(str(payload["name"]))
         target = self.registry.get(int(payload["target"]))
         path = [str(part) for part in payload.get("path", [])]
         value = resolve_path(target, path)
-        if operation == "get":
+        if operation is Operation.GET:
             return value
-        if operation == "set":
+        if operation is Operation.SET:
             if not path:
                 raise TypeError("Setting a root Python reference is not supported")
             parent = resolve_path(target, path[:-1])
             setattr(parent, path[-1], payload.get("value"))
             return None
-        if operation == "call":
+        if operation is Operation.CALL:
             if not callable(value):
                 raise TypeError(f"{type(value).__name__} object is not callable")
             args = list(payload.get("args", []))
             kwargs = dict(payload.get("kwargs", {}))
             args, kwargs = self.validator.arguments(value, args, kwargs)
             return self.async_runtime.resolve(value(*args, **kwargs))
-        if operation == "iter":
+        if operation is Operation.ITER:
             iterator = value.__aiter__() if hasattr(value, "__aiter__") else iter(value)
             return iterator
-        if operation == "next":
+        if operation is Operation.NEXT:
             try:
                 if hasattr(value, "__anext__"):
                     item = self.async_runtime.resolve(value.__anext__())
@@ -426,13 +466,13 @@ class Bridge:
                 return {"done": False, "value": item}
             except (StopIteration, StopAsyncIteration):
                 return {"done": True, "value": None}
-        if operation == "repr":
+        if operation is Operation.REPR:
             return repr(value)
-        if operation == "dir":
+        if operation is Operation.DIR:
             return sorted(name for name in dir(value) if not name.startswith("_"))
-        if operation == "value":
+        if operation is Operation.VALUE:
             return force_value(value)
-        if operation == "release":
+        if operation is Operation.RELEASE:
             self.registry.release(int(payload["target"]))
             return None
         raise ValueError(f"Unknown RPC operation: {operation}")
@@ -461,7 +501,7 @@ class Bridge:
                 "args": encode_wire(args, self),
                 "callback": callback_id,
                 "id": request_id,
-                "kind": "callback",
+                "kind": MessageKind.CALLBACK.value,
                 "kwargs": encode_wire(kwargs, self),
             }
         )
@@ -488,10 +528,26 @@ def resolve_path(value: Any, path: list[str]) -> Any:
     return value
 
 
+def parse_message_kind(value: Any) -> MessageKind:
+    try:
+        return MessageKind(value)
+    except (TypeError, ValueError) as error:
+        raise TypeError(f"Unknown RPC message kind: {value}") from error
+
+
+def parse_operation(value: Any) -> Operation:
+    try:
+        return Operation(value)
+    except (TypeError, ValueError) as error:
+        raise TypeError(f"Unknown RPC operation: {value}") from error
+
+
 def import_python_module(name: str) -> Any:
     candidate = Path(name)
-    if candidate.suffix == ".py" or candidate.is_absolute() or any(
-        separator in name for separator in ("/", "\\")
+    if (
+        candidate.suffix == ".py"
+        or candidate.is_absolute()
+        or any(separator in name for separator in ("/", "\\"))
     ):
         source = candidate if candidate.is_absolute() else Path.cwd() / candidate
         source = source.resolve()
@@ -514,11 +570,11 @@ def encode_wire(value: Any, bridge: Bridge, seen: set[int] | None = None) -> Any
     if isinstance(value, enum.Enum):
         return encode_wire(value.value, bridge, seen)
     if isinstance(value, dt.datetime):
-        return {WIRE_TYPE: "datetime", "value": value.isoformat()}
+        return {WIRE_TYPE: WireValueType.DATETIME.value, "value": value.isoformat()}
     if isinstance(value, dt.date):
-        return {WIRE_TYPE: "date", "value": value.isoformat()}
+        return {WIRE_TYPE: WireValueType.DATE.value, "value": value.isoformat()}
     if isinstance(value, dt.time):
-        return {WIRE_TYPE: "time", "value": value.isoformat()}
+        return {WIRE_TYPE: WireValueType.TIME.value, "value": value.isoformat()}
 
     model_dump = getattr(value, "model_dump", None)
     if callable(model_dump):
@@ -539,17 +595,16 @@ def encode_wire(value: Any, bridge: Bridge, seen: set[int] | None = None) -> Any
             return [encode_wire(item, bridge, seen) for item in value]
         if isinstance(value, (set, frozenset)):
             return {
-                WIRE_TYPE: "set",
+                WIRE_TYPE: WireValueType.SET.value,
                 "value": [encode_wire(item, bridge, seen) for item in value],
             }
         if isinstance(value, Mapping):
             if all(isinstance(key, str) for key in value) and WIRE_TYPE not in value:
                 return {
-                    key: encode_wire(item, bridge, seen)
-                    for key, item in value.items()
+                    key: encode_wire(item, bridge, seen) for key, item in value.items()
                 }
             return {
-                WIRE_TYPE: "map",
+                WIRE_TYPE: WireValueType.MAP.value,
                 "value": [
                     [encode_wire(key, bridge, seen), encode_wire(item, bridge, seen)]
                     for key, item in value.items()
@@ -562,7 +617,7 @@ def encode_wire(value: Any, bridge: Bridge, seen: set[int] | None = None) -> Any
 
 def python_reference(value: Any, bridge: Bridge) -> dict[str, Any]:
     return {
-        WIRE_TYPE: "reference",
+        WIRE_TYPE: WireValueType.REFERENCE.value,
         "id": bridge.registry.add(value),
         "pythonType": f"{type(value).__module__}.{type(value).__qualname__}",
     }
@@ -573,27 +628,35 @@ def decode_wire(value: Any, bridge: Bridge) -> Any:
         return [decode_wire(item, bridge) for item in value]
     if not isinstance(value, dict):
         return value
-    wire_type = value.get(WIRE_TYPE)
-    if wire_type == "reference":
+    if WIRE_TYPE not in value:
+        return {key: decode_wire(item, bridge) for key, item in value.items()}
+    try:
+        wire_type = WireValueType(value[WIRE_TYPE])
+    except (TypeError, ValueError) as error:
+        raise TypeError(f"Unknown wire value type: {value[WIRE_TYPE]}") from error
+    if wire_type is WireValueType.REFERENCE:
         return bridge.registry.get(int(value["id"]))
-    if wire_type == "callback":
+    if wire_type is WireValueType.CALLBACK:
         return bridge.callback(int(value["id"]))
-    if wire_type == "undefined":
+    if wire_type is WireValueType.UNDEFINED:
         return None
-    if wire_type == "datetime":
-        return dt.datetime.fromisoformat(str(value["value"]).replace("Z", "+00:00"))
-    if wire_type == "date":
+    if wire_type is WireValueType.DATETIME:
+        # Python 3.10 needs the UTC designator normalized before fromisoformat.
+        return dt.datetime.fromisoformat(
+            str(value["value"]).replace("Z", "+00:00")  # noqa: FURB162
+        )
+    if wire_type is WireValueType.DATE:
         return dt.date.fromisoformat(str(value["value"]))
-    if wire_type == "time":
+    if wire_type is WireValueType.TIME:
         return dt.time.fromisoformat(str(value["value"]))
-    if wire_type == "set":
+    if wire_type is WireValueType.SET:
         return {decode_wire(item, bridge) for item in value.get("value", [])}
-    if wire_type == "map":
+    if wire_type is WireValueType.MAP:
         return {
             decode_wire(entry[0], bridge): decode_wire(entry[1], bridge)
             for entry in value.get("value", [])
         }
-    return {key: decode_wire(item, bridge) for key, item in value.items()}
+    raise AssertionError(f"Unhandled wire value type: {wire_type}")
 
 
 def force_value(value: Any, seen: set[int] | None = None) -> Any:

@@ -109,10 +109,12 @@ Set `validatePydantic: false` to preserve the deserialized values exactly. Pynec
 
 ## Python-only code generation
 
-The generator is a standalone standard-library Python program. Generating bindings does not start Node or Bun and does not require either executable to be installed:
+The generator is a self-contained uv script. Generating bindings does not start
+Node or Bun and does not require either executable to be installed. uv reads the
+script's inline dependencies and caches its small CLI environment:
 
 ```sh
-python python/pynect_codegen.py \
+uv run --script python/pynect_codegen.py generate \
   --module name_generator \
   --module my_project.models \
   --class-name MyProjectPython \
@@ -131,14 +133,39 @@ For one module, `--class-name` is optional and is derived from its public alias:
 `name_generator` generates `NameGeneratorPython`. Generating multiple modules
 requires an explicit `--class-name` (or `className` in the JSON settings).
 
-It imports the selected Python modules, inspects their public functions and classes, translates annotations, and emits:
+It imports the selected Python modules, inspects their public functions and
+classes, translates annotations, and emits:
 
 - module and class interfaces;
 - a typed module map for `PythonVenv`;
 - a lazy project class with typed module getters;
-- project, module-alias, `with`, and `withRequirements` defaults.
+- the configured `CreateVenvOptions`, including project and uv dependency options.
 
-Generation can also use a JSON settings file:
+### Project configuration
+
+For a Python project, keep the generator settings in `pyproject.toml`:
+
+```toml
+[tool.pynect.codegen]
+modules = ["name_generator", "my_project.models"]
+className = "MyProjectPython"
+out = "../node-wrapper/src/generated/my-project-python.ts"
+project = "."
+with = ["httpx>=0.28"]
+withEditable = []
+withRequirements = []
+uvArgs = []
+validatePydantic = true
+```
+
+Then generation is one command:
+
+```sh
+uv run --script scripts/pynect_codegen.py generate
+```
+
+`modules` may be a list using automatic aliases or an alias-to-import mapping.
+The same fields work in a standalone JSON file:
 
 ```json
 {
@@ -146,18 +173,65 @@ Generation can also use a JSON settings file:
   "out": "generated/my-project-python.ts",
   "project": ".",
   "with": ["httpx>=0.28"],
-  "modules": {
-    "names": "name_generator",
-    "models": "my_project.models"
-  }
+  "modules": ["name_generator", "my_project.models"]
 }
 ```
 
 ```sh
-python python/pynect_codegen.py --config pynect.codegen.json
+uv run --script scripts/pynect_codegen.py generate --config pynect.codegen.json
 ```
 
-The generated TypeScript imports `pynect` only when the bindings are later consumed by a JavaScript application. Because inspection imports the requested Python modules, run the generator only against trusted projects and packages.
+In `package.json`, place that same object under `pynect.codegen`. Configuration
+precedence is CLI flags, `PYNECT_CODEGEN_*` environment variables, the discovered
+`pyproject.toml` or `package.json`, then defaults. Sequence-valued environment
+variables accept JSON arrays or comma-separated values; `PYNECT_CODEGEN_MODULES`
+also accepts a JSON alias map.
+
+The generated TypeScript imports `pynect` only when the bindings are later
+consumed by a JavaScript application. Because inspection imports the requested
+Python modules, run the generator only against trusted projects and packages.
+
+### Generate on save
+
+Run setup from the copy shipped with the Node wrapper dependency:
+
+```sh
+uv run --script ../node-wrapper/node_modules/pynect/python/pynect_codegen.py \
+  setup-dev --root . --dry-run
+
+uv run --script ../node-wrapper/node_modules/pynect/python/pynect_codegen.py \
+  setup-dev --root .
+```
+
+Setup copies the same script to `scripts/pynect_codegen.py`, adds
+`pucelle.run-on-save` to `.vscode/extensions.json`, and adds a debounced Python
+save command to `.vscode/settings.json`. The generated setting uses
+`runOnSave.ignoreFilesBy = [".gitignore"]`, so ignored Python files do not trigger
+generation. [Run on Save](https://marketplace.visualstudio.com/items?itemName=pucelle.run-on-save)
+is the recommended extension because it supports `.gitignore`, glob matching,
+debouncing, and quiet background commands directly.
+
+The setup command merges valid JSON files and is idempotent. It refuses to
+rewrite JSON-with-comments because doing so would discard comments; convert those
+workspace files to plain JSON or add the documented entries manually.
+
+### Generate during Python builds
+
+When the Python project uses Hatchling, `setup-dev` configures the copied script
+as the custom build hook:
+
+```toml
+[tool.hatch.build.hooks.custom]
+path = "scripts/pynect_codegen.py"
+```
+
+Hatchling imports that same file and calls the same settings loader, inspector,
+and renderer immediately before the build. PEP 517 does not define a generic
+pre-build command. In particular, `uv_build` deliberately omits build scripts;
+uv recommends Hatchling when they are required. Setup therefore leaves other
+build backends unchanged and reports that the hook was skipped. See the
+[Hatch custom-hook documentation](https://hatch.pypa.io/1.0/plugins/build-hook/)
+and [uv build-backend guidance](https://docs.astral.sh/uv/concepts/build-backend/).
 
 Generated code can also supply its module map directly without a wrapper class:
 

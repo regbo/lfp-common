@@ -8,6 +8,7 @@ import {
   type ResolvedVenvOptions,
 } from './config';
 import { VenvClosedError, VenvStartupError } from './errors';
+import { RPC_OPERATION } from './protocol';
 import type { PythonModule } from './python-object';
 import { RpcClient } from './rpc-client';
 import { LocalIpcServer } from './transport/local-ipc';
@@ -56,7 +57,9 @@ export class PythonVenv<Modules extends object = PynectModules> implements Async
   async import(name: string): Promise<unknown> {
     if (!name.trim()) throw new TypeError('Python module name cannot be empty.');
     const runtime = await this.#start();
-    return runtime.client.request('import', { name: this.#options.modules[name] ?? name });
+    return runtime.client.request(RPC_OPERATION.import, {
+      name: this.#options.modules[name] ?? name,
+    });
   }
 
   /** Prepare the environment explicitly without importing a module. */

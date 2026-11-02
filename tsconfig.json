@@ -22,10 +22,12 @@
     "src/config.ts",
     "src/errors.ts",
     "src/index.ts",
+    "src/protocol.ts",
     "src/python-object.ts",
     "src/python-venv.ts",
     "src/rpc-client.ts",
-    "src/transport/**/*.ts"
+    "src/transport/**/*.ts",
+    "src/utils/**/*.ts"
   ],
   "exclude": [
     "node_modules",
