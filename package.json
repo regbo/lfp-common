@@ -1,6 +1,6 @@
 {
   "name": "loqkit",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "Typed memoization and layered memory, worker-thread, and file locks for JavaScript runtimes.",
   "repository": {
     "type": "git",
