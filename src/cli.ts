@@ -45,8 +45,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         .input(createInput())
         .output(output)
         .render(result => [
-            `uv ${result.uv.version}: ${result.uv.path}`,
-            `Python ${result.python.version}: ${result.python.path}`,
+            `uv ${result.uv.version} (${result.uv.source}): ${result.uv.path}`,
+            `Python ${result.python.version} (${result.python.source}): ${result.python.path}`,
         ].join('\n'))
         .handler(options => pyfig(options));
 
@@ -100,6 +100,8 @@ const passthroughArguments = z.array(z.string());
 function executableMetadataSchema(name: string) {
     return z.object({
         path: z.string().describe(`Absolute path to the resolved ${name} executable.`),
+        source: z.enum(['cache', 'download', 'explicit', 'managed', 'path', 'system'])
+            .describe(`How the resolved ${name} executable was selected or obtained.`),
         version: z.string().describe(`Resolved ${name} version.`),
     }).readonly();
 }

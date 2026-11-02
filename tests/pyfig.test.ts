@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'bun:test';
-import { spawn, type ChildProcess } from 'node:child_process';
 import path from 'node:path';
 import {
   DEFAULT_UV,
@@ -18,32 +17,24 @@ describe('pyfig', () => {
     expect(resolved).toBeInstanceOf(PythonContext);
     expect(Object.keys(resolved).sort()).toEqual(['python', 'uv']);
     expect(Object.isFrozen(resolved)).toBe(true);
-    expect(Object.keys(resolved.uv).sort()).toEqual(['path', 'version']);
-    expect(Object.keys(resolved.python).sort()).toEqual(['path', 'version']);
+    expect(Object.keys(resolved.uv).sort()).toEqual(['path', 'source', 'version']);
+    expect(Object.keys(resolved.python).sort()).toEqual(['path', 'source', 'version']);
     expect(Object.isFrozen(resolved.uv)).toBe(true);
     expect(Object.isFrozen(resolved.python)).toBe(true);
     expect(path.isAbsolute(resolved.uv.path)).toBe(true);
     expect(path.isAbsolute(resolved.python.path)).toBe(true);
     expect(resolved.uv.version).toMatch(/^\d+\.\d+/u);
     expect(resolved.python.version).toMatch(/^\d+\.\d+/u);
+    expect(['cache', 'download', 'path']).toContain(resolved.uv.source);
+    expect(['managed', 'path', 'system']).toContain(resolved.python.source);
     expect('run' in resolved).toBe(false);
   }, 60_000);
 
-  test('prefers a compatible system Python over uv managed installations', async () => {
+  test('reports how an automatically selected Python was discovered', async () => {
     const specifier = '>=3.10,<4';
     const resolved = await pyfig({ python: specifier });
-    const expected = await capture(spawn(resolved.uv.path, [
-      'python',
-      'find',
-      '--system',
-      '--no-managed-python',
-      specifier,
-    ], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true,
-    }));
 
-    expect(pathsEqual(resolved.python.path, expected.trim())).toBe(true);
+    expect(['managed', 'path', 'system']).toContain(resolved.python.source);
   }, 60_000);
 
   test('gives executable paths precedence over version selection', async () => {
@@ -57,8 +48,10 @@ describe('pyfig', () => {
     });
     expect(pathsEqual(explicit.uv.path, selected.uv.path)).toBe(true);
     expect(explicit.uv.version).toBe(selected.uv.version);
+    expect(explicit.uv.source).toBe('explicit');
     expect(pathsEqual(explicit.python.path, selected.python.path)).toBe(true);
     expect(explicit.python.version).toBe(selected.python.version);
+    expect(explicit.python.source).toBe('explicit');
   }, 60_000);
 
   test('still checks requested capabilities for an explicit Python executable', async () => {
@@ -119,22 +112,6 @@ describe('pyfig', () => {
     ]);
   });
 });
-
-function capture(child: ChildProcess): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let stdout = '';
-    let stderr = '';
-    child.stdout?.setEncoding('utf8');
-    child.stderr?.setEncoding('utf8');
-    child.stdout?.on('data', (chunk: string) => { stdout += chunk; });
-    child.stderr?.on('data', (chunk: string) => { stderr += chunk; });
-    child.once('error', reject);
-    child.once('close', (code) => {
-      if (code === 0) resolve(stdout);
-      else reject(new Error(stderr || `uv exited ${code}`));
-    });
-  });
-}
 
 function pathsEqual(left: string, right: string): boolean {
   const normalizedLeft = path.normalize(left);

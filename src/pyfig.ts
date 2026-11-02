@@ -95,6 +95,8 @@ export type PyfigOptions = z.input<typeof pyfigOptionsSchema>;
 export interface ExecutableMetadata {
   /** Absolute path to the executable. */
   readonly path: string;
+  /** How the executable was selected or obtained. */
+  readonly source: 'cache' | 'download' | 'explicit' | 'managed' | 'path' | 'system';
   /** PEP 440-compatible executable version. */
   readonly version: string;
 }
@@ -141,10 +143,15 @@ export async function pyfig(options: PyfigOptions = {}): Promise<PythonContext> 
     requireGil,
     uvPath: uv.path,
   });
-  debugLog('Resolved Python.', { path: python.executable, version: python.version });
+  debugLog('Resolved Python.', {
+    path: python.executable,
+    source: python.source,
+    version: python.version,
+  });
 
   return new PythonContext(uv, {
     path: python.executable,
+    source: python.source,
     version: python.version,
   });
 }
@@ -164,6 +171,9 @@ interface PythonProbe {
   version: string;
 }
 
+type PythonSource = Extract<ExecutableMetadata['source'], 'explicit' | 'managed' | 'path' | 'system'>;
+type PythonResolution = PythonProbe & { source: PythonSource };
+
 interface PythonSelectionOptions {
   cwd: string;
   env: NodeJS.ProcessEnv;
@@ -181,15 +191,16 @@ async function selectUv(
   const selection = await executableOrSpecifier('uv', request, cwd, env);
   if (selection.executable) {
     debugLog('Using requested uv executable.', { path: selection.executable });
-    return probeUv(selection.executable, cwd, env);
+    return { ...await probeUv(selection.executable, cwd, env), source: 'explicit' };
   }
   const specifier = selection.specifier;
   if (!specifier) throw new Error('uv selection did not contain a version specifier.');
   debugLog('Resolving uv version constraint.', { specifier });
-  return probeUv(await resolveUv(specifier, cwd, env), cwd, env);
+  const resolved = await resolveUv(specifier, cwd, env);
+  return { ...await probeUv(resolved.path, cwd, env), source: resolved.source };
 }
 
-async function selectPython(options: PythonSelectionOptions): Promise<PythonProbe> {
+async function selectPython(options: PythonSelectionOptions): Promise<PythonResolution> {
   if (options.pythonRequest !== undefined) {
     const selection = await executableOrSpecifier(
       'python',
@@ -201,7 +212,7 @@ async function selectPython(options: PythonSelectionOptions): Promise<PythonProb
       debugLog('Using requested Python executable.', { path: selection.executable });
       const explicit = await probePython(selection.executable, options.cwd, options.env);
       validatePythonCapabilities(explicit, options);
-      return explicit;
+      return { ...explicit, source: 'explicit' };
     }
     if (!selection.specifier) throw new Error('Python selection did not contain a version specifier.');
     return selectDiscoveredPython(selection.specifier, options);
@@ -212,13 +223,13 @@ async function selectPython(options: PythonSelectionOptions): Promise<PythonProb
 async function selectDiscoveredPython(
   specifier: string | null,
   options: PythonSelectionOptions,
-): Promise<PythonProbe> {
+): Promise<PythonResolution> {
   const request = specifier ? [specifier] : [];
   let systemFailure: unknown;
   try {
     debugLog('Searching PATH for a compatible system Python.', { specifier: specifier ?? 'any' });
     const direct = await findPathPython(specifier, options);
-    if (direct.python) return direct.python;
+    if (direct.python) return { ...direct.python, source: 'path' };
 
     debugLog('No compatible PATH Python found; falling back to uv system discovery.', {
       specifier: specifier ?? 'any',
@@ -236,7 +247,7 @@ async function selectDiscoveredPython(
     const system = await probePython(systemPath, options.cwd, options.env);
     validatePythonVersion(system, specifier);
     validatePythonCapabilities(system, options);
-    return system;
+    return { ...system, source: 'system' };
   } catch (error) {
     systemFailure = error;
     debugLog('System Python search failed.', { error: errorMessage(error) });
@@ -248,7 +259,7 @@ async function selectDiscoveredPython(
     const managed = await probePython(managedPath, options.cwd, options.env);
     validatePythonVersion(managed, specifier);
     validatePythonCapabilities(managed, options);
-    return managed;
+    return { ...managed, source: 'managed' };
   } catch (error) {
     throw new Error(
       `No compatible Python was found. System: ${errorMessage(systemFailure)} Managed: ${errorMessage(error)}`,
@@ -313,7 +324,7 @@ async function probeUv(
   executable: string,
   cwd: string,
   env: NodeJS.ProcessEnv,
-): Promise<ExecutableMetadata> {
+): Promise<Omit<ExecutableMetadata, 'source'>> {
   const output = await capture(executable, ['--version'], cwd, env);
   const version = validVersion(output.trim().match(/^uv\s+(\S+)/iu)?.[1] ?? '');
   if (!version) {
