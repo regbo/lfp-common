@@ -30,6 +30,10 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
+      - uses: astral-sh/setup-uv@v10
+        with:
+          version: "0.10.7"
+          enable-cache: true
       - name: Install a trusted-publishing npm version
         run: npm install --global npm@11.20.0
       - name: Install dependencies
