@@ -33,7 +33,8 @@
     "release": "bun run scripts/release.ts",
     "release:check": "bun run scripts/check-release.ts",
     "release:audit": "bun run scripts/audit-package.ts",
-    "prepack": "bun run scripts/prepack.ts"
+    "prepack": "bun run scripts/prepack.ts",
+    "pyfig": "bun run ./src/cli.ts"
   },
   "keywords": [
     "python",

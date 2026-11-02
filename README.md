@@ -18,6 +18,7 @@ Python discovery and managed installation are delegated to
 ## Use
 
 ```ts
+import { once } from 'node:events';
 import { pyfig } from 'pyfig';
 
 const python = await pyfig({
@@ -29,7 +30,21 @@ const python = await pyfig({
 
 console.log(python.uv.path, python.uv.version);
 console.log(python.python.path, python.python.version);
+
+const child = python.uv.spawn('pip', 'list');
+const completed = python.python.spawn('-c', 'print("hello")');
+await once(completed, 'close');
+console.log(completed.exitCode, completed.signalCode);
 ```
+
+Both resolved executables expose `spawn(...args, options?)`, which returns
+Node's `ChildProcess` immediately. The optional final argument accepts Node's
+built-in `SpawnOptions`. Use `once(child, 'close')` from `node:events` when the
+caller needs to wait. Defaults are the resolved working directory and
+environment, inherited standard I/O, and a hidden console window on Windows.
+Caller options can override those defaults except `UV_PYTHON`, which is always
+pinned to the resolved interpreter. `python.spawn()` executes `uv run python`;
+its string arguments are forwarded unchanged.
 
 ## CLI
 
@@ -63,12 +78,12 @@ When invoked, the CLI installs Fireargs and its Commander peer into the current
 project through `@antfu/install-pkg`, then runs the generated command. They are
 not installed or loaded when Pyfig is used only as a library.
 
-`pyfig()` returns an immutable `PythonContext` containing only:
+`pyfig()` returns an immutable `PythonContext` containing:
 
 | Field | Meaning |
 | --- | --- |
-| `uv` | Immutable `{ path, version }` metadata for the resolved uv executable. |
-| `python` | Immutable `{ path, version }` metadata for the resolved Python interpreter. |
+| `uv` | Immutable resolved uv metadata with a `spawn()` method. |
+| `python` | Immutable resolved Python metadata with a `spawn()` method. |
 
 `pyfig()` accepts:
 
@@ -109,8 +124,9 @@ const python = await pyfig({
 ```
 
 The runtime package exports `pyfig`, `pyfigOptionsSchema`, `DEFAULT_UV`, and
-`PythonContext`. TypeScript also exposes `PyfigOptions`. Matching ESM and
-CommonJS entry points are published for the library API.
+`PythonContext`. TypeScript also exposes `PyfigOptions` and
+`ResolvedExecutable`. Matching ESM and CommonJS entry points are published for
+the library API.
 
 ## Development
 

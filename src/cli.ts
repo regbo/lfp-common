@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 
-import { spawn } from 'node:child_process';
 import path from 'node:path';
+import { once } from 'node:events';
 import { pathToFileURL } from 'node:url';
 import { installPackage } from '@antfu/install-pkg';
 import { z } from 'zod';
 import { debugLog, setDebugLogging } from './logging.js';
-import { pyfig, pyfigOptionsSchema, type PyfigOptions } from './pyfig.js';
+import { pyfig, pyfigOptionsSchema } from './pyfig.js';
 
 const dependencies = ['fireargs@^0.6.2']
 
@@ -68,7 +68,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         .output(z.void())
         .handler(async ({ args, ...options }) => {
             const context = await pyfig(options);
-            await run(context.uv.path, passthroughArguments.parse(args), options, context.python.path);
+            const child = context.uv.spawn(...passthroughArguments.parse(args));
+            await once(child, 'close');
+            if (child.exitCode !== 0) process.exitCode = child.exitCode ?? 1;
         });
     const python = f
         .command({
@@ -80,12 +82,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         .output(z.void())
         .handler(async ({ args, ...options }) => {
             const context = await pyfig(options);
-            await run(
-                context.uv.path,
-                ['run', 'python', ...passthroughArguments.parse(args)],
-                options,
-                context.python.path,
-            );
+            const child = context.python.spawn(...passthroughArguments.parse(args));
+            await once(child, 'close');
+            if (child.exitCode !== 0) process.exitCode = child.exitCode ?? 1;
         });
     const program = f.program({
         name: 'pyfig',
@@ -109,32 +108,4 @@ function executableMetadataSchema(name: string) {
 const invokedPath = process.argv[1];
 if (invokedPath && pathToFileURL(path.resolve(invokedPath)).href === import.meta.url) {
     await main();
-}
-
-function run(
-    executable: string,
-    args: readonly string[],
-    options: PyfigOptions,
-    pythonPath: string,
-): Promise<void> {
-    const env: NodeJS.ProcessEnv = { ...process.env };
-    for (const [key, value] of Object.entries(options.env ?? {})) {
-        if (value === undefined) delete env[key];
-        else env[key] = value;
-    }
-    env['UV_PYTHON'] = pythonPath;
-
-    return new Promise((resolve, reject) => {
-        const child = spawn(executable, args, {
-            cwd: options.cwd,
-            env,
-            stdio: 'inherit',
-            windowsHide: true,
-        });
-        child.once('error', reject);
-        child.once('close', code => {
-            if (code !== 0) process.exitCode = code ?? 1;
-            resolve();
-        });
-    });
 }

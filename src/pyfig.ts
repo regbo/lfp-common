@@ -1,11 +1,16 @@
 import path from 'node:path';
+import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import {
   filter,
   valid as validVersion,
   validRange,
 } from '@renovatebot/pep440';
 import { z } from 'zod';
-import { capture, findExecutable, findExecutables } from './process.js';
+import {
+  capture,
+  findExecutable,
+  findExecutables,
+} from './process.js';
 import { resolveUv } from './uv.js';
 import { debugLog, setDebugLogging } from './logging.js';
 
@@ -101,15 +106,99 @@ export interface ExecutableMetadata {
   readonly version: string;
 }
 
+export interface ResolvedExecutable extends ExecutableMetadata {
+  /** Start the executable and return its child process immediately. */
+  spawn(...args: string[]): ChildProcess;
+  spawn(...args: [...string[], SpawnOptions]): ChildProcess;
+}
+
+interface RuntimeState {
+  readonly cwd: string;
+  readonly env: NodeJS.ProcessEnv;
+  readonly executable: string;
+  readonly prefix?: readonly string[];
+  readonly pythonPath: string;
+}
+
+const runtimeStates = new WeakMap<ResolvedExecutable, RuntimeState>();
+
+class RuntimeExecutable implements ResolvedExecutable {
+  readonly path: string;
+  readonly source: ExecutableMetadata['source'];
+  readonly version: string;
+
+  constructor(metadata: ExecutableMetadata, state: RuntimeState) {
+    this.path = metadata.path;
+    this.source = metadata.source;
+    this.version = metadata.version;
+    runtimeStates.set(this, state);
+    Object.freeze(this);
+  }
+
+  spawn(...args: string[]): ChildProcess;
+  spawn(...args: [...string[], SpawnOptions]): ChildProcess;
+  spawn(...values: (SpawnOptions | string)[]): ChildProcess {
+    const state = runtimeStates.get(this);
+    if (!state) throw new Error('Executable runtime state is unavailable.');
+    const { args, options } = splitSpawnArguments(values);
+    return spawn(state.executable, [...state.prefix ?? [], ...args], {
+      cwd: state.cwd,
+      stdio: 'inherit',
+      windowsHide: true,
+      ...options,
+      env: spawnEnvironment(state.env, options.env, state.pythonPath),
+    });
+  }
+}
+
+function splitSpawnArguments(values: (SpawnOptions | string)[]): {
+  args: string[];
+  options: SpawnOptions;
+} {
+  const last = values.at(-1);
+  const options = typeof last === 'string' || last === undefined
+    ? {}
+    : values.pop() as SpawnOptions;
+  return { args: values as string[], options };
+}
+
+function spawnEnvironment(
+  contextEnvironment: NodeJS.ProcessEnv,
+  overrides: NodeJS.ProcessEnv | undefined,
+  pythonPath: string,
+): NodeJS.ProcessEnv {
+  const env = { ...contextEnvironment, ...overrides };
+  if (process.platform === 'win32') {
+    for (const key of Object.keys(env)) {
+      if (key !== 'UV_PYTHON' && key.toLowerCase() === 'uv_python') delete env[key];
+    }
+  }
+  env['UV_PYTHON'] = pythonPath;
+  return env;
+}
+
 export class PythonContext {
   /** Resolved uv executable metadata. */
-  readonly uv: ExecutableMetadata;
+  readonly uv: ResolvedExecutable;
   /** Resolved Python interpreter metadata. */
-  readonly python: ExecutableMetadata;
+  readonly python: ResolvedExecutable;
 
-  constructor(uv: ExecutableMetadata, python: ExecutableMetadata) {
-    this.uv = Object.freeze({ ...uv });
-    this.python = Object.freeze({ ...python });
+  constructor(
+    uv: ExecutableMetadata,
+    python: ExecutableMetadata,
+    cwd: string = process.cwd(),
+    env: NodeJS.ProcessEnv = process.env,
+  ) {
+    const shared = { cwd, env, pythonPath: python.path };
+    this.uv = new RuntimeExecutable(uv, {
+      ...shared,
+      executable: uv.path,
+    });
+    this.python = new RuntimeExecutable(python, {
+      ...shared,
+      executable: uv.path,
+      prefix: ['run', 'python'],
+    });
     Object.freeze(this);
   }
 }
@@ -153,7 +242,7 @@ export async function pyfig(options: PyfigOptions = {}): Promise<PythonContext> 
     path: python.executable,
     source: python.source,
     version: python.version,
-  });
+  }, workingDirectory, env);
 }
 
 interface Selection {
