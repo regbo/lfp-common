@@ -375,6 +375,21 @@ def resolve_automatic_aliases(
                 depths[index] += 1
 
 
+def resolve_class_name(configured: Any, modules: dict[str, str]) -> str:
+    if configured is not None:
+        if not isinstance(configured, str) or not configured:
+            raise ValueError("className must be a non-empty string")
+        return typescript_identifier(configured)
+    if len(modules) != 1:
+        raise ValueError(
+            "--class-name or className is required when generating multiple modules"
+        )
+
+    alias = next(iter(modules))
+    derived = pascal_case(alias)
+    return derived if derived.endswith("Python") else f"{derived}Python"
+
+
 def load_settings(arguments: argparse.Namespace) -> GeneratorSettings:
     config: dict[str, Any] = {}
     if arguments.config:
@@ -386,14 +401,17 @@ def load_settings(arguments: argparse.Namespace) -> GeneratorSettings:
     no_project = arguments.no_project or bool(config.get("noProject", False))
     if project is not None and no_project:
         raise ValueError("project and noProject cannot be used together")
-    class_name = arguments.class_name or config.get("className") or "PythonProject"
+    configured_class_name = arguments.class_name
+    if configured_class_name is None:
+        configured_class_name = config.get("className")
+    class_name = resolve_class_name(configured_class_name, modules)
     out = Path(arguments.out or config.get("out") or "pynect.generated.ts")
     with_values = tuple(arguments.with_values or config.get("with", []))
     with_requirements = tuple(
         arguments.with_requirements or config.get("withRequirements", [])
     )
     return GeneratorSettings(
-        class_name=typescript_identifier(class_name),
+        class_name=class_name,
         modules=modules,
         no_project=no_project,
         out=out,

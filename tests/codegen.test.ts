@@ -7,6 +7,18 @@ import { ensurePython } from 'pyfig';
 
 const temporaryDirectories: string[] = [];
 
+async function runCodegen(arguments_: string[]) {
+  const environment = await ensurePython({ projectRoot: process.cwd() });
+  return spawnSync(environment.python.executable, [
+    path.resolve('python/pynect_codegen.py'),
+    ...arguments_,
+  ], {
+    cwd: process.cwd(),
+    encoding: 'utf8',
+    env: process.env,
+  });
+}
+
 afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) {
     rmSync(directory, { force: true, recursive: true });
@@ -18,9 +30,7 @@ describe('Python code generation', () => {
     const outputDirectory = mkdtempSync(path.join(tmpdir(), 'pynect-codegen-'));
     temporaryDirectories.push(outputDirectory);
     const output = path.join(outputDirectory, 'fixture-python.ts');
-    const environment = await ensurePython({ projectRoot: process.cwd() });
-    const result = spawnSync(environment.python.executable, [
-      path.resolve('python/pynect_codegen.py'),
+    const result = await runCodegen([
       '--module',
       'fixture=tests.fixtures.bridge_fixture',
       '--module',
@@ -32,11 +42,7 @@ describe('Python code generation', () => {
       '--no-project',
       '--out',
       output,
-    ], {
-      cwd: process.cwd(),
-      encoding: 'utf8',
-      env: process.env,
-    });
+    ]);
 
     expect(result.status).toBe(0);
     expect(result.stderr).toBe('');
@@ -53,5 +59,38 @@ describe('Python code generation', () => {
     expect(generated).toContain('readonly add: (left: unknown, right: unknown): Promise<unknown>');
     expect(generated).toContain('export class FixturePython implements AsyncDisposable');
     expect(generated).toContain('modules: { ...defaults.modules, ...options.modules }');
+  }, 30_000);
+
+  test('derives a class name for one module and requires one for multiple modules', async () => {
+    const outputDirectory = mkdtempSync(path.join(tmpdir(), 'pynect-codegen-name-'));
+    temporaryDirectories.push(outputDirectory);
+    const output = path.join(outputDirectory, 'bridge-fixture-python.ts');
+    const singleModule = await runCodegen([
+      '--module',
+      'tests.fixtures.bridge_fixture',
+      '--no-project',
+      '--out',
+      output,
+    ]);
+
+    expect(singleModule.status).toBe(0);
+    expect(readFileSync(output, 'utf8')).toContain(
+      'export class BridgeFixturePython implements AsyncDisposable',
+    );
+
+    const multipleModules = await runCodegen([
+      '--module',
+      'tests.fixtures.bridge_fixture',
+      '--module',
+      'tests.fixtures.one.shared.name_generator',
+      '--no-project',
+      '--out',
+      output,
+    ]);
+
+    expect(multipleModules.status).not.toBe(0);
+    expect(multipleModules.stderr).toContain(
+      '--class-name or className is required when generating multiple modules',
+    );
   }, 30_000);
 });

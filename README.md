@@ -127,6 +127,10 @@ unique. For example, `one.shared.name_generator` and
 `two_shared_name_generator`. Use `alias=package.module` when you want to choose
 the public name yourself.
 
+For one module, `--class-name` is optional and is derived from its public alias:
+`name_generator` generates `NameGeneratorPython`. Generating multiple modules
+requires an explicit `--class-name` (or `className` in the JSON settings).
+
 It imports the selected Python modules, inspects their public functions and classes, translates annotations, and emits:
 
 - module and class interfaces;
