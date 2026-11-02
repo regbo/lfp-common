@@ -1,6 +1,6 @@
 {
   "name": "pyfig",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Resolve uv and Python executables into one pinned runtime context.",
   "type": "module",
   "main": "./dist/cjs/index.js",
