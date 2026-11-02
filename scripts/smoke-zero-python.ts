@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { ensureEnvironment } from '../src/index.ts';
+import { ensurePython } from '../src/index.ts';
 
 const temporary = await mkdtemp(path.join(os.tmpdir(), 'pyfig-zero-python-'));
 
@@ -22,7 +22,7 @@ try {
   env['PATH'] = emptyPath;
   env['PYFIG_UV'] = path.join(temporary, 'missing-uv');
 
-  const environment = await ensureEnvironment({
+  const environment = await ensurePython({
     cacheDir,
     env,
     managedPython: '3.12',

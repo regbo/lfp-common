@@ -3,16 +3,16 @@ import path from 'node:path';
 
 export const VIRTUAL_ENV_ROOT_NAME = path.join('node_modules', '.pyfig', 'venvs');
 
-export function virtualEnvironmentRoot(projectRoot: string): string {
+export function pythonVenvRoot(projectRoot: string): string {
   return path.join(projectRoot, VIRTUAL_ENV_ROOT_NAME);
 }
 
-export function virtualEnvironmentDirectory(projectRoot: string, venvDirectory: string): string {
-  return path.join(virtualEnvironmentRoot(projectRoot), venvDirectory);
+export function pythonVenvDirectory(projectRoot: string, venvDirectory: string): string {
+  return path.join(pythonVenvRoot(projectRoot), venvDirectory);
 }
 
 /** Existing application environments are eligible for read-only reuse. */
-export function externalVirtualEnvironmentDirectories(
+export function externalPythonVenvDirectories(
   projectRoot: string,
   env: NodeJS.ProcessEnv,
 ): string[] {
@@ -22,18 +22,18 @@ export function externalVirtualEnvironmentDirectories(
   return [...new Map(candidates.map((value) => [canonicalPath(value), value])).values()];
 }
 
-export function virtualEnvironmentPythonExecutable(virtualEnvironment: string): string {
+export function pythonVenvExecutable(pythonVenv: string): string {
   return path.join(
-    virtualEnvironment,
+    pythonVenv,
     process.platform === 'win32' ? 'Scripts' : 'bin',
     process.platform === 'win32' ? 'python.exe' : 'python',
   );
 }
 
 /** Apply the environment changes that shell activation scripts make for child processes. */
-export function activateVirtualEnvironment(
+export function activatePythonVenv(
   env: NodeJS.ProcessEnv,
-  virtualEnvironment: string,
+  pythonVenv: string,
   pythonExecutable: string,
 ): NodeJS.ProcessEnv {
   const activated = { ...env };
@@ -48,7 +48,7 @@ export function activateVirtualEnvironment(
   activated['PATH'] = [path.dirname(pythonExecutable), existingPath]
     .filter((value): value is string => Boolean(value))
     .join(path.delimiter);
-  activated['VIRTUAL_ENV'] = virtualEnvironment;
+  activated['VIRTUAL_ENV'] = pythonVenv;
   return activated;
 }
 

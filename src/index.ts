@@ -12,7 +12,7 @@ export type {
   UvInfo,
 } from './probes.js';
 export {
-  ensureEnvironment,
+  ensurePython,
   ensureUv,
 } from './provision.js';
 export type { PythonEnvironment } from './provision.js';

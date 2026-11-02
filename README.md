@@ -37,7 +37,7 @@ await pyenv.uv(
 );
 ```
 
-`dependencies` accepts PEP 508 specifiers. `requirements` accepts explicit requirements-file paths, with relative paths resolved from `projectRoot`. Pyfig does not discover or read `pyproject.toml`, Python lockfiles, or dependency groups. Configuration is bound by the `Python` constructor, so `prepare()`, `uv()`, and `uvSync()` always target the same venv. Temporary resolution inputs are created outside the repository and removed afterward.
+`dependencies` accepts the requirement syntax uv supports, including PEP 508 specifiers, Git references, URLs, and local file references. `requirements` accepts explicit requirements-file paths, with relative paths resolved from `projectRoot`. Pyfig validates each value as one line and otherwise passes it to uv without interpreting package or source syntax. It does not discover or read `pyproject.toml`, Python lockfiles, or dependency groups. Configuration is bound by the `Python` constructor, so `prepare()`, `uv()`, and `uvSync()` always target the same venv. Temporary resolution inputs are created outside the repository and removed afterward.
 
 The same uv-only surface handles direct commands:
 
@@ -104,7 +104,7 @@ uv pip install \
   -r /temporary/resolved-dependencies.txt
 ```
 
-The venv identity includes the exact base interpreter, platform, architecture, GIL/ABI properties, and SHA-256 of uv's hash-pinned resolution. Equivalent declarations can share one venv; a different resolution creates another. The metadata file inside each venv is written last and acts as its publication marker.
+The venv identity includes the exact base interpreter, platform, architecture, GIL/ABI properties, and SHA-256 of uv's complete compiled resolution. This includes every artifact hash emitted by `uv pip compile --generate-hashes`. uv also resolves Git references to commit hashes. Pyfig does not duplicate uv's dependency parser or invent hashes for source types uv cannot hash. Equivalent resolutions can share one venv; a changed artifact hash, Git commit, or other resolved output creates another. The metadata file inside each venv is written last and acts as its publication marker.
 
 Only the explicit `dependencies` values and `requirements` files participate in resolution. Known Python project metadata and lockfile paths are rejected as requirements inputs. Pyfig does not use `uv add` or `uv pip sync`, so it neither edits project metadata nor removes packages from an externally owned venv.
 
@@ -136,7 +136,7 @@ Set `projectRoot` explicitly in reusable libraries and unusual workspace layouts
 | `pyenv.pythonInfo()` | Return the selected interpreter and embedding metadata. |
 | `pyenv.uvInfo()` | Return the selected uv executable and version. |
 | `pyenv.uv()` / `pyenv.uvSync()` | Spawn uv and pin pip/run commands to the same venv. |
-| `ensureEnvironment(options?)` | Standalone preparation API using the same options. |
+| `ensurePython(options?)` | Standalone Python preparation API using the same options. |
 | `ensureUv(options?)` | Prefer existing uv, otherwise bootstrap verified uv when allowed. |
 | `uvSpawn()` / `uvSpawnSync()` | Standalone uv spawn API. |
 | `resolveProjectRoot(start?)` | Resolve the nearest Git root without reading manifests. |

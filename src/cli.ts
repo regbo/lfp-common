@@ -2,7 +2,7 @@
 
 import { readFileSync } from 'node:fs';
 import { Command } from 'commander';
-import { ensureEnvironment } from './provision.js';
+import { ensurePython } from './provision.js';
 
 interface CliOptions {
   dependency: string[];
@@ -40,7 +40,7 @@ const program = new Command()
   .option('--check', 'check only; do not create an environment or install Python or uv', false)
   .option('--json', 'print machine-readable JSON', false)
   .action(async (cli: CliOptions) => {
-    const environment = await ensureEnvironment({
+    const environment = await ensurePython({
       dependencies: cli.dependency,
       requirements: cli.requirement,
       python: cli.python,

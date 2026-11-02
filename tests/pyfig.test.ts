@@ -1,13 +1,15 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { strToU8, zipSync } from 'fflate';
 import {
   DEFAULT_REQUIRES_PYTHON,
   DEFAULT_REQUIRES_UV,
   Python,
-  ensureEnvironment,
+  ensurePython,
   ensureUv,
   resolveProjectRoot,
   uvSpawn,
@@ -22,7 +24,7 @@ import {
 import { pythonSatisfiesPolicy, type PythonInfo } from '../src/probes.ts';
 import { githubApiHeaders } from '../src/provision.ts';
 import { buildUvCommand } from '../src/runners.ts';
-import { canonicalPath, pathsEqual } from '../src/virtual-environment.ts';
+import { canonicalPath, pathsEqual } from '../src/python-venv.ts';
 
 let temporaryRoot = '';
 let projectRoot = '';
@@ -77,8 +79,9 @@ describe('pyfig', () => {
     env.PYFIG_REQUIRES_UV = '>=0.10';
     expect(options.requiresPython).toBe('==3.12.*');
     expect(options.requiresUv).toBe('==0.13.*');
-    expect(options.dependencies).toEqual(['idna==3.10', 'sniffio==1.3.1']);
+    expect(options.dependencies).toEqual(['sniffio==1.3.1', 'idna==3.10', 'idna==3.10']);
     expect(options.requirements).toEqual([
+      path.join(projectRoot, 'requirements', 'base.txt'),
       path.join(projectRoot, 'requirements', 'base.txt'),
     ]);
     expect(options.projectRoot).toBe(projectRoot);
@@ -129,7 +132,7 @@ describe('pyfig', () => {
   test('creates new environments only below node_modules', async () => {
     const root = path.join(temporaryRoot, 'managed-environment');
     await mkdir(root, { recursive: true });
-    const environment = await ensureEnvironment({ projectRoot: root });
+    const environment = await ensurePython({ projectRoot: root });
     expect(environment.managed).toBe(true);
     expect(environment.venvId).toMatch(/^[a-f0-9]{64}$/u);
     expect(isBelow(
@@ -152,7 +155,7 @@ describe('pyfig', () => {
       'venv', '--no-project', '--no-config', '--python-preference', 'system', existing,
     ], { encoding: 'utf8' });
     expect(created.status).toBe(0);
-    const environment = await ensureEnvironment({ projectRoot: root });
+    const environment = await ensurePython({ projectRoot: root });
     expect(environment.managed).toBe(false);
     expect(environment.venvId).toBeNull();
     expect(pathsEqual(environment.python.virtualEnvironment ?? '', existing)).toBe(true);
@@ -176,7 +179,7 @@ describe('pyfig', () => {
     const sentinel = path.join(external, 'keep-me.txt');
     await mkdir(external, { recursive: true });
     await writeFile(sentinel, 'external data\n');
-    const environment = await ensureEnvironment({ projectRoot: root });
+    const environment = await ensurePython({ projectRoot: root });
     expect(environment.managed).toBe(true);
     expect(await readFile(sentinel, 'utf8')).toBe('external data\n');
     expect(isBelow(
@@ -222,7 +225,7 @@ describe('pyfig', () => {
   test('runs the selected Python through uv asynchronously and synchronously', async () => {
     const root = path.join(temporaryRoot, 'spawn-environment');
     await mkdir(root, { recursive: true });
-    const expected = (await ensureEnvironment({ projectRoot: root })).python.executable;
+    const expected = (await ensurePython({ projectRoot: root })).python.executable;
     const args = ['run', '--', 'python', '-c', 'import sys; print(sys.executable)'];
     const asynchronous = await capture(await uvSpawn(
       args,
@@ -261,10 +264,29 @@ describe('pyfig', () => {
     expect(environment.python.virtualEnvironment).toBeTruthy();
   }, 60_000);
 
+  test('passes file references to uv and identities uv-generated hashes', async () => {
+    const root = path.join(temporaryRoot, 'file-reference');
+    const wheel = path.join(root, 'pyfig_file_ref-1.0.0-py3-none-any.whl');
+    await mkdir(root, { recursive: true });
+    await writeFixtureWheel(wheel, 'first', 1);
+    const dependency = `pyfig-file-ref @ ${pathToFileURL(wheel).href}`;
+
+    const firstPyenv = new Python({ dependencies: [dependency], projectRoot: root });
+    const first = await firstPyenv.prepare();
+    expect(fixtureWheelValue(firstPyenv)).toBe('first');
+
+    await writeFixtureWheel(wheel, 'second-build', 2);
+    const secondPyenv = new Python({ dependencies: [dependency], projectRoot: root });
+    const second = await secondPyenv.prepare();
+    expect(second.venvId).not.toBe(first.venvId);
+    expect(second.python.virtualEnvironment).not.toBe(first.python.virtualEnvironment);
+    expect(fixtureWheelValue(secondPyenv)).toBe('second-build');
+  }, 60_000);
+
   test('rejects unavailable requirements files before creating a venv', async () => {
     const root = path.join(temporaryRoot, 'missing-requirements');
     await mkdir(root, { recursive: true });
-    await expect(ensureEnvironment({
+    await expect(ensurePython({
       projectRoot: root,
       requirements: ['missing.txt'],
     })).rejects.toThrow('Requirements file is unavailable');
@@ -337,7 +359,7 @@ describe('pyfig', () => {
       'DEFAULT_REQUIRES_PYTHON',
       'DEFAULT_REQUIRES_UV',
       'Python',
-      'ensureEnvironment',
+      'ensurePython',
       'ensureUv',
       'resolveProjectRoot',
       'uvSpawn',
@@ -422,4 +444,43 @@ function pythonFixture(overrides: Partial<PythonInfo> = {}): PythonInfo {
     embedding: null,
     ...overrides,
   };
+}
+
+async function writeFixtureWheel(file: string, value: string, revision: number): Promise<void> {
+  const distribution = 'pyfig_file_ref-1.0.0.dist-info';
+  const archive = zipSync({
+    'pyfig_file_ref.py': strToU8(`VALUE = ${JSON.stringify(value)}\n`),
+    [`${distribution}/METADATA`]: strToU8([
+      'Metadata-Version: 2.1',
+      'Name: pyfig-file-ref',
+      'Version: 1.0.0',
+      '',
+    ].join('\n')),
+    [`${distribution}/RECORD`]: strToU8([
+      'pyfig_file_ref.py,,',
+      `${distribution}/METADATA,,`,
+      `${distribution}/WHEEL,,`,
+      `${distribution}/RECORD,,`,
+      '',
+    ].join('\n')),
+    [`${distribution}/WHEEL`]: strToU8([
+      'Wheel-Version: 1.0',
+      'Generator: pyfig-test',
+      'Root-Is-Purelib: true',
+      'Tag: py3-none-any',
+      '',
+    ].join('\n')),
+  }, { level: 0 });
+  await writeFile(file, archive);
+  const modified = new Date(Date.now() + revision * 2_000);
+  await utimes(file, modified, modified);
+}
+
+function fixtureWheelValue(pyenv: Python): string {
+  const result = pyenv.uvSync(
+    ['run', '--', 'python', '-c', 'import pyfig_file_ref; print(pyfig_file_ref.VALUE)'],
+    { encoding: 'utf8' },
+  );
+  if (result.status !== 0) throw new Error(String(result.stderr));
+  return String(result.stdout).trim();
 }

@@ -172,7 +172,7 @@ export function hasRuntimeRequirements(
 }
 
 /** Keep uv data private while preferring a compatible system interpreter. */
-export function uvEnvironment(options: ResolvedPyfigOptions): NodeJS.ProcessEnv {
+export function uvProcessEnvironment(options: ResolvedPyfigOptions): NodeJS.ProcessEnv {
   return {
     ...options.env,
     UV_PYTHON_INSTALL_DIR: path.join(options.cacheDir, 'python'),
@@ -231,7 +231,9 @@ function normalizeDependencies(dependencies: readonly string[]): string[] {
       throw new TypeError(`Invalid runtime dependency: ${JSON.stringify(dependency)}`);
     }
   }
-  return [...new Set(normalized)].sort();
+  // uv owns requirement parsing and source priority. Preserve caller order so
+  // direct URLs, Git references, local files, and index directives retain uv's semantics.
+  return normalized;
 }
 
 function normalizeRequirements(requirements: readonly string[], projectRoot: string): string[] {
@@ -248,7 +250,7 @@ function normalizeRequirements(requirements: readonly string[], projectRoot: str
         `Expected a requirements file, not Python project metadata: ${absolute}`,
       );
     }
-    if (!normalized.includes(absolute)) normalized.push(absolute);
+    normalized.push(absolute);
   }
   return normalized;
 }

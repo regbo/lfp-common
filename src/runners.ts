@@ -7,17 +7,17 @@ import {
 } from 'node:child_process';
 import {
   resolveOptions,
-  uvEnvironment,
+  uvProcessEnvironment,
   type PyfigOptions,
   type ResolvedPyfigOptions,
 } from './config.js';
 import type { PythonInfo, UvInfo } from './probes.js';
 import {
   targetUvArguments,
-  uvCommandEnvironment,
-  uvCommandNeedsEnvironment,
+  uvCommandNeedsPython,
+  uvCommandProcessEnvironment,
 } from './package-target.js';
-import { ensureEnvironment, ensureUv, type PythonEnvironment } from './provision.js';
+import { ensurePython, ensureUv, type PythonEnvironment } from './provision.js';
 import { runtimeFile } from './runtime-files.js';
 
 export interface ResolvedCommand {
@@ -27,7 +27,7 @@ export interface ResolvedCommand {
 }
 
 interface SyncResolutionRequest {
-  target: 'environment' | 'uv';
+  target: 'python' | 'uv';
   options: ResolvedPyfigOptions;
 }
 
@@ -39,11 +39,11 @@ export async function uvSpawn(
 ): Promise<ChildProcess> {
   const options = optionsForInvocation(pyfigOptions, spawnOptions.env);
   const resolved = resolveOptions(options);
-  const environment = uvCommandNeedsEnvironment(args)
-    ? await ensureEnvironment(resolved)
+  const python = uvCommandNeedsPython(args)
+    ? await ensurePython(resolved)
     : undefined;
-  const uv = environment?.uv ?? await ensureUv(resolved);
-  const command = buildUvCommand(uv, args, resolved, environment?.python);
+  const uv = python?.uv ?? await ensureUv(resolved);
+  const command = buildUvCommand(uv, args, resolved, python?.python);
   return spawn(command.executable, command.args, {
     ...spawnOptions,
     env: command.env,
@@ -58,11 +58,11 @@ export function uvSpawnSync(
 ): ReturnType<typeof spawnSync> {
   const options = optionsForInvocation(pyfigOptions, spawnOptions.env);
   const resolved = resolveOptions(options);
-  const environment = uvCommandNeedsEnvironment(args)
-    ? resolveSynchronously('environment', resolved)
+  const python = uvCommandNeedsPython(args)
+    ? resolveSynchronously('python', resolved)
     : undefined;
-  const uv = environment?.uv ?? resolveSynchronously('uv', resolved);
-  const command = buildUvCommand(uv, args, resolved, environment?.python);
+  const uv = python?.uv ?? resolveSynchronously('uv', resolved);
+  const command = buildUvCommand(uv, args, resolved, python?.python);
   return spawnSync(command.executable, command.args, {
     ...spawnOptions,
     env: command.env,
@@ -78,7 +78,7 @@ export function buildUvCommand(
   return {
     executable: uv.executable,
     args: python ? targetUvArguments(args, python) : [...args],
-    env: uvCommandEnvironment(uvEnvironment(options), python),
+    env: uvCommandProcessEnvironment(uvProcessEnvironment(options), python),
   };
 }
 
@@ -90,7 +90,7 @@ function optionsForInvocation(
 }
 
 function resolveSynchronously(
-  target: 'environment',
+  target: 'python',
   options: PyfigOptions,
 ): PythonEnvironment;
 function resolveSynchronously(target: 'uv', options: PyfigOptions): UvInfo;

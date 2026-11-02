@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { PythonInfo } from './probes.js';
-import { canonicalPath } from './virtual-environment.js';
+import { canonicalPath } from './python-venv.js';
 
 export const VENV_SCHEMA = 1;
 export const VENV_METADATA = '.pyfig-venv.json';

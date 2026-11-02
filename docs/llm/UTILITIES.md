@@ -11,10 +11,10 @@
 | Python and tool probes | `src/probes.ts` | Probe Python capabilities, version-specific and Stable ABI embedding libraries, and compatible uv executables. | Provisioning |
 | PEP 440 version policy | `src/pep440.ts` | Validate and evaluate `requiresPython` and `requiresUv` specifiers consistently. | Configuration, probes |
 | uv target policy | `src/package-target.ts` | Pin `uv pip` and `uv run` to the selected environment. | Spawn runners |
-| Venv path utilities | `src/virtual-environment.ts` | Canonicalize venv paths, locate its interpreter, and activate child environments. | Probes, provisioning, runners |
+| Python venv utilities | `src/python-venv.ts` | Canonicalize Python venv paths, locate their interpreters, and activate child processes. | Probes, provisioning, runners |
 | `runtimeFile` | `src/runtime-files.ts` | Locate helper entry points without shared globals in ESM and CJS builds. | Synchronous runners |
 | `Python` | `src/client.ts` | Bind one venv configuration to the consumer-facing preparation and spawn API. | Long-lived library consumers |
-| Provisioning API | `src/provision.ts` | Prefer system Python, resolve/cache compatible uv releases, reuse dependency-free external venvs, and provision isolated hashed venvs from explicit runtime inputs. | Public API, CLI, sync bridge |
+| Provisioning API | `src/provision.ts` | Prefer system Python, pass explicit runtime inputs to uv, reuse dependency-free external venvs, and provision isolated venvs identified by uv's compiled output. | Public API, CLI, sync bridge |
 | Spawn API | `src/runners.ts` | Run uv and bind its pip/run commands to the selected environment. | Public API, Pynect |
 | `sync-resolver` | `src/sync-resolver.ts` | Perform async preparation behind synchronous caller APIs using `process.execPath`. | Synchronous runners |
 | CLI | `src/cli.ts` | Expose validated preparation and check-only policy through Commander. | End users |

@@ -1,5 +1,5 @@
 import type { PythonInfo } from './probes.js';
-import { activateVirtualEnvironment } from './virtual-environment.js';
+import { activatePythonVenv } from './python-venv.js';
 
 const TARGET_OPTIONS = new Set([
   '--active',
@@ -34,7 +34,7 @@ const TARGET_ENVIRONMENT_VARIABLES = new Set([
   'UV_TARGET',
 ]);
 
-export function uvCommandNeedsEnvironment(args: readonly string[]): boolean {
+export function uvCommandNeedsPython(args: readonly string[]): boolean {
   return args[0] === 'pip' || args[0] === 'run';
 }
 
@@ -56,14 +56,14 @@ export function targetUvArguments(
   return [...args];
 }
 
-export function uvCommandEnvironment(
+export function uvCommandProcessEnvironment(
   env: NodeJS.ProcessEnv,
   python?: PythonInfo,
 ): NodeJS.ProcessEnv {
-  const sanitized = sanitizeUvEnvironment(env);
+  const sanitized = sanitizeUvProcessEnvironment(env);
   if (!python?.virtualEnvironment) return sanitized;
   return {
-    ...activateVirtualEnvironment(
+    ...activatePythonVenv(
       sanitized,
       python.virtualEnvironment,
       python.executable,
@@ -73,7 +73,7 @@ export function uvCommandEnvironment(
 }
 
 /** Remove inherited values that could redirect uv away from an explicit target. */
-export function sanitizeUvEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+export function sanitizeUvProcessEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const sanitized = { ...env };
   for (const key of Object.keys(sanitized)) {
     if (TARGET_ENVIRONMENT_VARIABLES.has(key.toUpperCase())) delete sanitized[key];

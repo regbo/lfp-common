@@ -22,7 +22,7 @@ import { EnvHttpProxyAgent, fetch } from 'undici';
 import {
   hasRuntimeRequirements,
   resolveOptions,
-  uvEnvironment,
+  uvProcessEnvironment,
   type PyfigOptions,
   type ResolvedPyfigOptions,
 } from './config.js';
@@ -34,7 +34,10 @@ import {
   type VenvIdentity,
 } from './venv-identity.js';
 import { withProvisioningLock } from './provision-lock.js';
-import { sanitizeUvEnvironment, uvCommandEnvironment } from './package-target.js';
+import {
+  sanitizeUvProcessEnvironment,
+  uvCommandProcessEnvironment,
+} from './package-target.js';
 import {
   maxPep440Version,
   normalizePep440Version,
@@ -50,11 +53,11 @@ import {
 import { runAsync } from './process.js';
 import {
   canonicalPath,
-  externalVirtualEnvironmentDirectories,
+  externalPythonVenvDirectories,
   pathsEqual,
-  virtualEnvironmentDirectory,
-  virtualEnvironmentPythonExecutable,
-} from './virtual-environment.js';
+  pythonVenvDirectory,
+  pythonVenvExecutable,
+} from './python-venv.js';
 
 export interface PythonEnvironment {
   python: PythonInfo;
@@ -79,14 +82,14 @@ export async function ensureUv(options: PyfigOptions = {}): Promise<UvInfo> {
  * Select an external dependency-free venv or a private content-addressed venv.
  * Only caller-provided dependency specifiers and requirements files are resolved.
  */
-export async function ensureEnvironment(
+export async function ensurePython(
   options: PyfigOptions = {},
 ): Promise<PythonEnvironment> {
   const resolved = resolveOptions(options);
   await validateRequirementsFiles(resolved.requirements);
   const uv = await ensureUvResolved(resolved);
   if (!hasRuntimeRequirements(resolved)) {
-    const external = await findReusableExternalEnvironment(resolved);
+    const external = await findReusableExternalPythonVenv(resolved);
     if (external) {
       return { managed: false, python: external, uv, venvId: null };
     }
@@ -94,21 +97,21 @@ export async function ensureEnvironment(
   const basePython = await ensureBasePythonResolved(uv, resolved);
   const resolution = await resolveRuntimeDependencies(uv, basePython, resolved);
   const venv = createVenvIdentity(basePython, resolution.sha256);
-  const python = await ensureManagedVenv(uv, basePython, venv, resolution, resolved);
+  const python = await ensureManagedPythonVenv(uv, basePython, venv, resolution, resolved);
   return { managed: true, python, uv, venvId: venv.id };
 }
 
-async function ensureManagedVenv(
+async function ensureManagedPythonVenv(
   uv: UvInfo,
   basePython: PythonInfo,
   venv: VenvIdentity,
   resolution: RuntimeResolution,
   options: ResolvedPyfigOptions,
 ): Promise<PythonInfo> {
-  const directory = virtualEnvironmentDirectory(options.projectRoot, venv.directoryName);
+  const directory = pythonVenvDirectory(options.projectRoot, venv.directoryName);
   const check = async (): Promise<PythonInfo | null> => {
     if (!await venvMatches(directory, venv)) return null;
-    const candidate = await inspectVirtualEnvironment(directory, options);
+    const candidate = await inspectPythonVenv(directory, options);
     return candidate && pythonSatisfiesPolicy(candidate, options) ? candidate : null;
   };
   const existing = await check();
@@ -139,10 +142,10 @@ async function ensureManagedVenv(
             basePython.executable,
             directory,
           ],
-          isolatedUvEnvironment(options),
+          isolatedUvProcessEnvironment(options),
           options.installTimeoutMs,
         );
-        const created = await inspectVirtualEnvironment(directory, options);
+        const created = await inspectPythonVenv(directory, options);
         if (!created || !pythonSatisfiesPolicy(created, options)) {
           throw new Error(
             `uv created ${directory}, but its Python does not satisfy the requested capabilities.`,
@@ -161,7 +164,7 @@ async function ensureManagedVenv(
   });
 }
 
-async function findReusableExternalEnvironment(
+async function findReusableExternalPythonVenv(
   options: ResolvedPyfigOptions,
 ): Promise<PythonInfo | null> {
   if (options.python) {
@@ -172,8 +175,8 @@ async function findReusableExternalEnvironment(
     if (configured.virtualEnvironment) return configured;
   }
 
-  for (const directory of externalVirtualEnvironmentDirectories(options.projectRoot, options.env)) {
-    const info = await inspectVirtualEnvironment(directory, options);
+  for (const directory of externalPythonVenvDirectories(options.projectRoot, options.env)) {
+    const info = await inspectPythonVenv(directory, options);
     if (info && pythonSatisfiesPolicy(info, options)) return info;
   }
   return null;
@@ -215,7 +218,7 @@ async function ensureBasePythonResolved(
       await runAsync(
         uv.executable,
         ['python', 'install', '--no-config', options.managedPython],
-        isolatedUvEnvironment(options),
+        isolatedUvProcessEnvironment(options),
         options.installTimeoutMs,
       );
       const installed = await findPythonWithUv(uv, options, 'managed');
@@ -233,8 +236,8 @@ async function ensureBasePythonResolved(
 async function findExternalBasePython(
   options: ResolvedPyfigOptions,
 ): Promise<PythonInfo | null> {
-  for (const directory of externalVirtualEnvironmentDirectories(options.projectRoot, options.env)) {
-    const environment = await inspectVirtualEnvironment(directory, options);
+  for (const directory of externalPythonVenvDirectories(options.projectRoot, options.env)) {
+    const environment = await inspectPythonVenv(directory, options);
     if (!environment || !pythonSatisfiesPolicy(environment, options)) continue;
     const base = await probePython({ executable: environment.baseExecutable, args: [] }, options);
     if (base && !base.virtualEnvironment && pythonSatisfiesPolicy(base, options)) return base;
@@ -261,7 +264,7 @@ async function findPythonWithUv(
       const { stdout } = await runAsync(
         uv.executable,
         args,
-        explicitPythonSourceEnvironment(options),
+        explicitPythonSourceProcessEnvironment(options),
         options.probeTimeoutMs,
       );
       const info = await probePython({ executable: stdout.trim(), args: [] }, options);
@@ -288,7 +291,7 @@ async function findPythonWithUv(
         'json',
         source === 'system' ? '--no-managed-python' : '--managed-python',
       ],
-      explicitPythonSourceEnvironment(options),
+      explicitPythonSourceProcessEnvironment(options),
       options.probeTimeoutMs,
     );
     const candidates = installedPythonPaths(stdout);
@@ -315,11 +318,11 @@ function installedPythonPaths(output: string): string[] {
   return [...new Map(paths.map((candidate) => [canonicalPath(candidate), candidate])).values()];
 }
 
-async function inspectVirtualEnvironment(
+async function inspectPythonVenv(
   directory: string,
   options: ResolvedPyfigOptions,
 ): Promise<PythonInfo | null> {
-  const executable = virtualEnvironmentPythonExecutable(directory);
+  const executable = pythonVenvExecutable(directory);
   const info = await probePython({ executable, args: [] }, options);
   return info?.virtualEnvironment && pathsEqual(info.virtualEnvironment, directory) ? info : null;
 }
@@ -348,7 +351,7 @@ async function resolveRuntimeDependencies(
         '--generate-hashes', '--python', python.executable,
         ...sources, '--output-file', output,
       ],
-      isolatedUvEnvironment(options),
+      isolatedUvProcessEnvironment(options),
       options.installTimeoutMs,
       undefined,
       options.projectRoot,
@@ -391,7 +394,7 @@ async function installResolvedDependencies(
     await runAsync(
       uv.executable,
       ['pip', 'install', '--no-config', '--python', python.executable, '-r', requirements],
-      targetUvEnvironment(options, python),
+      targetUvProcessEnvironment(options, python),
       options.installTimeoutMs,
       undefined,
       options.projectRoot,
@@ -399,7 +402,7 @@ async function installResolvedDependencies(
     await runAsync(
       uv.executable,
       ['pip', 'check', '--no-config', '--python', python.executable],
-      targetUvEnvironment(options, python),
+      targetUvProcessEnvironment(options, python),
       options.installTimeoutMs,
       undefined,
       options.projectRoot,
@@ -472,24 +475,24 @@ async function findManagedUv(options: ResolvedPyfigOptions): Promise<UvInfo | nu
   return null;
 }
 
-function isolatedUvEnvironment(options: ResolvedPyfigOptions): NodeJS.ProcessEnv {
-  return sanitizeUvEnvironment(uvEnvironment(options));
+function isolatedUvProcessEnvironment(options: ResolvedPyfigOptions): NodeJS.ProcessEnv {
+  return sanitizeUvProcessEnvironment(uvProcessEnvironment(options));
 }
 
 /** Explicit --system/--managed-python selectors cannot be combined with uv's preference setting. */
-function explicitPythonSourceEnvironment(
+function explicitPythonSourceProcessEnvironment(
   options: ResolvedPyfigOptions,
 ): NodeJS.ProcessEnv {
-  const env = isolatedUvEnvironment(options);
+  const env = isolatedUvProcessEnvironment(options);
   delete env['UV_PYTHON_PREFERENCE'];
   return env;
 }
 
-function targetUvEnvironment(
+function targetUvProcessEnvironment(
   options: ResolvedPyfigOptions,
   python: PythonInfo,
 ): NodeJS.ProcessEnv {
-  return uvCommandEnvironment(uvEnvironment(options), python);
+  return uvCommandProcessEnvironment(uvProcessEnvironment(options), python);
 }
 
 function incompatibleConfiguredPython(options: ResolvedPyfigOptions): Error {
@@ -847,17 +850,17 @@ async function downloadText(
 }
 
 function proxyDispatcher(env: NodeJS.ProcessEnv): EnvHttpProxyAgent | undefined {
-  const httpProxy = environmentValue(env, 'http_proxy', 'HTTP_PROXY');
-  const httpsProxy = environmentValue(env, 'https_proxy', 'HTTPS_PROXY');
+  const httpProxy = processEnvironmentValue(env, 'http_proxy', 'HTTP_PROXY');
+  const httpsProxy = processEnvironmentValue(env, 'https_proxy', 'HTTPS_PROXY');
   if (!httpProxy && !httpsProxy) return undefined;
   return new EnvHttpProxyAgent({
     httpProxy,
     httpsProxy,
-    noProxy: environmentValue(env, 'no_proxy', 'NO_PROXY'),
+    noProxy: processEnvironmentValue(env, 'no_proxy', 'NO_PROXY'),
   });
 }
 
-function environmentValue(
+function processEnvironmentValue(
   env: NodeJS.ProcessEnv,
   lowercase: string,
   uppercase: string,

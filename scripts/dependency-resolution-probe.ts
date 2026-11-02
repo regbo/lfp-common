@@ -12,17 +12,36 @@ const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'pyfig-dependency-pro
 const cacheDir = path.join(temporaryRoot, 'cache');
 
 try {
+  const git = await pinnedGitReference();
   const isolated = await compatibleIsolation();
   const rejected = await rejectedConflict();
   const raw = await rawPipConflict();
   process.stdout.write(`${JSON.stringify({
     generatedAt: new Date().toISOString(),
+    git,
     isolated,
     raw,
     rejected,
   }, null, 2)}\n`);
 } finally {
   await rm(temporaryRoot, { recursive: true, force: true });
+}
+
+async function pinnedGitReference(): Promise<object> {
+  const projectRoot = path.join(temporaryRoot, 'git-reference');
+  await mkdir(projectRoot, { recursive: true });
+  const pyenv = new Python({
+    cacheDir,
+    dependencies: ['sampleproject @ git+https://github.com/pypa/sampleproject.git'],
+    projectRoot,
+  });
+  const environment = await pyenv.prepare();
+  const freeze = uvOutput(pyenv, ['pip', 'freeze']);
+  const commit = freeze.match(
+    /^sampleproject @ git\+https:\/\/github\.com\/pypa\/sampleproject\.git@([0-9a-f]{40,64})$/mu,
+  )?.[1];
+  assert(commit, `uv did not pin the Git dependency to a commit: ${freeze}`);
+  return { commit, venvId: environment.venvId };
 }
 
 async function compatibleIsolation(): Promise<object> {
@@ -33,8 +52,8 @@ async function compatibleIsolation(): Promise<object> {
   const started = performance.now();
   const botocoreEnvironment = await botocorePyenv.prepare();
   const elapsedMs = performance.now() - started;
-  const baseline = await environmentState(baselinePyenv);
-  const botocore = await environmentState(botocorePyenv);
+  const baseline = await pythonState(baselinePyenv);
+  const botocore = await pythonState(botocorePyenv);
 
   assert(baseline.urllib3 === INITIAL_URLLIB3, 'baseline urllib3 changed');
   assert(botocore.urllib3 === DOWNGRADED_URLLIB3, `expected urllib3 ${DOWNGRADED_URLLIB3}`);
@@ -62,7 +81,7 @@ async function rejectedConflict(): Promise<object> {
   const baselinePyenv = fixture.createPyenv([`urllib3==${INITIAL_URLLIB3}`, 'idna==3.10']);
   const conflictingPyenv = fixture.createPyenv([`botocore==${BOTOCORE}`]);
   await baselinePyenv.prepare();
-  const before = await environmentState(baselinePyenv);
+  const before = await pythonState(baselinePyenv);
   const started = performance.now();
   let error = '';
   try {
@@ -71,7 +90,7 @@ async function rejectedConflict(): Promise<object> {
     error = caught instanceof Error ? caught.message : String(caught);
   }
   const elapsedMs = performance.now() - started;
-  const after = await environmentState(baselinePyenv);
+  const after = await pythonState(baselinePyenv);
   assert(error.length > 0, 'expected dependency resolution to fail');
   assert(before.urllib3 === INITIAL_URLLIB3 && after.urllib3 === INITIAL_URLLIB3, 'baseline changed');
   assert(before.idna === '3.10' && after.idna === '3.10', 'baseline idna changed');
@@ -94,7 +113,7 @@ async function rawPipConflict(): Promise<object> {
   const fixture = await createFixture('raw-pip-conflict', 'urllib3>=2.2,<3');
   const pyenv = fixture.createPyenv([`urllib3==${INITIAL_URLLIB3}`, 'idna==3.10']);
   await pyenv.prepare();
-  const before = await environmentState(pyenv);
+  const before = await pythonState(pyenv);
   const started = performance.now();
   const result = pyenv.uvSync(
     ['pip', 'install', `botocore==${BOTOCORE}`],
@@ -102,7 +121,7 @@ async function rawPipConflict(): Promise<object> {
   );
   const elapsedMs = performance.now() - started;
   assert(result.status === 0, String(result.stderr || `raw install exited ${result.status}`));
-  const after = await environmentState(pyenv);
+  const after = await pythonState(pyenv);
   const pipCheck = pyenv.uvSync(['pip', 'check'], { encoding: 'utf8' });
   assert(after.urllib3 === DOWNGRADED_URLLIB3, 'raw pip install did not downgrade urllib3');
   assert(after.botocore === BOTOCORE, 'raw pip install did not add botocore');
@@ -147,7 +166,7 @@ async function createFixture(
   };
 }
 
-async function environmentState(pyenv: Python): Promise<{
+async function pythonState(pyenv: Python): Promise<{
   botocore: string | null;
   idna: string | null;
   python: string;
