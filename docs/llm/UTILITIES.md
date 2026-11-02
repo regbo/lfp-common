@@ -9,7 +9,7 @@
 - `scripts/smoke-prebuild.js`: hides the local build and runs the shared Python-boundary smoke test through the staged prebuild only.
 - `scripts/docker-zero-python.sh`: clean Linux container proof for uv/Python bootstrap, native build, and shared-interpreter smoke coverage.
 - `src/env/python.ts`: typed access to the shared Pyfig policy from compiled source.
-- `src/config/project.ts`: canonical JSON-pyproject package.json/API normalizer plus environment and CLI project policy resolver. Omitted schema versions select the current schema; precedence is explicit overrides, environment, root package.json, then defaults.
+- `src/config/project.ts`: canonical package.json/API manifest normalizer plus environment and CLI project policy resolver. Omitted schema versions select the current schema; precedence is explicit overrides, environment, root package.json, then defaults.
 - `src/env/project-environment.ts`: transitive `pynect` manifest discovery, dependency aggregation, namespaced module registry, and direct Pyfig option construction. Pyfig and uv own resolution, content addressing, caching, and provisioning coordination.
 - `python/type_inspector.py`: the single Python inspection source used by `pynect codegen`.
 - `src/cli/codegen.ts`: Commander command, Pacwich project discovery, configuration precedence, selection policy, project setup, and declaration emission.

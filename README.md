@@ -23,9 +23,10 @@ Declare application Python dependencies. Pynect's trusted postinstall aggregates
 }
 ```
 
-The `pynect` value mirrors the relevant `pyproject.toml` tables in JSON. Omitted
-`schemaVersion` means the latest schema supported by the installed Pynect release.
-The same shape is accepted programmatically:
+The `pynect` value uses `project` for Python compatibility and dependencies, and
+`tool.pynect` for environment policy and exposed modules. Omitted `schemaVersion`
+means the latest schema supported by the installed Pynect release. The same shape
+is accepted programmatically:
 
 ```ts
 import { init } from 'pynect';
@@ -224,7 +225,7 @@ One application owns one Pyfig-selected environment. Reusable npm packages contr
 }
 ```
 
-`pynect sync` walks the installed npm dependency graph, aggregates `project.dependencies`, and passes them directly to Pyfig 0.7. Pyfig delegates resolution to uv and creates a content-addressed environment whose identity includes the selected interpreter, platform, ABI, and complete resolved dependency hashes. uv's shared cache avoids repeated downloads across environments. Pynect does not generate a pyproject, lockfile, state file, or a second environment identity.
+`pynect sync` walks the installed npm dependency graph, aggregates `project.dependencies`, and passes them directly to Pyfig 0.7. Pyfig delegates resolution to uv and creates a content-addressed environment whose identity includes the selected interpreter, platform, ABI, and complete resolved dependency hashes. uv's shared cache avoids repeated downloads across environments. Pynect does not generate intermediary dependency metadata, a lockfile, a state file, or a second environment identity.
 
 Pynect does not implement a Python package resolver. Conflicts and platform-specific selections are handled by Pyfig and uv, while Pynect adds the npm packages that contributed each top-level dependency to failure output. Dependency manifests may declare `project` dependency metadata and `tool.pynect.modules`; Python selection, requirements files, installation policy, indexes, and credentials remain application-owned.
 
@@ -271,7 +272,7 @@ Pynect's postinstall runs the same sync automatically when a reachable npm packa
 
 An application may always keep installation side-effect free and run `pynect sync` explicitly instead.
 
-Package and programmatic configuration use the same JSON pyproject projection. Configuration precedence is API or CLI, environment, root `package.json`, then default:
+Package and programmatic configuration use the same Pynect manifest shape. Configuration precedence is API or CLI, environment, root `package.json`, then default:
 
 | package.json / API | Environment | CLI | Default |
 | --- | --- | --- | --- |
