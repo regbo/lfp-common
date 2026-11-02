@@ -1,6 +1,6 @@
 {
   "name": "pynect",
-  "version": "0.2.11",
+  "version": "0.2.12",
   "packageManager": "bun@1.4.4",
   "description": "Lazy uv-backed Python environments with object proxies for Node.js and Bun.",
   "main": "dist/js/index.js",
