@@ -5,11 +5,18 @@
   "type": "module",
   "main": "./dist/cjs/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "pyfig": "./dist/cli.js"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/cjs/index.js"
+    },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js"
     }
   },
   "files": [
@@ -21,7 +28,7 @@
   "scripts": {
     "build": "bun run scripts/build.ts",
     "test": "bun test",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.scripts.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.scripts.json && tsc --noEmit -p tests/tsconfig.json",
     "verify": "bun run typecheck && bun test",
     "release": "bun run scripts/release.ts",
     "release:check": "bun run scripts/check-release.ts",
@@ -56,19 +63,21 @@
     "bun": ">=1.2.0"
   },
   "dependencies": {
+    "@antfu/install-pkg": "^2.1.0",
     "@renovatebot/pep440": "^5.0.1",
     "fflate": "^0.8.3",
     "loqkit": ">=0.0.5 <0.1.0",
     "tar": "^7.5.22",
     "undici": "^8.12.3",
-    "which": "^6.0.1"
+    "which": "^6.0.1",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/bun": "^1.4.4",
     "@types/node": "^26.6.6",
     "@types/semver": "^7.8.0",
     "@types/which": "^3.0.4",
-    "commander": "^14.0.3",
+    "fireargs": "^0.6.2",
     "semver": "^7.8.5",
     "typescript": "^7.0.2"
   }

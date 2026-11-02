@@ -1,8 +1,8 @@
 # pyfig
 
-`pyfig` resolves compatible uv and Python executables from Node.js or Bun and
-exposes one guarded `uv run` spawn method. Its only managed state is a uv tool
-cache; uv retains responsibility for Python, environments, and dependencies.
+`pyfig` resolves or provisions compatible uv and Python executables from Node.js
+or Bun. Its only managed state is a uv tool cache; uv retains responsibility for
+Python, environments, dependencies, and command execution.
 
 ## Install
 
@@ -27,42 +27,48 @@ const python = await pyfig({
   requireGil: true,
 });
 
-console.log(python.uv);
-console.log(python.python);
-
-python.run('python', '--version', { stdio: 'inherit' });
+console.log(python.uv.path, python.uv.version);
+console.log(python.python.path, python.python.version);
 ```
 
-`pyfig()` returns a `PythonContext` containing:
+## CLI
+
+The package includes a `pyfig` executable with flags derived from the same Zod
+schemas used by the library:
+
+```sh
+pyfig resolve --python ">=3.11,<4" --require-embedding --require-gil
+```
+
+The `uv` and `python` subcommands resolve the requested executables and inherit
+the caller's standard input, output, error, environment, and working directory.
+Both set `UV_PYTHON` to the resolved Python path. The `python` command executes
+`uv run python`, while `uv` executes uv directly:
+
+```sh
+pyfig python --version
+pyfig python --python "<3.11" --uv "<0.10" -- --version
+pyfig uv --python ">=3.12,<4" -- pip list
+```
+
+Use `--` when a child argument could otherwise be parsed as a Pyfig option. Use
+`pyfig resolve --json` for structured metadata or `pyfig --llms` for Fireargs'
+tool manifest. Environment overrides can be passed as a JSON object:
+
+```sh
+pyfig resolve --env '{"UV_PYTHON_PREFERENCE":"only-system"}'
+```
+
+When invoked, the CLI installs Fireargs and its Commander peer into the current
+project through `@antfu/install-pkg`, then runs the generated command. They are
+not installed or loaded when Pyfig is used only as a library.
+
+`pyfig()` returns an immutable `PythonContext` containing only:
 
 | Field | Meaning |
 | --- | --- |
-| `uv` | Absolute path to the resolved uv executable. |
-| `python` | Absolute path to the resolved Python interpreter. |
-| `run(...args)` | Spawn `uv run` with that Python interpreter. |
-
-`run()` treats a final object as Node `SpawnOptions`. When no `--` argument is
-present, every string is treated as command argv:
-
-```ts
-python.run('python', '--version');
-// uv run --python /resolved/python -- python --version
-```
-
-When `--` is present, strings before it are passed to uv and strings after it
-are command argv:
-
-```ts
-python.run('--no-project', '--with', 'httpx', '--', 'python', 'script.py', {
-  cwd: '/workspace',
-  stdio: 'inherit',
-});
-```
-
-Pyfig inserts `--python <python>` immediately before the separator. Caller
-supplied `--python <value>` and `--python=<value>` arguments are rejected before
-`--`; Python is selected only by `pyfig()`. A `--python` appearing after
-`--` belongs to the command and is left untouched.
+| `uv` | Immutable `{ path, version }` metadata for the resolved uv executable. |
+| `python` | Immutable `{ path, version }` metadata for the resolved Python interpreter. |
 
 `pyfig()` accepts:
 
@@ -73,7 +79,7 @@ supplied `--python <value>` and `--python=<value>` arguments are rejected before
 | `requireEmbedding` | `false` | Require CPython headers, a linkable library, and matching architecture. |
 | `requireGil` | `false` | Reject free-threaded Python builds. |
 | `cwd` | `process.cwd()` | Directory used for uv configuration and project discovery. |
-| `env` | `process.env` | Environment used to locate executables and invoke child processes. |
+| `env` | `process.env` | Environment used during executable resolution and provisioning. |
 
 For both `uv` and `python`, Pyfig first checks whether the value resolves to an
 executable. An executable wins over version parsing. An explicit uv executable
@@ -102,8 +108,9 @@ const python = await pyfig({
 });
 ```
 
-The runtime package exports `pyfig` and `PythonContext`. TypeScript also exposes
-`PyfigOptions`. Matching ESM and CommonJS entry points are published.
+The runtime package exports `pyfig`, `pyfigOptionsSchema`, `DEFAULT_UV`, and
+`PythonContext`. TypeScript also exposes `PyfigOptions`. Matching ESM and
+CommonJS entry points are published for the library API.
 
 ## Development
 

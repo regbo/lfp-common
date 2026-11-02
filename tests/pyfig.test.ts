@@ -1,12 +1,15 @@
 import { describe, expect, test } from 'bun:test';
 import { spawn, type ChildProcess } from 'node:child_process';
-import os from 'node:os';
 import path from 'node:path';
-import { pyfig, PythonContext } from '../src/index.ts';
-import { buildRunArgs } from '../src/pyfig.ts';
+import {
+  DEFAULT_UV,
+  pyfig,
+  pyfigOptionsSchema,
+  PythonContext,
+} from '../src/index.ts';
 
 describe('pyfig', () => {
-  test('returns compatible uv and Python paths with one run method', async () => {
+  test('returns only compatible uv and Python paths', async () => {
     const resolved = await pyfig({
       uv: '>=0.10,<1',
       python: '>=3.10,<4',
@@ -14,15 +17,22 @@ describe('pyfig', () => {
 
     expect(resolved).toBeInstanceOf(PythonContext);
     expect(Object.keys(resolved).sort()).toEqual(['python', 'uv']);
-    expect(path.isAbsolute(resolved.uv)).toBe(true);
-    expect(path.isAbsolute(resolved.python)).toBe(true);
-    expect(typeof resolved.run).toBe('function');
+    expect(Object.isFrozen(resolved)).toBe(true);
+    expect(Object.keys(resolved.uv).sort()).toEqual(['path', 'version']);
+    expect(Object.keys(resolved.python).sort()).toEqual(['path', 'version']);
+    expect(Object.isFrozen(resolved.uv)).toBe(true);
+    expect(Object.isFrozen(resolved.python)).toBe(true);
+    expect(path.isAbsolute(resolved.uv.path)).toBe(true);
+    expect(path.isAbsolute(resolved.python.path)).toBe(true);
+    expect(resolved.uv.version).toMatch(/^\d+\.\d+/u);
+    expect(resolved.python.version).toMatch(/^\d+\.\d+/u);
+    expect('run' in resolved).toBe(false);
   }, 60_000);
 
   test('prefers a compatible system Python over uv managed installations', async () => {
     const specifier = '>=3.10,<4';
     const resolved = await pyfig({ python: specifier });
-    const expected = await capture(spawn(resolved.uv, [
+    const expected = await capture(spawn(resolved.uv.path, [
       'python',
       'find',
       '--system',
@@ -33,72 +43,7 @@ describe('pyfig', () => {
       windowsHide: true,
     }));
 
-    expect(pathsEqual(resolved.python, expected.trim())).toBe(true);
-  }, 60_000);
-
-  test('pins Python and creates a command separator when one is omitted', () => {
-    expect(buildRunArgs('/python', ['python', '--version'])).toEqual([
-      'run',
-      '--python',
-      '/python',
-      '--',
-      'python',
-      '--version',
-    ]);
-  });
-
-  test('preserves uv arguments and rejects Python before the separator', () => {
-    expect(buildRunArgs('/python', ['--no-project', '--', 'python', '--version'])).toEqual([
-      'run',
-      '--no-project',
-      '--python',
-      '/python',
-      '--',
-      'python',
-      '--version',
-    ]);
-    expect(() => buildRunArgs('/python', [
-      '--python',
-      '/python',
-      '--',
-      'python',
-    ])).toThrow('does not accept --python');
-    expect(() => buildRunArgs('/python', [
-      '--python=/python',
-      '--',
-      'python',
-    ])).toThrow('does not accept --python');
-    expect(buildRunArgs('/python', [
-      '--',
-      'tool',
-      '--python',
-      '/command-argument',
-    ])).toEqual([
-      'run',
-      '--python',
-      '/python',
-      '--',
-      'tool',
-      '--python',
-      '/command-argument',
-    ]);
-  });
-
-  test('runs commands asynchronously with final SpawnOptions', async () => {
-    const uv = await pyfig({ python: '>=3.10,<4' });
-    const child = uv.run(
-      'python',
-      '-I',
-      '-S',
-      '-c',
-      'import sys; print(sys.executable)',
-      {
-        cwd: os.tmpdir(),
-        stdio: ['ignore', 'pipe', 'pipe'],
-      },
-    );
-    const output = await capture(child);
-    expect(pathsEqual(output.trim(), uv.python)).toBe(true);
+    expect(pathsEqual(resolved.python.path, expected.trim())).toBe(true);
   }, 60_000);
 
   test('gives executable paths precedence over version selection', async () => {
@@ -107,13 +52,13 @@ describe('pyfig', () => {
       python: '>=3.10,<4',
     });
     const explicit = await pyfig({
-      // Any executable is trusted here, which proves explicit uv paths skip
-      // version probing and setup. run() remains the caller's responsibility.
-      uv: process.execPath,
-      python: selected.python,
+      uv: selected.uv.path,
+      python: selected.python.path,
     });
-    expect(pathsEqual(explicit.uv, process.execPath)).toBe(true);
-    expect(pathsEqual(explicit.python, selected.python)).toBe(true);
+    expect(pathsEqual(explicit.uv.path, selected.uv.path)).toBe(true);
+    expect(explicit.uv.version).toBe(selected.uv.version);
+    expect(pathsEqual(explicit.python.path, selected.python.path)).toBe(true);
+    expect(explicit.python.version).toBe(selected.python.version);
   }, 60_000);
 
   test('still checks requested capabilities for an explicit Python executable', async () => {
@@ -123,13 +68,13 @@ describe('pyfig', () => {
       requireGil: true,
     });
     const explicit = await pyfig({
-      uv: selected.uv,
-      python: selected.python,
+      uv: selected.uv.path,
+      python: selected.python.path,
       requireEmbedding: true,
       requireGil: true,
     });
 
-    expect(pathsEqual(explicit.python, selected.python)).toBe(true);
+    expect(pathsEqual(explicit.python.path, selected.python.path)).toBe(true);
   }, 120_000);
 
   test('rejects malformed selections and non-Python executables', async () => {
@@ -144,9 +89,34 @@ describe('pyfig', () => {
     })).rejects.toThrow();
   });
 
+  test('publishes described defaults through the options schema', () => {
+    const parsed = pyfigOptionsSchema.parse({});
+
+    expect(parsed).toEqual({
+      uv: DEFAULT_UV,
+      requireEmbedding: false,
+      requireGil: false,
+      debug: false,
+      cwd: process.cwd(),
+    });
+    const shape = pyfigOptionsSchema.unwrap().shape;
+    expect(shape.uv.description).toContain('PEP 440');
+    expect(shape.python.description).toContain('Python executable');
+    expect(shape.requireEmbedding.description).toContain('CPython headers');
+    expect(Object.isFrozen(parsed)).toBe(true);
+    expect(pyfigOptionsSchema.parse({ env: '{"PYFIG_TEST":"yes"}' }).env).toEqual({
+      PYFIG_TEST: 'yes',
+    });
+  });
+
   test('keeps the runtime API minimal', async () => {
     const api = await import('../src/index.ts');
-    expect(Object.keys(api).sort()).toEqual(['PythonContext', 'pyfig']);
+    expect(Object.keys(api).sort()).toEqual([
+      'DEFAULT_UV',
+      'PythonContext',
+      'pyfig',
+      'pyfigOptionsSchema',
+    ]);
   });
 });
 

@@ -23,6 +23,7 @@ import { unzipSync } from 'fflate';
 import { withLock } from 'loqkit';
 import * as tar from 'tar';
 import { EnvHttpProxyAgent, fetch } from 'undici';
+import { debugLog } from './logging.js';
 import { capture, environmentValue, findExecutable } from './process.js';
 
 interface UvRelease {
@@ -62,8 +63,12 @@ export async function resolveUv(
     env,
     specifier,
   };
+  debugLog('Searching for an available uv.', { cache: context.cache, specifier });
   const existing = await findAvailableUv(context);
-  if (existing) return existing;
+  if (existing) {
+    debugLog('Found an available uv.', { path: existing });
+    return existing;
+  }
 
   const policy = createHash('sha256').update(specifier).digest('hex');
   return withProvisioningLock({
@@ -94,7 +99,10 @@ export async function resolveUv(
 
 async function findAvailableUv(context: UvSetupContext): Promise<string | null> {
   const external = await findExecutable('uv', context.cwd, context.env);
-  if (external && await probeUv(external, context)) return external;
+  if (external && await probeUv(external, context)) {
+    debugLog('Using uv from PATH.', { path: external });
+    return external;
+  }
   return findCachedUv(context);
 }
 
@@ -108,7 +116,10 @@ async function findCachedUv(context: UvSetupContext): Promise<string | null> {
     const version = maxSatisfying(versions, context.specifier);
     if (!version) return null;
     const executable = await probeUv(uvExecutable(context, version), context, version);
-    if (executable) return executable;
+    if (executable) {
+      debugLog('Using cached uv.', { path: executable, version });
+      return executable;
+    }
     versions = versions.filter(candidate => candidate !== version);
   }
   return null;
@@ -140,6 +151,7 @@ async function resolveUvRelease(context: UvSetupContext): Promise<UvRelease> {
   const version = maxSatisfying(candidates.map(release => release.version), context.specifier);
   const release = candidates.find(candidate => candidate.version === version);
   if (!release) throw new Error(`No published uv release satisfies ${context.specifier}.`);
+  debugLog('Selected uv release.', { asset, tag: release.tag, version: release.version });
   return release;
 }
 
@@ -151,6 +163,7 @@ async function ensureUvReleaseCatalog(context: UvSetupContext): Promise<UvReleas
       key: `uv-metadata:${canonicalPath(file)}`,
       check: () => readFreshUvReleaseCatalog(file),
       mutate: async () => {
+        debugLog('Refreshing uv release catalog.', { file });
         const catalog = await fetchUvReleaseCatalog(context.env);
         await writeUvReleaseCatalog(file, catalog);
         return catalog;
@@ -158,7 +171,12 @@ async function ensureUvReleaseCatalog(context: UvSetupContext): Promise<UvReleas
     });
   } catch (error) {
     const fallback = await readUvReleaseCatalog(file) ?? stale;
-    if (fallback) return fallback;
+    if (fallback) {
+      debugLog('Using stale uv release catalog after refresh failure.', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return fallback;
+    }
     throw error;
   }
 }
@@ -169,6 +187,7 @@ async function fetchUvReleaseCatalog(env: NodeJS.ProcessEnv): Promise<UvReleaseC
   let exhausted = false;
   try {
     for (let page = 1; page <= RELEASE_MAX_PAGES; page += 1) {
+      debugLog('Downloading uv release metadata.', { page });
       const text = await downloadText(
         `https://api.github.com/repos/astral-sh/uv/releases?per_page=${RELEASE_PAGE_SIZE}&page=${page}`,
         METADATA_TIMEOUT_MS,
@@ -274,6 +293,7 @@ async function installUv(release: UvRelease, context: UvSetupContext): Promise<v
   const baseUrl = `https://github.com/astral-sh/uv/releases/download/${release.tag}`;
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'pyfig-uv-'));
   const dispatcher = proxyDispatcher(context.env);
+  debugLog('Installing uv release.', { asset, version: release.version });
   try {
     const archive = path.join(temporary, asset);
     await download(`${baseUrl}/${asset}`, archive, dispatcher);
@@ -286,12 +306,17 @@ async function installUv(release: UvRelease, context: UvSetupContext): Promise<v
     if (!expected || expected.toLowerCase() !== actual.toLowerCase()) {
       throw new Error(`uv archive checksum mismatch for ${asset}.`);
     }
+    debugLog('Verified uv archive checksum.', { asset });
 
     const extracted = path.join(temporary, 'extracted');
     await mkdir(extracted, { recursive: true });
     const source = await extractUvExecutable(archive, asset, extracted);
     if (!source) throw new Error(`uv archive did not contain the expected executable: ${asset}.`);
     await publishUv(source, release.version, context);
+    debugLog('Installed uv release.', {
+      path: uvExecutable(context, release.version),
+      version: release.version,
+    });
   } finally {
     await dispatcher?.close();
     await rm(temporary, { recursive: true, force: true });
@@ -348,6 +373,7 @@ async function download(
   destination: string,
   dispatcher: EnvHttpProxyAgent | undefined,
 ): Promise<void> {
+  debugLog('Downloading file.', { destination, url });
   const response = await fetch(url, {
     dispatcher,
     redirect: 'follow',
@@ -361,6 +387,7 @@ async function download(
     Readable.fromWeb(response.body),
     createWriteStream(destination, { flags: 'wx' }),
   );
+  debugLog('Downloaded file.', { destination, url });
 }
 
 async function downloadText(
@@ -369,6 +396,7 @@ async function downloadText(
   dispatcher: EnvHttpProxyAgent | undefined,
   headers?: Record<string, string>,
 ): Promise<string> {
+  debugLog('Downloading text.', { url });
   const response = await fetch(url, {
     dispatcher,
     headers,
@@ -379,7 +407,9 @@ async function downloadText(
     await response.body?.cancel();
     throw new Error(`Could not download ${url}: HTTP ${response.status}.`);
   }
-  return response.text();
+  const text = await response.text();
+  debugLog('Downloaded text.', { bytes: Buffer.byteLength(text), url });
+  return text;
 }
 
 function proxyDispatcher(env: NodeJS.ProcessEnv): EnvHttpProxyAgent | undefined {
@@ -420,6 +450,7 @@ interface ProvisioningOptions<T> {
 /** Apply Loqkit's pre-lock and post-lock predicates to one cache mutation. */
 async function withProvisioningLock<T>(options: ProvisioningOptions<T>): Promise<T> {
   let existing: { value: T } | undefined;
+  debugLog('Acquiring provisioning lock.', { key: options.key });
   const result = await withLock(
     { resource: options.key },
     options.mutate,
@@ -436,6 +467,7 @@ async function withProvisioningLock<T>(options: ProvisioningOptions<T>): Promise
       },
     },
   );
+  debugLog('Provisioning lock completed.', { key: options.key, state: result.context.state });
   if (result.context.state === 'executed') return result.value as T;
   if (existing) return existing.value;
   throw new Error(`Provisioning check for ${options.key} did not produce uv.`);

@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { access } from 'node:fs/promises';
 import path from 'node:path';
 import which from 'which';
 
@@ -19,6 +20,39 @@ export async function findExecutable(
     pathExt: environmentValue(env, 'PATHEXT'),
   });
   return resolved ? path.resolve(cwd, resolved) : null;
+}
+
+/** Enumerate matching executable files in PATH order without invoking them. */
+export async function findExecutables(
+  names: readonly string[],
+  env: NodeJS.ProcessEnv,
+): Promise<string[]> {
+  const directories = (environmentValue(env, 'PATH') ?? '')
+    .split(path.delimiter)
+    .filter(Boolean);
+  const extensions = process.platform === 'win32'
+    ? (environmentValue(env, 'PATHEXT') ?? '.EXE;.CMD;.BAT;.COM').split(';').filter(Boolean)
+    : [''];
+  const candidates: string[] = [];
+  const seen = new Set<string>();
+  for (const directory of directories) {
+    for (const name of names) {
+      const hasExtension = path.extname(name).length > 0;
+      for (const extension of hasExtension ? [''] : extensions) {
+        const candidate = path.resolve(directory, `${name}${extension}`);
+        const key = process.platform === 'win32' ? candidate.toLowerCase() : candidate;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        try {
+          await access(candidate);
+          candidates.push(candidate);
+        } catch {
+          // Missing and inaccessible PATH entries are not executable candidates.
+        }
+      }
+    }
+  }
+  return candidates;
 }
 
 /** Capture a bounded child-process response or throw with its stderr. */

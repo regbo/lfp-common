@@ -1,14 +1,15 @@
-import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import path from 'node:path';
 import {
   filter,
   valid as validVersion,
   validRange,
 } from '@renovatebot/pep440';
-import { capture, findExecutable } from './process.js';
+import { z } from 'zod';
+import { capture, findExecutable, findExecutables } from './process.js';
 import { resolveUv } from './uv.js';
+import { debugLog, setDebugLogging } from './logging.js';
 
-const DEFAULT_UV = '>=0.10,<1';
+export const DEFAULT_UV = '>=0.10,<1';
 
 const PYTHON_PROBE = String.raw`
 import json
@@ -53,111 +54,99 @@ print(json.dumps({
 }))
 `;
 
-export interface PyfigOptions {
-  /** uv executable or PEP 440 constraint. Executables take precedence. */
-  uv?: string;
-  /** Python executable or PEP 440 constraint. Executables take precedence. */
-  python?: string;
-  /** Require CPython headers, a linkable library, and matching runtime architecture. */
-  requireEmbedding?: boolean;
-  /** Reject free-threaded Python builds. */
-  requireGil?: boolean;
-  /** Directory used for uv project and configuration discovery. */
-  cwd?: string;
-  /** Environment used to locate executables and invoke child processes. */
-  env?: Readonly<Record<string, string | undefined>>;
+export const pyfigOptionsSchema = z.object({
+  uv: z.string()
+    .trim()
+    .min(1, 'uv must not be empty.')
+    .default(DEFAULT_UV)
+    .describe('uv executable or PEP 440 constraint. Executables take precedence.'),
+  python: z.string()
+    .trim()
+    .min(1, 'python must not be empty.')
+    .optional()
+    .describe('Python executable or PEP 440 constraint. Executables take precedence.'),
+  requireEmbedding: z.boolean()
+    .default(false)
+    .describe('Require CPython headers, a linkable library, and matching runtime architecture.'),
+  requireGil: z.boolean()
+    .default(false)
+    .describe('Reject free-threaded Python builds.'),
+  debug: z.boolean()
+    .default(false)
+    .describe('Write resolution, download, and provisioning diagnostics to stderr.'),
+  cwd: z.string()
+    .trim()
+    .min(1, 'cwd must not be empty.')
+    .default(() => process.cwd())
+    .describe('Directory used for uv project and configuration discovery.'),
+  env: z.union([
+    z.record(z.string(), z.string().optional()),
+    z.string().transform(value => {
+      const parsed: unknown = JSON.parse(value);
+      return z.record(z.string(), z.string().optional()).parse(parsed);
+    }),
+  ])
+    .optional()
+    .describe('Environment overrides used during executable resolution and provisioning.'),
+}).readonly().describe('Options for resolving a compatible uv and Python runtime context.');
+
+export type PyfigOptions = z.input<typeof pyfigOptionsSchema>;
+
+export interface ExecutableMetadata {
+  /** Absolute path to the executable. */
+  readonly path: string;
+  /** PEP 440-compatible executable version. */
+  readonly version: string;
 }
 
 export class PythonContext {
-  readonly #cwd: string;
-  readonly #env: NodeJS.ProcessEnv;
-  /** Absolute path to the resolved uv executable. */
-  readonly uv: string;
-  /** Absolute path to the resolved Python interpreter. */
-  readonly python: string;
+  /** Resolved uv executable metadata. */
+  readonly uv: ExecutableMetadata;
+  /** Resolved Python interpreter metadata. */
+  readonly python: ExecutableMetadata;
 
-  constructor(
-    uvPath: string,
-    pythonPath: string,
-    cwd = process.cwd(),
-    env: NodeJS.ProcessEnv = process.env,
-  ) {
-    this.#cwd = cwd;
-    this.#env = { ...env };
-    this.uv = uvPath;
-    this.python = pythonPath;
+  constructor(uv: ExecutableMetadata, python: ExecutableMetadata) {
+    this.uv = Object.freeze({ ...uv });
+    this.python = Object.freeze({ ...python });
     Object.freeze(this);
-  }
-
-  /** Spawn `uv run` with the resolved Python pinned before the command separator. */
-  run(...args: string[]): ChildProcess;
-  run(...args: [...command: string[], options: SpawnOptions]): ChildProcess;
-  run(...input: Array<string | SpawnOptions>): ChildProcess {
-    const { args, spawnOptions } = splitRunInput(input);
-    return spawn(this.uv, buildRunArgs(this.python, args), {
-      cwd: this.#cwd,
-      env: this.#env,
-      stdio: 'inherit',
-      windowsHide: true,
-      ...spawnOptions,
-    });
   }
 }
 
-/** Resolve compatible uv and Python executables without owning either environment. */
+/** Resolve or provision a compatible uv and Python context. */
 export async function pyfig(options: PyfigOptions = {}): Promise<PythonContext> {
+  const parsedOptions = pyfigOptionsSchema.parse(options);
+  setDebugLogging(parsedOptions.debug);
   const {
-    uv: uvRequest = DEFAULT_UV,
+    uv: uvRequest,
     python: pythonRequest,
-    requireEmbedding = false,
-    requireGil = false,
-    cwd = process.cwd(),
+    requireEmbedding,
+    requireGil,
+    cwd,
     env: suppliedEnvironment,
-  } = options;
+  } = parsedOptions;
   const env = mergeEnvironment(suppliedEnvironment);
   const workingDirectory = path.resolve(cwd);
-  const uvPath = await selectUv(uvRequest, workingDirectory, env);
-  const selectedPythonPath = await selectPython({
+  debugLog('Resolving runtime context.', {
+    cwd: workingDirectory,
+    python: pythonRequest ?? 'auto',
+    uv: uvRequest,
+  });
+  const uv = await selectUv(uvRequest, workingDirectory, env);
+  debugLog('Resolved uv.', uv);
+  const python = await selectPython({
     cwd: workingDirectory,
     env,
     pythonRequest,
     requireEmbedding,
     requireGil,
-    uvPath,
+    uvPath: uv.path,
   });
+  debugLog('Resolved Python.', { path: python.executable, version: python.version });
 
-  return new PythonContext(uvPath, selectedPythonPath, workingDirectory, env);
-}
-
-/** @internal Build a safe `uv run` argv array from the public variadic input. */
-export function buildRunArgs(pythonPath: string, args: readonly string[]): string[] {
-  const separator = args.indexOf('--');
-  if (separator < 0) {
-    return ['run', '--python', pythonPath, '--', ...args];
-  }
-
-  const uvArgs = args.slice(0, separator);
-  const command = args.slice(separator + 1);
-  if (uvArgs.some(argument => argument === '--python' || argument.startsWith('--python='))) {
-    throw new TypeError('run() does not accept --python before --; Python is selected by pyfig().');
-  }
-  uvArgs.push('--python', pythonPath);
-  return ['run', ...uvArgs, '--', ...command];
-}
-
-function splitRunInput(input: Array<string | SpawnOptions>): {
-  args: string[];
-  spawnOptions: SpawnOptions;
-} {
-  const values = [...input];
-  const last = values.at(-1);
-  const spawnOptions = typeof last === 'object' && last !== null && !Array.isArray(last)
-    ? values.pop() as SpawnOptions
-    : {};
-  if (!values.every((value): value is string => typeof value === 'string')) {
-    throw new TypeError('uv run arguments must be strings with an optional SpawnOptions object last.');
-  }
-  return { args: values, spawnOptions };
+  return new PythonContext(uv, {
+    path: python.executable,
+    version: python.version,
+  });
 }
 
 interface Selection {
@@ -188,15 +177,19 @@ async function selectUv(
   request: string,
   cwd: string,
   env: NodeJS.ProcessEnv,
-): Promise<string> {
+): Promise<ExecutableMetadata> {
   const selection = await executableOrSpecifier('uv', request, cwd, env);
-  if (selection.executable) return selection.executable;
+  if (selection.executable) {
+    debugLog('Using requested uv executable.', { path: selection.executable });
+    return probeUv(selection.executable, cwd, env);
+  }
   const specifier = selection.specifier;
   if (!specifier) throw new Error('uv selection did not contain a version specifier.');
-  return resolveUv(specifier, cwd, env);
+  debugLog('Resolving uv version constraint.', { specifier });
+  return probeUv(await resolveUv(specifier, cwd, env), cwd, env);
 }
 
-async function selectPython(options: PythonSelectionOptions): Promise<string> {
+async function selectPython(options: PythonSelectionOptions): Promise<PythonProbe> {
   if (options.pythonRequest !== undefined) {
     const selection = await executableOrSpecifier(
       'python',
@@ -205,9 +198,10 @@ async function selectPython(options: PythonSelectionOptions): Promise<string> {
       options.env,
     );
     if (selection.executable) {
+      debugLog('Using requested Python executable.', { path: selection.executable });
       const explicit = await probePython(selection.executable, options.cwd, options.env);
       validatePythonCapabilities(explicit, options);
-      return explicit.executable;
+      return explicit;
     }
     if (!selection.specifier) throw new Error('Python selection did not contain a version specifier.');
     return selectDiscoveredPython(selection.specifier, options);
@@ -218,37 +212,114 @@ async function selectPython(options: PythonSelectionOptions): Promise<string> {
 async function selectDiscoveredPython(
   specifier: string | null,
   options: PythonSelectionOptions,
-): Promise<string> {
+): Promise<PythonProbe> {
   const request = specifier ? [specifier] : [];
   let systemFailure: unknown;
   try {
+    debugLog('Searching PATH for a compatible system Python.', { specifier: specifier ?? 'any' });
+    const direct = await findPathPython(specifier, options);
+    if (direct.python) return direct.python;
+
+    debugLog('No compatible PATH Python found; falling back to uv system discovery.', {
+      specifier: specifier ?? 'any',
+    });
     // `--system` excludes virtual environments; `--no-managed-python` also
     // excludes uv's cache so this pass genuinely prefers host installations.
     const systemPath = await findPython(
       options.uvPath,
       ['--system', '--no-managed-python', ...request],
-      options,
+      {
+        ...options,
+        env: withoutPathDirectories(options.env, direct.brokenDirectories),
+      },
     );
     const system = await probePython(systemPath, options.cwd, options.env);
     validatePythonVersion(system, specifier);
     validatePythonCapabilities(system, options);
-    return system.executable;
+    return system;
   } catch (error) {
     systemFailure = error;
+    debugLog('System Python search failed.', { error: errorMessage(error) });
   }
 
   try {
+    debugLog('Searching for a compatible uv-managed Python.', { specifier: specifier ?? 'any' });
     const managedPath = await findPython(options.uvPath, ['--managed-python', ...request], options);
     const managed = await probePython(managedPath, options.cwd, options.env);
     validatePythonVersion(managed, specifier);
     validatePythonCapabilities(managed, options);
-    return managed.executable;
+    return managed;
   } catch (error) {
     throw new Error(
       `No compatible Python was found. System: ${errorMessage(systemFailure)} Managed: ${errorMessage(error)}`,
       { cause: error },
     );
   }
+}
+
+async function findPathPython(
+  specifier: string | null,
+  options: PythonSelectionOptions,
+): Promise<{ brokenDirectories: Set<string>; python: PythonProbe | null }> {
+  const candidates = await findExecutables(pythonExecutableNames(specifier), options.env);
+  const results = await Promise.all(candidates.map(async candidate => {
+    if (isWindowsPythonAlias(candidate, options.env)) {
+      debugLog('Skipping Windows Python app execution alias.', { path: candidate });
+      return { broken: true, candidate, python: null };
+    }
+    try {
+      const python = await probePython(candidate, options.cwd, options.env);
+      validatePythonVersion(python, specifier);
+      validatePythonCapabilities(python, options);
+      return { broken: false, candidate, python };
+    } catch (error) {
+      debugLog('Skipping incompatible PATH Python candidate.', {
+        error: errorMessage(error),
+        path: candidate,
+      });
+      return {
+        broken: isWindowsAliasFailure(error),
+        candidate,
+        python: null,
+      };
+    }
+  }));
+  const match = results.find(result => result.python !== null)?.python ?? null;
+  if (match) {
+    debugLog('Using compatible Python from PATH.', {
+      path: match.executable,
+      version: match.version,
+    });
+  }
+  return {
+    brokenDirectories: new Set(results.filter(result => result.broken).map(result =>
+      path.dirname(result.candidate)
+    )),
+    python: match,
+  };
+}
+
+function pythonExecutableNames(specifier: string | null): string[] {
+  const names = ['python', 'python3'];
+  if (!specifier) return names;
+  const versions = specifier.match(/\d+(?:\.\d+)?/gu) ?? [];
+  for (const version of versions) {
+    if (version.includes('.')) names.push(`python${version}`);
+  }
+  return [...new Set(names)];
+}
+
+async function probeUv(
+  executable: string,
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+): Promise<ExecutableMetadata> {
+  const output = await capture(executable, ['--version'], cwd, env);
+  const version = validVersion(output.trim().match(/^uv\s+(\S+)/iu)?.[1] ?? '');
+  if (!version) {
+    throw new Error(`${JSON.stringify(executable)} did not report a valid uv version.`);
+  }
+  return { path: path.normalize(executable), version };
 }
 
 async function findPython(
@@ -269,6 +340,10 @@ async function probePython(
   cwd: string,
   env: NodeJS.ProcessEnv,
 ): Promise<PythonProbe> {
+  if (isWindowsPythonAlias(executable, env)) {
+    debugLog('Skipping Windows Python app execution alias.', { path: executable });
+    throw new Error(`${JSON.stringify(executable)} is a Windows Python app execution alias.`);
+  }
   const output = await capture(executable, ['-I', '-S', '-c', PYTHON_PROBE], cwd, env);
   const line = output.trim().split(/\r?\n/u).at(-1) ?? '';
   let value: unknown;
@@ -286,6 +361,40 @@ async function probePython(
     throw new Error(`${JSON.stringify(executable)} reported a non-absolute executable path.`);
   }
   return { ...value, executable: path.normalize(value.executable) };
+}
+
+function isWindowsPythonAlias(executable: string, env: NodeJS.ProcessEnv): boolean {
+  if (process.platform !== 'win32') return false;
+  const localAppData = Object.entries(env).find(([key]) =>
+    key.toLowerCase() === 'localappdata'
+  )?.[1];
+  if (!localAppData) return false;
+  const aliases = path.resolve(localAppData, 'Microsoft', 'WindowsApps');
+  const candidate = path.resolve(executable);
+  const relative = path.relative(aliases, candidate);
+  return relative.length > 0 && !relative.startsWith('..') && !path.isAbsolute(relative) &&
+    /^python(?:3(?:\.\d+)?)?\.exe$/iu.test(path.basename(candidate));
+}
+
+function isWindowsAliasFailure(error: unknown): boolean {
+  return process.platform === 'win32' &&
+    errorMessage(error).includes('Python was not found; run without arguments to install from the Microsoft Store');
+}
+
+function withoutPathDirectories(
+  env: NodeJS.ProcessEnv,
+  excluded: ReadonlySet<string>,
+): NodeJS.ProcessEnv {
+  if (excluded.size === 0) return env;
+  const normalized = new Set([...excluded].map(directory => path.resolve(directory).toLowerCase()));
+  const filtered = (Object.entries(env).find(([key]) => key.toLowerCase() === 'path')?.[1] ?? '')
+    .split(path.delimiter)
+    .filter(directory => !normalized.has(path.resolve(directory).toLowerCase()))
+    .join(path.delimiter);
+  debugLog('Removed broken Python alias directories from fallback PATH.', {
+    directories: [...excluded],
+  });
+  return { ...env, PATH: filtered };
 }
 
 function validatePythonVersion(python: PythonProbe, specifier: string | null): void {
