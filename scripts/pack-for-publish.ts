@@ -1,13 +1,7 @@
-import { access, appendFile, mkdtemp, readFile, readdir } from 'node:fs/promises';
+import { appendFile, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { auditArchive } from './archive.ts';
-import {
-  computeNativeFingerprint,
-  nativeBuildConfig,
-  validatePrebuildMetadata,
-  type NativePrebuildMetadata,
-} from './native-fingerprint.js';
 import { githubRepositoryFromRemote, registryVersionUrl } from './release-lib.ts';
 import { runCommand } from './process.ts';
 
@@ -31,31 +25,6 @@ const registryResponse = await fetch(registryVersionUrl(manifest.name, manifest.
 if (registryResponse.ok) throw new Error(`${manifest.name}@${manifest.version} already exists on npm`);
 if (registryResponse.status !== 404) {
   throw new Error(`npm registry check failed with HTTP ${registryResponse.status}`);
-}
-
-const nativeFingerprint = computeNativeFingerprint();
-const expectedTargets = nativeBuildConfig.targets
-  .map(target => `${target.platform}-${target.arch}`)
-  .sort();
-const actualTargets = (await readdir(resolve('prebuilds'), { withFileTypes: true }))
-  .filter(entry => entry.isDirectory())
-  .map(entry => entry.name)
-  .sort();
-if (JSON.stringify(actualTargets) !== JSON.stringify(expectedTargets)) {
-  throw new Error(
-    `Native prebuild inventory is ${actualTargets.join(', ')}; expected ${expectedTargets.join(', ')}`,
-  );
-}
-for (const target of nativeBuildConfig.targets) {
-  const targetName = `${target.platform}-${target.arch}`;
-  const directory = resolve('prebuilds', targetName);
-  await access(join(directory, 'pynect_addon.node'));
-  const metadata = JSON.parse(
-    await readFile(join(directory, 'pynect-prebuild.json'), 'utf8'),
-  ) as NativePrebuildMetadata;
-  if (!validatePrebuildMetadata(metadata, target, nativeFingerprint)) {
-    throw new Error(`Invalid or stale native prebuild metadata for ${targetName}`);
-  }
 }
 
 const archiveRoot = await mkdtemp(

@@ -7,10 +7,9 @@ const allowedRootFiles = new Set([
   'LICENSE',
   'README.md',
   'SECURITY.md',
-  'binding.gyp',
   'package.json',
 ]);
-const allowedPrefixes = ['dist/', 'prebuilds/', 'python/', 'scripts/', 'src/native/'] as const;
+const allowedPrefixes = ['dist/', 'python/'] as const;
 const emailPattern = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
 const secretPatterns = [
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
@@ -52,13 +51,9 @@ export async function auditArchive(
       'LICENSE',
       'README.md',
       'SECURITY.md',
-      'binding.gyp',
       'dist/index.d.ts',
       'dist/index.js',
-      'python/pynect_runtime.py',
-      'scripts/cli.js',
-      'scripts/postinstall.js',
-      'src/native/pynect_addon.cpp',
+      'python/pynect_worker.py',
     ]) {
       if (!files.includes(required)) {
         throw new Error(`Archive is missing required file: ${required}`);

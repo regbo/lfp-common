@@ -18,7 +18,15 @@
     "forceConsistentCasingInFileNames": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts"],
+  "include": [
+    "src/config.ts",
+    "src/errors.ts",
+    "src/index.ts",
+    "src/python-object.ts",
+    "src/python-venv.ts",
+    "src/rpc-client.ts",
+    "src/transport/**/*.ts"
+  ],
   "exclude": [
     "node_modules",
     "dist",

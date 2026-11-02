@@ -13,14 +13,11 @@
   },
   "include": [
     "scripts/archive.ts",
-    "scripts/native-fingerprint.d.ts",
     "scripts/pack-for-publish.ts",
     "scripts/prepack.ts",
-    "scripts/prepare-native-prebuilds.ts",
     "scripts/process.ts",
     "scripts/release-lib.ts",
     "scripts/release.ts",
-    "tests/release.test.ts",
-    "tests/callback-types.ts"
+    "tests/release.test.ts"
   ]
 }

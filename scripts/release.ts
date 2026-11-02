@@ -106,8 +106,6 @@ try {
   await runCommand(process.execPath, ['run', 'typecheck:release'], { inherit: true });
   await runCommand(process.execPath, ['test'], { inherit: true });
   await runCommand(process.execPath, ['run', 'build'], { inherit: true });
-  await runCommand(process.execPath, ['run', 'test:python-boundary'], { inherit: true });
-
   const filename = `${manifest.name}-${plan.nextVersion}.tgz`;
   await runCommand(process.execPath, [
     'pm', 'pack', '--ignore-scripts', '--destination', archiveRoot,

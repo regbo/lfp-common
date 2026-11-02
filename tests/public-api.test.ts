@@ -1,18 +1,22 @@
 import { describe, expect, test } from 'bun:test';
-import * as pynect from '../src';
+import { createVenv, PythonVenv, kwargs } from '../src';
 
-describe('bridge-owned public API', () => {
-  test('exports one bridge factory without singleton lifecycle wrappers', () => {
-    expect(typeof pynect.createPythonBridge).toBe('function');
-    for (const name of [
-      'init',
-      'shutdown',
-      'py',
-      'getRuntime',
-      'isInitialized',
-      'importModule',
-      'callIsolated',
-    ]) {
+describe('public API', () => {
+  test('creates a lazy Venv without starting Python', async () => {
+    const venv = createVenv({ project: false });
+
+    expect(venv).toBeInstanceOf(PythonVenv);
+    expect(venv.started).toBe(false);
+    expect(kwargs({ limit: 2 }).value).toEqual({ limit: 2 });
+
+    await venv.close();
+    expect(venv.closed).toBe(true);
+    expect(venv.started).toBe(false);
+  });
+
+  test('does not retain legacy embedded-runtime exports', async () => {
+    const pynect = await import('../src');
+    for (const name of ['createPythonBridge', 'init', 'shutdown', 'getRuntime']) {
       expect(name in pynect).toBe(false);
     }
   });

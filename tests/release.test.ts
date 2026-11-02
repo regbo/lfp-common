@@ -7,13 +7,6 @@ import {
   latestReleaseVersion,
   planRelease,
 } from '../scripts/release-lib.ts';
-import {
-  computeNativeFingerprint,
-  hashNativeInputs,
-  nativeBuildConfig,
-  nativeFingerprintPaths,
-  validatePrebuildMetadata,
-} from '../scripts/native-fingerprint.js';
 
 describe('release workflow', () => {
   test('selects the greatest stable remote release tag', () => {
@@ -69,51 +62,4 @@ describe('release workflow', () => {
     expect(isPublicGitHubIdentity('regbo@example.com')).toBe(false);
   });
 
-  test('fingerprints native inputs independent of enumeration order', () => {
-    const first = hashNativeInputs([
-      { name: 'b', content: 'second' },
-      { name: 'a', content: 'first' },
-    ]);
-    expect(first).toBe(hashNativeInputs([
-      { name: 'a', content: 'first' },
-      { name: 'b', content: 'second' },
-    ]));
-    expect(first).not.toBe(hashNativeInputs([
-      { name: 'a', content: 'changed' },
-      { name: 'b', content: 'second' },
-    ]));
-  });
-
-  test('fingerprints native text independent of checkout line endings', () => {
-    expect(hashNativeInputs([
-      { name: 'native.cpp', content: 'first\nsecond\n' },
-    ])).toBe(hashNativeInputs([
-      { name: 'native.cpp', content: Buffer.from('first\r\nsecond\r\n') },
-    ]));
-  });
-
-  test('accepts prebuilds only for the current native fingerprint', () => {
-    const fingerprint = computeNativeFingerprint();
-    const target = nativeBuildConfig.targets[0]!;
-    const metadata = {
-      schemaVersion: 2,
-      platform: target.platform,
-      architecture: target.arch,
-      pythonMinimumVersion: nativeBuildConfig.pythonMinimumVersion,
-      pythonAbi: nativeBuildConfig.pythonAbi,
-      napi: nativeBuildConfig.napi,
-      nativeFingerprint: fingerprint,
-      pythonLibraryName: 'libpython3.so',
-    };
-    expect(validatePrebuildMetadata(metadata, target, fingerprint)).toBe(true);
-    expect(validatePrebuildMetadata(metadata, target, 'sha256:stale')).toBe(false);
-  });
-
-  test('excludes application configuration and generators from native inputs', () => {
-    const paths = nativeFingerprintPaths();
-    expect(paths).not.toContain('package.json');
-    expect(paths).not.toContain('README.md');
-    expect(paths.some(path => path.startsWith('src/cli/'))).toBe(false);
-    expect(paths.some(path => path.startsWith('src/config/'))).toBe(false);
-  });
 });
