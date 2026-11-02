@@ -24,6 +24,7 @@
   "types": "./release/index.d.ts",
   "files": [
     "release",
+    "src",
     "README.md",
     "LICENSE"
   ],

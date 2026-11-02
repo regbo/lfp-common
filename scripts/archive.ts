@@ -52,14 +52,21 @@ export async function auditArchive(
       "release/cjs/index.js",
       "release/cjs/package.json",
       "release/index.d.ts",
+      "release/index.d.ts.map",
       "release/index.js",
+      "release/index.js.map",
+      "src/index.ts",
     ]) {
       if (!files.includes(required)) {
         throw new Error(`Archive is missing required file: ${required}`);
       }
     }
     for (const file of files) {
-      if (!allowedRootFiles.has(file) && !file.startsWith("release/")) {
+      if (
+        !allowedRootFiles.has(file)
+        && !file.startsWith("release/")
+        && !file.startsWith("src/")
+      ) {
         throw new Error(`Archive contains unintended file: ${file}`);
       }
       const bytes = await Bun.file(join(packageRoot, file)).arrayBuffer();
