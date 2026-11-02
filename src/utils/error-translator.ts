@@ -159,18 +159,10 @@ export class PythonTimeoutError extends Error {
   }
 }
 
-export class PynectNotInitializedError extends Error {
-  constructor(message = 'pynect is not initialized. Call pynect.init() first.') {
+export class PynectClosedError extends Error {
+  constructor(message = 'The Pynect Python bridge is closed.') {
     super(message);
-    this.name = 'PynectNotInitializedError';
-    Object.setPrototypeOf(this, new.target.prototype);
-  }
-}
-
-export class PynectShutdownError extends Error {
-  constructor(message = 'pynect runtime has been shut down.') {
-    super(message);
-    this.name = 'PynectShutdownError';
+    this.name = 'PynectClosedError';
     Object.setPrototypeOf(this, new.target.prototype);
   }
 }

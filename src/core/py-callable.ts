@@ -14,7 +14,7 @@ import type { PyObjectId, AttributePath, PyCallableInfo } from '../types/python'
  *
  * @example
  * ```typescript
- * const np = await py.import('numpy');
+ * const np = await python.import('numpy');
  * const zeros = await np.zeros;  // PyCallable
  * const arr = await zeros([3, 3], { dtype: 'float64' });
  *

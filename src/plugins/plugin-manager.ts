@@ -2,7 +2,7 @@
  * pynect - PluginManager
  *
  * Manages registration, lifecycle, and dispatch of pynect plugins.
- * PyRuntime holds a single PluginManager instance.
+ * The embedded runtime holds one PluginManager instance for its bridge.
  */
 
 import { Logger } from '../utils/logger';

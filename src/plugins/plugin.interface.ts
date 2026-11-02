@@ -4,7 +4,7 @@
  * Every pynect plugin must implement this interface. Plugins can:
  * - Transform Python object values as they cross the JS boundary
  * - Register custom type mappings
- * - Hook into lifecycle events (init, shutdown)
+ * - Hook into bridge lifecycle events
  * - Add convenience methods to PyProxy instances
  */
 

@@ -1,6 +1,6 @@
 /**
  * pynect - Core Configuration Types
- * Full configuration interface for pynect runtime initialization.
+ * Full configuration interface for a Pynect Python bridge.
  */
 
 import { availableParallelism } from 'os';
@@ -82,10 +82,10 @@ export interface ProfilingConfig {
 }
 
 export interface PynectConfig extends PynectPackageManifest {
-  /** Shut down the shared runtime when the Node.js or Bun process exits. Default: true. */
-  autoShutdown?: boolean;
+  /** Close the bridge when the Node.js or Bun process exits. Default: true. */
+  autoClose?: boolean;
 
-  /** Application root used for Pyfig environment ownership. Default: Pyfig project discovery. */
+  /** Application root used for Pyfig environment ownership. Usually discovered automatically. */
   projectRoot?: string;
 
   /**
@@ -161,7 +161,7 @@ export interface PynectConfig extends PynectPackageManifest {
  * Resolved and normalized configuration (all fields filled with defaults).
  */
 export interface ResolvedPynectConfig {
-  autoShutdown: boolean;
+  autoClose: boolean;
   pythonExecutable: string;
   pythonHome: string;
   projectRoot: string;
@@ -202,7 +202,7 @@ export function resolveConfig(config: PynectConfig = {}): ResolvedPynectConfig {
     throw new TypeError('callbacks.maxDepth must be a positive integer when provided.');
   }
   return {
-    autoShutdown: config.autoShutdown ?? true,
+    autoClose: config.autoClose ?? true,
     pythonExecutable: config.tool?.pynect?.python ?? 'python3',
     pythonHome: '',
     projectRoot: config.projectRoot ?? process.cwd(),

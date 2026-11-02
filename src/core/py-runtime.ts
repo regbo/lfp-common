@@ -25,7 +25,7 @@ import { MemoryMonitor } from '../utils/memory-monitor';
 import { Logger } from '../utils/logger';
 import {
   translatePythonError,
-  PynectShutdownError,
+  PynectClosedError,
 } from '../utils/error-translator';
 
 const logger = new Logger('PyRuntime');
@@ -44,7 +44,7 @@ const logger = new Logger('PyRuntime');
  * const df = await pd.read_csv('data.csv');
  * const result = await df.to_dict('records');
  *
- * await runtime.shutdown();
+ * await runtime.close();
  * ```
  */
 export class PyRuntime {
@@ -537,16 +537,16 @@ pynect_dispatcher.configure(
     return { ...this._config };
   }
 
-  // Shutdown
+  // Close
 
   /**
    * Gracefully shut down the Python runtime.
    * Releases all Python objects and finalizes the interpreter.
    */
-  async shutdown(): Promise<void> {
+  async close(): Promise<void> {
     if (!this._running) {return;}
 
-    logger.info('Shutting down PyRuntime...');
+    logger.info('Closing embedded Python runtime...');
     // Stop memory monitoring
     this._memoryMonitor.stopMonitoring();
 
@@ -560,7 +560,7 @@ pynect_dispatcher.configure(
       );
       await this._addon.finalizePython();
       this._running = false;
-      logger.success('PyRuntime shut down');
+      logger.success('Embedded Python runtime closed');
     } catch (err) {
       logger.error('Error during Python finalization', err);
       throw err;
@@ -568,25 +568,25 @@ pynect_dispatcher.configure(
   }
 
   /**
-   * Synchronous shutdown (for process.on('exit') handler).
+   * Synchronous close for the process exit handler.
    * Best-effort only - may not complete all cleanup.
    */
-  shutdownSync(): void {
+  closeSync(): void {
     if (!this._running) {return;}
     this._running = false;
     this._memoryMonitor.stopMonitoring();
     this._isolatedWorker?.closeSync();
     this._isolatedWorker = undefined;
     // Cannot await here - best effort
-    logger.debug('Synchronous shutdown initiated');
+    logger.debug('Synchronous close initiated');
   }
 
   // Private Helpers
 
   private _ensureRunning(): void {
     if (!this._running) {
-      throw new PynectShutdownError(
-        'PyRuntime has been shut down. Create a new runtime with PyRuntime.create().'
+      throw new PynectClosedError(
+        'The Python bridge has been closed. Create a new bridge with createPythonBridge().'
       );
     }
   }

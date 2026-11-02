@@ -16,7 +16,7 @@ const logger = new Logger('PyModule');
  *
  * @example
  * ```typescript
- * const pd = await py.import('pandas');
+ * const pd = await python.import('pandas');
  * // pd is a PyModule
  * const df = await pd.read_csv('data.csv');  // access module attribute
  * const info = await pd.__pynect_inspect__();  // get module metadata

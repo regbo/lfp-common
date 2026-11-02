@@ -3,11 +3,16 @@
 process.env.PYNECT_PREFER_LOCAL ??= '1';
 
 const path = require('path');
+const { spawnSync } = require('child_process');
 const { preparePython } = require('./python');
 
 const ROOT = path.resolve(__dirname, '..');
 
 async function main() {
+  if (process.argv.includes('--auto-close-child')) {
+    await verifyAutomaticClose();
+    return;
+  }
   const { runtime, environment } = await preparePython({ projectRoot: ROOT });
   const { python } = environment;
   const expected = normalize(python.executable);
@@ -73,7 +78,7 @@ async function main() {
     throw new Error('The isolated worker did not use the Pyfig virtual environment.');
   }
 
-  await pynect.init({
+  const bridge = await pynect.createPythonBridge({
     projectRoot: ROOT,
     allowUnsafeCode: true,
     logLevel: 'error',
@@ -82,9 +87,15 @@ async function main() {
     callbacks: { maxDepth: 2 },
   });
   try {
-    const embedded = await pynect.py.eval('__import__("sys").executable');
+    if (!bridge.isOpen) throw new Error('Python bridge did not report itself as open.');
+    await assertRejects(
+      () => pynect.createPythonBridge({ projectRoot: ROOT }),
+      /Only one embedded PythonBridge can be active/,
+      'single embedded bridge ownership',
+    );
+    const embedded = await bridge.eval('__import__("sys").executable');
     assertSamePython(embedded, expected, 'embedded CPython');
-    const fixture = await pynect.importModule('pynect_callback_fixture');
+    const fixture = await bridge.import('pynect_callback_fixture');
     const asyncCallback = async value => {
       await Promise.resolve();
       return value * 3;
@@ -115,10 +126,36 @@ async function main() {
       'callback recursion limit',
     );
   } finally {
-    await pynect.shutdown();
+    await bridge.close();
+  }
+  if (bridge.isOpen) throw new Error('Python bridge remained open after close().');
+
+  const autoClose = spawnSync(process.execPath, [__filename, '--auto-close-child'], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    env: process.env,
+  });
+  assertSuccess(autoClose, 'automatic bridge close');
+  if (!autoClose.stdout.includes('AUTO_CLOSE_OK')) {
+    throw new Error(`Automatic bridge close was not observed: ${autoClose.stdout}`);
   }
 
   console.log(`Python ${python.version} boundary verified: ${python.executable}`);
+}
+
+async function verifyAutomaticClose() {
+  const pynect = require('../dist');
+  const bridge = await pynect.createPythonBridge({ logLevel: 'error' });
+  if (normalize(bridge.config.projectRoot) !== normalize(ROOT)) {
+    throw new Error(`Bridge discovered ${bridge.config.projectRoot}; expected ${ROOT}.`);
+  }
+  let reported = false;
+  process.on('beforeExit', () => {
+    if (!bridge.isOpen && !reported) {
+      reported = true;
+      console.log('AUTO_CLOSE_OK');
+    }
+  });
 }
 
 async function assertRejects(action, pattern, label) {

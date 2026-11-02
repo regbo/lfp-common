@@ -2,7 +2,7 @@
 
 - `scripts/python.js`: shared build-time and runtime policy boundary; creates the Pyfig 0.7 `Python` runtime used for every Python and uv operation and requires an embeddable, GIL-enabled environment.
 - `scripts/ensure-native.js`: loqkit-coordinated native builder invoked through the active JavaScript runtime when no addon can be loaded.
-- `scripts/postinstall.js`: lifecycle entrypoint that finds the application through `INIT_CWD` and runs the same uv project sync when installed npm packages contribute Pynect manifests.
+- `scripts/postinstall.js`: lifecycle entrypoint that finds the application through `INIT_CWD` and runs the same Pyfig environment preparation when installed npm packages contribute Pynect manifests.
 - `scripts/build-typescript.js`: clean TypeScript build entrypoint; removes only `dist` before invoking the repository compiler so deleted source files cannot leak into npm artifacts.
 - `src/native/native-addon-loader.ts`: platform/Stable-ABI/glibc-aware prebuild loader, portable `libpython3` sidecar materializer, exact-Python local-addon loader, and lazy build boundary; relaunches `process.execPath`, never a hard-coded Node executable.
 - `scripts/stage-prebuild.js`: rewrites release addons to the generic Python 3 Stable ABI library name and records platform, architecture, Python floor, N-API, and Linux glibc compatibility metadata.
@@ -11,6 +11,7 @@
 - `src/env/python.ts`: typed access to the shared Pyfig policy from compiled source.
 - `src/config/project.ts`: canonical package.json/API manifest normalizer plus environment and CLI project policy resolver. Omitted schema versions select the current schema; precedence is explicit overrides, environment, root package.json, then defaults.
 - `src/env/project-environment.ts`: transitive `pynect` manifest discovery, dependency aggregation, namespaced module registry, and direct Pyfig option construction. Pyfig and uv own resolution, content addressing, caching, and provisioning coordination.
+- `src/core/python-bridge.ts`: the sole public runtime lifecycle surface. It creates one process-owned embedded bridge, resolves namespaced modules, delegates calls to the internal runtime, and provides explicit plus automatic close behavior.
 - `python/type_inspector.py`: the single Python inspection source used by `pynect codegen`.
 - `src/cli/codegen.ts`: Commander command, Pacwich project discovery, configuration precedence, selection policy, project setup, and declaration emission.
 - `src/cli/sync.ts`: Commander surface for explicit Pyfig environment preparation.

@@ -29,9 +29,9 @@ means the latest schema supported by the installed Pynect release. The same shap
 is accepted programmatically:
 
 ```ts
-import { init } from 'pynect';
+import { createPythonBridge } from 'pynect';
 
-await init({
+const python = await createPythonBridge({
   project: {
     'requires-python': '>=3.11,<3.13',
     dependencies: ['pydantic>=2,<3'],
@@ -65,13 +65,16 @@ Code generation uses [Pacwich](https://github.com/smorsic/pacwich) to resolve th
 Use the generated module type directly:
 
 ```ts
-import { importModule } from 'pynect';
+import { createPythonBridge } from 'pynect';
 
-const calculator = await importModule('calculator');
+const python = await createPythonBridge();
+const calculator = await python.import('calculator');
 console.log(await calculator.add(2, 3));
 ```
 
-`importModule()` initializes the shared runtime with defaults on first use and the runtime shuts down automatically when the process finishes. Call `init(config)` first only when custom runtime settings are needed. Call `shutdown()` explicitly only when the application needs to release Python before process exit.
+`createPythonBridge()` discovers the application root and its `package.json` automatically, prepares the application-scoped environment, and returns the object used for every import and call. Dependencies are never installed into system Python. The bridge closes automatically when the process exits. Call `python.close()` only when the application needs to release Python earlier, or set `autoClose: false` when the host owns lifecycle. Only one embedded bridge can be open in a process; use isolated workers when separate environments must coexist.
+
+For a shorter lexical lifetime, TypeScript and modern JavaScript can use `await using python = await createPythonBridge()`; async disposal calls `python.close()`.
 
 ## JavaScript callbacks
 
@@ -85,9 +88,10 @@ def transform(values: list[int], apply: Callable[[int], int]) -> list[int]:
 ```
 
 ```ts
-import { importModule } from 'pynect';
+import { createPythonBridge } from 'pynect';
 
-const transforms = await importModule('transforms');
+const python = await createPythonBridge();
+const transforms = await python.import('transforms');
 const result = await transforms.transform(
   [1, 2, 3],
   (value: number) => value * 2,
@@ -101,7 +105,7 @@ The callback is valid only for the Python call receiving it and becomes invalid 
 Nested callback depth defaults to the embedded interpreter's active `sys.getrecursionlimit()` value, normally 1000. Applications can choose a lower positive ceiling uniformly through API config, the root manifest, or the environment:
 
 ```ts
-await init({ callbacks: { maxDepth: 100 } });
+const python = await createPythonBridge({ callbacks: { maxDepth: 100 } });
 ```
 
 ```json
@@ -146,16 +150,16 @@ bunx --bun pynect codegen
 Then restrict the dispatcher to fully typed members in that module:
 
 ```ts
-import { init, importModule } from 'pynect';
+import { createPythonBridge } from 'pynect';
 
-await init({
+const python = await createPythonBridge({
   dispatcher: {
     include: ['users.*'],
     typedOnly: true,
   },
 });
 
-const users = await importModule('users');
+const users = await python.import('users');
 const user = await users.create_user({ name: 'Alice', age: 30 });
 console.log(user.name);
 ```
@@ -183,7 +187,7 @@ The package first loads a prebuilt N-API addon whose platform, architecture, Pyt
 
 ```mermaid
 graph TD;
-    A[First runtime initialization] --> B[Pyfig selects application Python];
+    A[Create PythonBridge] --> B[Pyfig selects application Python];
     B --> C{Compatible prebuild or exact local addon loads};
     C -->|Yes| G[Initialize embedded CPython];
     C -->|No| D[Launch builder with process execPath];
@@ -248,15 +252,16 @@ Relative requirements paths resolve from the application root. Configure private
 Exposed module ids are namespaced by npm package name:
 
 ```ts
-import { importModule } from 'pynect';
+import { createPythonBridge } from 'pynect';
 
-const generator = await importModule('@acme/name-generator:generator');
+const python = await createPythonBridge();
+const generator = await python.import('@acme/name-generator:generator');
 console.log(await generator.generate_name());
 ```
 
 The aggregated `modules.include` patterns are enforced by the runtime dispatcher. When `include` is omitted, that manifest exposes the module's public callables; application dispatcher includes are additive, and excludes always win.
 
-Runtime and `pynect sync` use the same Pyfig options. Production and CI can prepare explicitly, and can combine a pinned requirements file with offline mode when all artifacts are already cached:
+Bridge creation and `pynect sync` use the same Pyfig options. Production and CI can prepare explicitly, and can combine a pinned requirements file with offline mode when all artifacts are already cached:
 
 ```sh
 bunx --bun pynect sync --offline
@@ -378,9 +383,10 @@ bunx pynect codegen --clear
 Generated declarations are the normal application workflow. For exploration, third-party packages, or Python modules that do not need generated types, import a module directly:
 
 ```ts
-import { importModule } from 'pynect';
+import { createPythonBridge } from 'pynect';
 
-const math = await importModule('math');
+const python = await createPythonBridge();
+const math = await python.import('math');
 console.log(await math.sqrt(9));
 ```
 
@@ -389,8 +395,10 @@ Raw imports return a dynamic Python proxy. Run codegen when the module should pr
 ## Runtime policy
 
 ```ts
-await init({
-  autoShutdown: true,
+import { createPythonBridge } from 'pynect';
+
+const python = await createPythonBridge({
+  autoClose: true,
   dispatcher: {
     include: ['my_app.*'],
     exclude: ['*.admin.*', '*._*'],
@@ -403,12 +411,12 @@ await init({
 });
 ```
 
-`autoShutdown` defaults to `true` for both the embedded runtime and the optional isolated worker. Set it to `false` only when the host owns lifecycle and will call `shutdown()` explicitly.
+`autoClose` defaults to `true` for both the embedded bridge and the optional isolated worker. Set it to `false` only when the host owns lifecycle and will call `python.close()` explicitly. `projectRoot` is normally unnecessary: Pynect and Pyfig discover the owning application from the current working directory. Set it only when an embedded host operates on behalf of another project.
 
 Defaults are intentionally conservative around dangerous bridge features:
 
 - Raw `eval`, `exec`, file execution, contexts, and native-addon access are disabled.
-- Python dependencies are declared before initialization and resolved by Pyfig.
+- Python dependencies are declared before bridge creation and resolved by Pyfig.
 - Python tracebacks are hidden.
 - Private callables and modules are rejected.
 - Excludes override includes and decorators.
@@ -424,7 +432,9 @@ The worker pool defaults to the larger of four workers or the host's available C
 `callTimeout` limits time waiting in the native queue. `executionTimeout` separately cancels asynchronous Python execution:
 
 ```ts
-await init({
+import { createPythonBridge } from 'pynect';
+
+const python = await createPythonBridge({
   callTimeout: 2_000,
   executionTimeout: 10_000,
 });
@@ -433,9 +443,7 @@ await init({
 Every generated function and method includes a typed `withOptions()` call:
 
 ```ts
-import { importModule } from 'pynect';
-
-const jobs = await importModule('jobs');
+const jobs = await python.import('jobs');
 const controller = new AbortController();
 
 setTimeout(() => controller.abort(), 1_000);
@@ -463,9 +471,9 @@ Queued calls are removed before execution when possible. Running async functions
 Enable the optional worker when a call needs a hard timeout or when an ordinary Python interpreter crash should be contained outside the Node.js process:
 
 ```ts
-import { callIsolated, init, shutdown } from 'pynect';
+import { createPythonBridge } from 'pynect';
 
-await init({
+const python = await createPythonBridge({
   isolation: {
     enabled: true,
     timeout: 30_000,
@@ -476,7 +484,7 @@ await init({
 });
 
 try {
-  const result = await callIsolated(
+  const result = await python.callIsolated(
     'jobs',
     'run_job',
     [{ id: 42 }],
@@ -484,7 +492,7 @@ try {
   );
   console.log(result);
 } finally {
-  await shutdown();
+  await python.close();
 }
 ```
 

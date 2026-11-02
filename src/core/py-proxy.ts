@@ -69,7 +69,7 @@ export interface PyProxyInternal {
  *
  * Usage:
  * ```typescript
- * const pd = await py.import('pandas');
+ * const pd = await python.import('pandas');
  * const df = await pd.read_csv('data.csv');  // df is a PyProxy
  * const rows = await df.describe().to_dict('records');  // chained calls
  * ```
