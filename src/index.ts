@@ -10,10 +10,7 @@
  * import { init, py } from 'pynect';
  *
  * await init({
- * project: {
- * dependencies: ['pandas', 'numpy'],
- * },
- * tool: { pynect: { autoSync: 'if-missing' } },
+ *   project: { dependencies: ['pandas', 'numpy'] },
  * });
  *
  * const pd = await py.import('pandas');
@@ -28,10 +25,6 @@ import { PynectNotInitializedError } from './utils/error-translator';
 import type { PynectConfig } from './types/config';
 import type { PyProxyInterface } from './types/python';
 import type { IsolatedCallOptions } from './core/isolated-worker';
-import type {
-  Awaitable,
-  PynectCallbackContext,
-} from './core/pynect-callback';
 import { resolveExposedModule } from './env/project-environment';
 import { withPynectLock } from './utils/locking';
 
@@ -100,9 +93,8 @@ export const py: PyRuntime = new Proxy({} as PyRuntime, {
  * @example
  * ```typescript
  * await init({
- * project: { dependencies: ['pandas'] },
- * tool: { pynect: { autoSync: 'if-missing' } },
- * logLevel: 'info',
+ *   project: { dependencies: ['pandas'] },
+ *   logLevel: 'info',
  * });
  * ```
  */
@@ -207,14 +199,6 @@ export function getRuntime(): PyRuntime {
   return _runtime;
 }
 
-/** Run work with callbacks that are disposed together when the scope exits. */
-export function withCallbacks<Result>(
-  work: (context: PynectCallbackContext) => Awaitable<Result>,
-): Promise<Result> {
-  if (!_runtime) throw new PynectNotInitializedError();
-  return _runtime.withCallbacks(work);
-}
-
 // Convenience API
 
 /**
@@ -298,19 +282,6 @@ export async function runFile(filePath: string): Promise<unknown> {
 }
 
 /**
- * Install Python packages into the configured virtualenv.
- *
- * @example
- * ```typescript
- * await installPackages(['pandas', 'numpy>=1.24.0', 'scikit-learn']);
- * ```
- */
-export async function installPackages(packages: string[]): Promise<void> {
-  if (!_runtime) {throw new PynectNotInitializedError();}
-  return _runtime.installPackages(packages);
-}
-
-/**
  * Get memory statistics for the Python heap.
  */
 export async function getMemoryStats(): Promise<{
@@ -367,7 +338,6 @@ export { PyCallable } from './core/py-callable';
 export type {
   Awaitable,
   PynectCallback,
-  PynectCallbackContext,
 } from './core/pynect-callback';
 export { PyIterator } from './core/py-iterator';
 export { PyContext } from './core/py-context';
@@ -403,16 +373,13 @@ export {
 } from './utils/error-translator';
 
 // Environment management
-export { PythonDetector } from './env/python-detector';
-export { VenvManager } from './env/venv-manager';
-export { PackageInstaller } from './env/package-installer';
 export {
   createProjectPlan,
   discoverPynectContributions,
   moduleDispatcherIncludes,
+  projectPythonOptions,
   resolveExposedModule,
   syncProject,
-  validateProjectEnvironment,
 } from './env/project-environment';
 export { CURRENT_PYNECT_SCHEMA_VERSION, resolveProjectConfig } from './config/project';
 
@@ -423,7 +390,6 @@ export { PluginManager } from './plugins/plugin-manager';
 export type {
   PynectConfig,
   ResolvedPynectConfig,
-  VirtualenvConfig,
   IsolationConfig,
   DispatcherConfig,
   CallbackConfig,
@@ -447,21 +413,18 @@ export type {
   PyCallOptions,
 } from './types/index';
 export type {
-  AutoSyncMode,
   CanonicalPynectPackageManifest,
   PynectModuleManifest,
   PynectPackageManifest,
   PynectCallbackTable,
   PynectProjectTable,
   PynectToolTable,
-  PynectUvTable,
   ProjectConfigOverrides,
   ResolvedProjectConfig,
 } from './config/project';
 export type {
   ExposedModule,
   PynectContribution,
-  PynectEnvironmentState,
   PynectProjectPlan,
   SyncProjectOptions,
   SyncProjectResult,
@@ -474,13 +437,11 @@ export default {
   isInitialized,
   getRuntime,
   py,
-  withCallbacks,
   import: importModule,
   callIsolated,
   eval: evalPython,
   exec: execPython,
   runFile,
-  installPackages,
   getMemoryStats,
   collectGarbage,
 };

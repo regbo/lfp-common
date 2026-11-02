@@ -18,7 +18,7 @@ function sourceFiles(root) {
     'scripts/build-native.js',
     'scripts/native-build-config.json',
     'scripts/native-fingerprint.js',
-    'scripts/pyfig.js',
+    'scripts/python.js',
     'scripts/stage-prebuild.js',
     ...nativeSources,
   ].sort();

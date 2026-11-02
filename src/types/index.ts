@@ -6,7 +6,6 @@
 export type {
   PynectConfig,
   ResolvedPynectConfig,
-  VirtualenvConfig,
   GILConfig,
   ThreadPoolConfig,
   MemoryConfig,

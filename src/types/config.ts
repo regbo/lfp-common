@@ -5,7 +5,7 @@
 
 import { availableParallelism } from 'os';
 import { DEFAULT_REQUIRES_UV } from 'pyfig';
-import type { AutoSyncMode, PynectPackageManifest } from '../config/project';
+import type { PynectPackageManifest } from '../config/project';
 
 export type LogLevel = 'silent' | 'error' | 'warn' | 'info' | 'debug';
 export type ValidationMode = 'auto' | 'required' | 'off';
@@ -21,22 +21,6 @@ export interface DispatcherConfig {
   exportedOnly?: boolean;
   /** Validate with Pydantic when available, require it, or disable it. */
   validation?: ValidationMode;
-}
-
-export interface VirtualenvConfig {
-  /**
-   * Must resolve to the environment selected by Pyfig when provided.
-   * @deprecated Pynect now selects the application environment through Pyfig.
-   */
-  path?: string;
-  /** @deprecated Declare Python dependencies in package.json pynect.project.dependencies. */
-  packages?: string[];
-  /** @deprecated Use pynect sync or the root autoSync policy. */
-  autoInstall?: boolean;
-  /** @deprecated Configure uv through application-owned environment policy. */
-  pipIndexUrl?: string;
-  /** @deprecated Arbitrary install arguments are not accepted by project sync. */
-  pipArgs?: string[];
 }
 
 export interface GILConfig {
@@ -101,61 +85,8 @@ export interface PynectConfig extends PynectPackageManifest {
   /** Shut down the shared runtime when the Node.js or Bun process exits. Default: true. */
   autoShutdown?: boolean;
 
-  /** Preferred Python executable used to create or validate the application environment. */
-  python?: string;
-
-  /**
-   * Python executable to check first as the base for the application environment.
-   * It must expose the CPython embedding development files; package and
-   * runtime operations still target Pyfig's selected virtual environment.
-   * @deprecated Use python instead.
-   */
-  pythonPath?: string;
-
-  /** Accepted Python version range. Default: Pyfig's supported range. */
-  requiresPython?: string;
-
   /** Application root used for Pyfig environment ownership. Default: Pyfig project discovery. */
   projectRoot?: string;
-
-  /** Allow Pyfig to install managed Python. Default: true. */
-  installPython?: boolean;
-
-  /** Allow Pyfig to install its pinned uv release. Default: true. */
-  installUv?: boolean;
-
-  /** Allow Pyfig to create its application-private virtual environment. Default: true. */
-  createVirtualEnvironment?: boolean;
-
-  /** @deprecated Use installPython instead. */
-  autoInstallPython?: boolean;
-
-  /** @deprecated Use installUv instead. */
-  autoInstallUv?: boolean;
-
-  /** @deprecated Use createVirtualEnvironment instead. */
-  autoCreateVirtualEnvironment?: boolean;
-
-  /** Managed Python version requested from uv. Default: '3.12'. */
-  managedPython?: string;
-
-  /** PEP 440 uv version specifier used by the checksum-verified bootstrap. */
-  uvVersion?: string;
-
-  /** Synchronize the locked project environment when it is missing or stale. Default: 'never'. */
-  autoSync?: AutoSyncMode;
-
-  /** Project-relative Pynect lockfile. Default: 'pynect.lock'. */
-  lockfile?: string;
-
-  /** Directory for the generated pyproject.toml and uv.lock. */
-  generatedDirectory?: string;
-
-  /**
-   * Legacy virtual-environment compatibility settings. Package provisioning now uses
-   * the application `pynect` manifest and `pynect sync`.
-   */
-  virtualenv?: VirtualenvConfig;
 
   /**
    * Thread pool configuration for Python execution.
@@ -163,21 +94,9 @@ export interface PynectConfig extends PynectPackageManifest {
   threadPool?: ThreadPoolConfig;
 
   /**
-   * Legacy shorthand for threadPool.size.
-   * @deprecated Use threadPool.size instead.
-   */
-  threadPoolSize?: number;
-
-  /**
    * Memory configuration for Python heap.
    */
   memory?: MemoryConfig;
-
-  /**
-   * Legacy shorthand for memory.limit.
-   * @deprecated Use memory.limit instead.
-   */
-  memoryLimit?: string;
 
   /**
    * Log level for pynect internal logging.
@@ -189,12 +108,6 @@ export interface PynectConfig extends PynectPackageManifest {
    * Profiling configuration.
    */
   profiling?: ProfilingConfig;
-
-  /**
-   * Legacy shorthand for profiling.enabled.
-   * @deprecated Use profiling.enabled instead.
-   */
-  enableProfiling?: boolean;
 
   /**
    * Maximum queue wait before a Python call begins, in milliseconds.
@@ -217,9 +130,6 @@ export interface PynectConfig extends PynectPackageManifest {
   /** Expose raw Python eval, exec, contexts, and native addon access. Default: false. */
   allowUnsafeCode?: boolean;
 
-  /** Permit runtime pip package installation. Default: false. */
-  allowPackageInstall?: boolean;
-
   /** Include Python tracebacks in JavaScript errors. Default: false. */
   includeTracebacks?: boolean;
 
@@ -228,11 +138,8 @@ export interface PynectConfig extends PynectPackageManifest {
    */
   gil?: GILConfig;
 
-  /**
-   * Additional Python sys.path entries.
-   * Inserted at sys.path[0] in order.
-   */
-  pythonPath_extra?: string[];
+  /** Additional Python sys.path entries, inserted at sys.path[0] in order. */
+  pythonModulePaths?: string[];
 
   /**
    * Environment variables to set for the Python interpreter.
@@ -259,14 +166,11 @@ export interface ResolvedPynectConfig {
   pythonHome: string;
   projectRoot: string;
   requiresPython: string;
-  autoInstallPython: boolean;
-  autoInstallUv: boolean;
-  autoCreateVirtualEnvironment: boolean;
+  installPython: boolean;
+  installUv: boolean;
+  createVirtualEnvironment: boolean;
   managedPython: string;
-  uvVersion: string;
-  autoSync: AutoSyncMode;
-  lockfile: string;
-  generatedDirectory: string;
+  requiresUv: string;
   threadPoolSize: number;
   maxQueueSize: number;
   idleTimeout: number;
@@ -280,7 +184,6 @@ export interface ResolvedPynectConfig {
   isolation: Required<IsolationConfig>;
   dispatcher: Required<DispatcherConfig>;
   allowUnsafeCode: boolean;
-  allowPackageInstall: boolean;
   includeTracebacks: boolean;
   gil: Required<GILConfig>;
   profilingEnabled: boolean;
@@ -289,7 +192,7 @@ export interface ResolvedPynectConfig {
   sharedArrayBuffer: boolean;
   lazyResolution: boolean;
   env: Record<string, string>;
-  pythonPathExtra: string[];
+  pythonModulePaths: string[];
 }
 
 export function resolveConfig(config: PynectConfig = {}): ResolvedPynectConfig {
@@ -300,22 +203,19 @@ export function resolveConfig(config: PynectConfig = {}): ResolvedPynectConfig {
   }
   return {
     autoShutdown: config.autoShutdown ?? true,
-    pythonExecutable: config.python ?? config.pythonPath ?? 'python3',
+    pythonExecutable: config.tool?.pynect?.python ?? 'python3',
     pythonHome: '',
     projectRoot: config.projectRoot ?? process.cwd(),
-    requiresPython: config.requiresPython ?? '>=3.10.0 <4.0.0',
-    autoInstallPython: config.installPython ?? config.autoInstallPython ?? true,
-    autoInstallUv: config.installUv ?? config.autoInstallUv ?? true,
-    autoCreateVirtualEnvironment: config.createVirtualEnvironment ?? config.autoCreateVirtualEnvironment ?? true,
-    managedPython: config.managedPython ?? '3.12',
-    uvVersion: config.uvVersion ?? DEFAULT_REQUIRES_UV,
-    autoSync: config.autoSync ?? 'never',
-    lockfile: config.lockfile ?? 'pynect.lock',
-    generatedDirectory: config.generatedDirectory ?? '',
-    threadPoolSize: config.threadPool?.size ?? config.threadPoolSize ?? Math.max(4, availableParallelism()),
+    requiresPython: config.project?.['requires-python'] ?? '>=3.10.0 <4.0.0',
+    installPython: config.tool?.pynect?.installPython ?? true,
+    installUv: config.tool?.pynect?.installUv ?? true,
+    createVirtualEnvironment: config.tool?.pynect?.createVirtualEnvironment ?? true,
+    managedPython: config.tool?.pynect?.managedPython ?? '3.12',
+    requiresUv: config.tool?.pynect?.requiresUv ?? DEFAULT_REQUIRES_UV,
+    threadPoolSize: config.threadPool?.size ?? Math.max(4, availableParallelism()),
     maxQueueSize: config.threadPool?.maxQueueSize ?? 1000,
     idleTimeout: config.threadPool?.idleTimeout ?? 30000,
-    memoryLimit: config.memory?.limit ?? config.memoryLimit ?? '2GB',
+    memoryLimit: config.memory?.limit ?? '2GB',
     gcThreshold: config.memory?.gcThreshold ?? '1GB',
     leakDetection: config.memory?.leakDetection ?? false,
     logLevel: config.logLevel ?? 'warn',
@@ -335,18 +235,17 @@ export function resolveConfig(config: PynectConfig = {}): ResolvedPynectConfig {
       validation: config.dispatcher?.validation ?? 'auto',
     },
     allowUnsafeCode: config.allowUnsafeCode ?? false,
-    allowPackageInstall: config.allowPackageInstall ?? false,
     includeTracebacks: config.includeTracebacks ?? false,
     gil: {
       releaseInterval: config.gil?.releaseInterval ?? 5000,
       acquireTimeout: config.gil?.acquireTimeout ?? 10000,
     },
-    profilingEnabled: config.profiling?.enabled ?? config.enableProfiling ?? false,
+    profilingEnabled: config.profiling?.enabled ?? false,
     profilingFile: config.profiling?.outputFile,
     profilingSamplingInterval: config.profiling?.samplingInterval ?? 1000,
     sharedArrayBuffer: config.experimental?.sharedArrayBuffer ?? true,
     lazyResolution: config.experimental?.lazyResolution ?? true,
     env: config.env ?? {},
-    pythonPathExtra: config.pythonPath_extra ?? [],
+    pythonModulePaths: config.pythonModulePaths ?? [],
   };
 }

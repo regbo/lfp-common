@@ -3,16 +3,17 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { ensurePynectPython } = require('./pyfig');
+const { preparePython } = require('./python');
 
 const ROOT = path.resolve(__dirname, '..');
 
 async function main() {
   const projectRoot = process.env.PYNECT_PROJECT_ROOT || process.env.INIT_CWD || ROOT;
-  const { python } = await ensurePynectPython({
+  const { environment } = await preparePython({
     projectRoot,
-    pythonPath: process.env.PYNECT_PYTHON,
+    python: process.env.PYNECT_PYTHON,
   });
+  const { python } = environment;
   const embedding = python.embedding;
   const stableAbiLibrary = process.platform === 'win32'
     ? embedding.stableAbiLibraryPath || path.join(embedding.libraryDirectory, 'python3.lib')

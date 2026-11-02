@@ -29,8 +29,8 @@ async function main() {
 
   const result = await syncProject({ projectRoot });
   console.log(
-    `[pynect] Synchronized ${result.plan.requirements.length} Python requirement(s) ` +
-    `with uv in ${path.dirname(result.plan.stateFile)}.`,
+    `[pynect] Prepared ${result.plan.dependencies.length} Python dependency constraint(s) ` +
+    `with Pyfig in ${result.environment.python.virtualEnvironment}.`,
   );
 }
 

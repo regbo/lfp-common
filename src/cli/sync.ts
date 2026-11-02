@@ -7,56 +7,74 @@ interface SyncCommandOptions {
   python?: string;
   requiresPython?: string;
   managedPython?: string;
-  uvVersion?: string;
+  requiresUv?: string;
+  dependency?: string[];
+  requirement?: string[];
   installPython?: boolean;
   installUv?: boolean;
   createVirtualEnvironment?: boolean;
-  lockfile?: string;
-  generatedDirectory?: string;
-  frozen?: boolean;
   offline?: boolean;
   json?: boolean;
 }
 
 export function createSyncCommand(): Command {
   return new Command('sync')
-    .description('Resolve and synchronize the application Python environment.')
+    .description('Prepare the application Python environment with Pyfig.')
     .option('--project-root <path>', 'application root that owns package.json')
     .option('--python <path>', 'preferred base Python executable')
     .option('--requires-python <range>', 'accepted Python version range')
     .option('--managed-python <version>', 'managed Python request used as a fallback')
-    .option('--uv-version <specifier>', 'PEP 440 uv version specifier Pyfig may install')
+    .option('--requires-uv <specifier>', 'PEP 440 uv version specifier Pyfig may install')
+    .option('--dependency <specifier...>', 'additional Python dependency specifiers')
+    .option('--requirement <path...>', 'requirements files resolved from the application root')
     .addOption(booleanOption('--install-python <boolean>', 'allow managed Python installation'))
     .addOption(booleanOption('--install-uv <boolean>', 'allow uv installation'))
     .addOption(booleanOption(
       '--create-virtual-environment <boolean>',
-      'allow creation of the Pyfig-managed virtual environment',
+      'allow creation of a Pyfig-managed virtual environment',
     ))
-    .option('--lockfile <path>', 'project-relative lockfile path')
-    .option('--generated-directory <path>', 'directory for generated pyproject.toml and uv.lock')
-    .option('--frozen', 'use the existing lockfile and reject manifest changes')
-    .option('--offline', 'prohibit network access during resolution and sync')
+    .option('--offline', 'prohibit network access during preparation')
     .option('--json', 'print the result as JSON')
     .action(async (options: SyncCommandOptions) => {
-      const result = await syncProject(options);
+      const result = await syncProject({
+        projectRoot: options.projectRoot,
+        project: {
+          'requires-python': options.requiresPython,
+          dependencies: options.dependency,
+        },
+        tool: {
+          pynect: {
+            python: options.python,
+            managedPython: options.managedPython,
+            requiresUv: options.requiresUv,
+            requirements: options.requirement,
+            installPython: options.installPython,
+            installUv: options.installUv,
+            createVirtualEnvironment: options.createVirtualEnvironment,
+          },
+        },
+        offline: options.offline,
+      });
+      const python = result.environment.python;
       if (options.json) {
         process.stdout.write(`${JSON.stringify({
           projectRoot: result.plan.config.projectRoot,
-          lockfile: result.lockfile,
-          environment: result.state.virtualEnvironment,
-          generatedProject: result.plan.generatedDirectory,
-          manifestHash: result.state.manifestHash,
-          requirements: result.plan.requirements.length,
-          contributors: result.state.contributors,
+          environment: python.virtualEnvironment,
+          python: python.executable,
+          dependencies: result.plan.dependencies.length,
+          requirements: result.plan.requirements,
+          contributors: result.plan.contributions.map(item => ({
+            name: item.packageName,
+            version: item.packageVersion,
+          })),
         }, null, 2)}\n`);
         return;
       }
       process.stdout.write(
-        `Synchronized ${result.plan.requirements.length} Python requirement(s) from ` +
-        `${result.state.contributors.length} package(s).\n` +
-        `Lockfile: ${result.lockfile}\n` +
-        `Generated project: ${result.plan.generatedDirectory}\n` +
-        `Environment: ${result.state.virtualEnvironment}\n`,
+        `Prepared ${result.plan.dependencies.length} Python dependency constraint(s) from ` +
+        `${result.plan.contributions.length} package(s).\n` +
+        `Environment: ${python.virtualEnvironment}\n` +
+        `Python: ${python.executable}\n`,
       );
     });
 }

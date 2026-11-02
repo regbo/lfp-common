@@ -1,13 +1,11 @@
 import fs from 'fs';
 import path from 'path';
-import { createHash } from 'crypto';
 import {
   DEFAULT_MANAGED_PYTHON,
   DEFAULT_REQUIRES_UV,
   resolveProjectRoot,
 } from 'pyfig';
 
-export type AutoSyncMode = 'never' | 'if-missing';
 export const CURRENT_PYNECT_SCHEMA_VERSION = 1 as const;
 export const PYNECT_REQUIRES_PYTHON = '>=3.10.0 <4.0.0';
 
@@ -23,26 +21,19 @@ export interface PynectProjectTable {
   dependencies?: string[];
 }
 
-export interface PynectUvTable {
-  package?: false;
-  'override-dependencies'?: string[];
-}
-
 export interface PynectCallbackTable {
   maxDepth?: number;
 }
 
 export interface PynectToolTable {
   modules?: Record<string, PynectModuleManifest>;
+  requirements?: string[];
   python?: string;
   managedPython?: string;
-  uvVersion?: string;
+  requiresUv?: string;
   installPython?: boolean;
   installUv?: boolean;
   createVirtualEnvironment?: boolean;
-  autoSync?: AutoSyncMode;
-  lockfile?: string;
-  generatedDirectory?: string;
   callbacks?: PynectCallbackTable;
 }
 
@@ -50,7 +41,6 @@ export interface CanonicalPynectPackageManifest {
   schemaVersion: typeof CURRENT_PYNECT_SCHEMA_VERSION;
   project: PynectProjectTable;
   tool: {
-    uv: PynectUvTable;
     pynect: PynectToolTable;
   };
 }
@@ -60,52 +50,12 @@ export interface PynectPackageManifest {
   schemaVersion?: typeof CURRENT_PYNECT_SCHEMA_VERSION;
   project?: PynectProjectTable;
   tool?: {
-    uv?: PynectUvTable;
     pynect?: PynectToolTable;
   };
-  /** @deprecated Use project["requires-python"]. */
-  requiresPython?: string;
-  /** @deprecated Use project.dependencies. */
-  requirements?: string[];
-  /** @deprecated Use tool.uv["override-dependencies"]. */
-  overrides?: Record<string, string>;
-  /** @deprecated Use tool.pynect.modules. */
-  modules?: Record<string, PynectModuleManifest>;
-  /** @deprecated Use tool.pynect.python. */
-  python?: string;
-  /** @deprecated Use tool.pynect.managedPython. */
-  managedPython?: string;
-  /** @deprecated Use tool.pynect.uvVersion. */
-  uvVersion?: string;
-  /** @deprecated Use tool.pynect.installPython. */
-  installPython?: boolean;
-  /** @deprecated Use tool.pynect.installUv. */
-  installUv?: boolean;
-  /** @deprecated Use tool.pynect.createVirtualEnvironment. */
-  createVirtualEnvironment?: boolean;
-  /** @deprecated Use tool.pynect.autoSync. */
-  autoSync?: AutoSyncMode;
-  /** @deprecated Use tool.pynect.lockfile. */
-  lockfile?: string;
-  /** @deprecated Use tool.pynect.generatedDirectory. */
-  generatedDirectory?: string;
 }
 
 export interface ProjectConfigOverrides extends PynectPackageManifest {
-  /** @deprecated Pass project and tool directly. */
-  pynect?: PynectPackageManifest;
   projectRoot?: string;
-  python?: string;
-  requiresPython?: string;
-  managedPython?: string;
-  uvVersion?: string;
-  installPython?: boolean;
-  installUv?: boolean;
-  createVirtualEnvironment?: boolean;
-  autoSync?: AutoSyncMode;
-  lockfile?: string;
-  generatedDirectory?: string;
-  callbacks?: PynectCallbackTable;
   env?: Record<string, string | undefined>;
 }
 
@@ -113,15 +63,13 @@ export interface ResolvedProjectConfig {
   projectRoot: string;
   python: string;
   requiresPython: string;
+  requirements: string[];
   managedPython: string;
   managedPythonExplicit: boolean;
-  uvVersion: string;
+  requiresUv: string;
   installPython: boolean;
   installUv: boolean;
   createVirtualEnvironment: boolean;
-  autoSync: AutoSyncMode;
-  lockfile: string;
-  generatedDirectory: string;
   callbackMaxDepth?: number;
   packageManifest: CanonicalPynectPackageManifest;
   env: NodeJS.ProcessEnv;
@@ -131,12 +79,10 @@ const DEFAULTS = {
   python: '',
   requiresPython: PYNECT_REQUIRES_PYTHON,
   managedPython: DEFAULT_MANAGED_PYTHON,
-  uvVersion: DEFAULT_REQUIRES_UV,
+  requiresUv: DEFAULT_REQUIRES_UV,
   installPython: true,
   installUv: true,
   createVirtualEnvironment: true,
-  autoSync: 'never' as AutoSyncMode,
-  lockfile: 'pynect.lock',
 };
 
 /**
@@ -151,7 +97,11 @@ export function resolveProjectConfig(
   const projectRoot = path.resolve(rootHint || resolveProjectRoot(process.cwd()));
   const packageManifest = readRootPynectManifest(projectRoot);
   const apiManifest = validatePackageManifest(
-    overrides.pynect ?? overrides,
+    {
+      schemaVersion: overrides.schemaVersion,
+      project: overrides.project,
+      tool: overrides.tool,
+    },
     'Pynect API config',
   );
   const manifest = mergeCanonicalManifests(packageManifest, apiManifest);
@@ -161,79 +111,56 @@ export function resolveProjectConfig(
   const packageTool = packageManifest.tool.pynect;
 
   const python = first(
-    overrides.python,
     apiTool.python,
     env['PYNECT_PYTHON'],
     packageTool.python,
     DEFAULTS.python,
   );
   const requiresPython = first(
-    overrides.requiresPython,
     apiProject['requires-python'],
     env['PYNECT_REQUIRES_PYTHON'],
     packageManifest.project['requires-python'],
     DEFAULTS.requiresPython,
   );
   const configuredManagedPython = first(
-    overrides.managedPython,
     apiTool.managedPython,
     env['PYNECT_MANAGED_PYTHON'],
-    env['PYNECT_PYTHON_VERSION'],
     packageTool.managedPython,
   );
   const managedPython = configuredManagedPython ?? DEFAULTS.managedPython;
-  const uvVersion = first(
-    overrides.uvVersion,
-    apiTool.uvVersion,
+  const requiresUv = first(
+    apiTool.requiresUv,
     env['PYNECT_REQUIRES_UV'],
-    env['PYNECT_UV_VERSION'],
-    packageTool.uvVersion,
-    DEFAULTS.uvVersion,
+    packageTool.requiresUv,
+    DEFAULTS.requiresUv,
   );
-  const autoSync = parseAutoSync(first(
-    overrides.autoSync,
-    apiTool.autoSync,
-    env['PYNECT_AUTO_SYNC'],
-    packageTool.autoSync,
-    DEFAULTS.autoSync,
-  ));
-  const lockfile = first(
-    overrides.lockfile,
-    apiTool.lockfile,
-    env['PYNECT_LOCKFILE'],
-    packageTool.lockfile,
-    DEFAULTS.lockfile,
-  );
-  const generatedDirectory = path.resolve(projectRoot, first(
-    overrides.generatedDirectory,
-    apiTool.generatedDirectory,
-    env['PYNECT_GENERATED_DIRECTORY'],
-    packageTool.generatedDirectory,
-    defaultGeneratedDirectory(projectRoot),
-  ));
+  const requirements = first(
+    apiTool.requirements,
+    packageTool.requirements,
+    [],
+  ).map(requirement => path.resolve(projectRoot, requirement));
   const installPython = resolveBoolean(
-    first(overrides.installPython, apiTool.installPython),
-    env['PYNECT_INSTALL_PYTHON'] ?? env['PYNECT_AUTO_INSTALL'],
+    apiTool.installPython,
+    env['PYNECT_INSTALL_PYTHON'],
     packageTool.installPython,
     DEFAULTS.installPython,
     'PYNECT_INSTALL_PYTHON',
   );
   const installUv = resolveBoolean(
-    first(overrides.installUv, apiTool.installUv),
+    apiTool.installUv,
     env['PYNECT_INSTALL_UV'],
     packageTool.installUv,
     DEFAULTS.installUv,
     'PYNECT_INSTALL_UV',
   );
   const createVirtualEnvironment = resolveBoolean(
-    first(overrides.createVirtualEnvironment, apiTool.createVirtualEnvironment),
+    apiTool.createVirtualEnvironment,
     env['PYNECT_CREATE_VIRTUAL_ENVIRONMENT'],
     packageTool.createVirtualEnvironment,
     DEFAULTS.createVirtualEnvironment,
     'PYNECT_CREATE_VIRTUAL_ENVIRONMENT',
   );
   const callbackMaxDepth = first(
-    overrides.callbacks?.maxDepth,
     apiTool.callbacks?.maxDepth,
     parseOptionalPositiveInteger(env['PYNECT_CALLBACK_MAX_DEPTH'], 'PYNECT_CALLBACK_MAX_DEPTH'),
     packageTool.callbacks?.maxDepth,
@@ -247,21 +174,15 @@ export function resolveProjectConfig(
       dependencies: project.dependencies ?? [],
     },
     tool: {
-      uv: {
-        package: false,
-        'override-dependencies': manifest.tool.uv['override-dependencies'] ?? [],
-      },
       pynect: {
         modules: manifest.tool.pynect.modules ?? {},
+        requirements: manifest.tool.pynect.requirements ?? [],
         python,
         managedPython,
-        uvVersion,
+        requiresUv,
         installPython,
         installUv,
         createVirtualEnvironment,
-        autoSync,
-        lockfile,
-        generatedDirectory,
         callbacks: callbackMaxDepth === undefined ? undefined : { maxDepth: callbackMaxDepth },
       },
     },
@@ -271,15 +192,13 @@ export function resolveProjectConfig(
     projectRoot,
     python,
     requiresPython,
+    requirements,
     managedPython,
     managedPythonExplicit: configuredManagedPython !== undefined,
-    uvVersion,
+    requiresUv,
     installPython,
     installUv,
     createVirtualEnvironment,
-    autoSync,
-    lockfile: resolveInsideProject(projectRoot, lockfile, 'pynect.lock'),
-    generatedDirectory,
     callbackMaxDepth,
     packageManifest: resolvedManifest,
     env,
@@ -311,8 +230,14 @@ export function validatePackageManifest(
       `${source}: pynect.schemaVersion must be ${CURRENT_PYNECT_SCHEMA_VERSION} when specified.`,
     );
   }
+  assertKnownKeys(value, ['schemaVersion', 'project', 'tool'], `${source}: pynect`);
 
   const project = optionalRecord(value, 'project', source);
+  assertKnownKeys(
+    project,
+    ['name', 'version', 'requires-python', 'dependencies'],
+    `${source}: pynect.project`,
+  );
   optionalString(project, 'name', `${source}: pynect.project`);
   optionalString(project, 'version', `${source}: pynect.project`);
   optionalString(project, 'requires-python', `${source}: pynect.project`);
@@ -321,134 +246,59 @@ export function validatePackageManifest(
   }
 
   const toolTables = optionalRecord(value, 'tool', source);
-  const uv = optionalRecord(toolTables, 'uv', `${source}: pynect.tool`);
-  if (uv['package'] !== undefined && uv['package'] !== false) {
-    throw new TypeError(`${source}: pynect.tool.uv.package must be false.`);
-  }
-  if (uv['override-dependencies'] !== undefined) {
-    validateRequirements(
-      uv['override-dependencies'],
-      `${source}: pynect.tool.uv["override-dependencies"]`,
-    );
-  }
-
+  assertKnownKeys(toolTables, ['pynect'], `${source}: pynect.tool`);
   const pynectTool = optionalRecord(toolTables, 'pynect', `${source}: pynect.tool`);
   validatePynectTool(pynectTool, source);
 
-  // Flat keys remain accepted so existing packages can migrate without a flag day.
-  optionalString(value, 'requiresPython', source);
-  optionalString(value, 'python', source);
-  optionalString(value, 'managedPython', source);
-  optionalString(value, 'uvVersion', source);
-  optionalString(value, 'lockfile', source);
-  optionalString(value, 'generatedDirectory', source);
-  optionalBoolean(value, 'installPython', source);
-  optionalBoolean(value, 'installUv', source);
-  optionalBoolean(value, 'createVirtualEnvironment', source);
-  if (value['autoSync'] !== undefined) parseAutoSync(value['autoSync']);
-  if (value['requirements'] !== undefined) {
-    validateRequirements(value['requirements'], `${source}: pynect.requirements`);
-  }
-  if (value['modules'] !== undefined) validateModules(value['modules'], source);
-  if (value['overrides'] !== undefined) validateOverrides(value['overrides'], source);
-
-  const legacyOverrides = value['overrides'] === undefined
-    ? undefined
-    : Object.entries(value['overrides'] as Record<string, string>)
-      .map(([distribution, constraint]) => `${distribution}${constraint}`)
-      .sort();
   return {
     schemaVersion: CURRENT_PYNECT_SCHEMA_VERSION,
     project: {
       name: project['name'] as string | undefined,
       version: project['version'] as string | undefined,
-      'requires-python': first(
-        project['requires-python'] as string | undefined,
-        value['requiresPython'] as string | undefined,
-      ),
-      dependencies: first(
-        project['dependencies'] as string[] | undefined,
-        value['requirements'] as string[] | undefined,
-      ),
+      'requires-python': project['requires-python'] as string | undefined,
+      dependencies: project['dependencies'] as string[] | undefined,
     },
     tool: {
-      uv: {
-        package: false,
-        'override-dependencies': first(
-          uv['override-dependencies'] as string[] | undefined,
-          legacyOverrides,
-        ),
-      },
       pynect: {
-        modules: first(
-          pynectTool['modules'] as Record<string, PynectModuleManifest> | undefined,
-          value['modules'] as Record<string, PynectModuleManifest> | undefined,
-        ),
-        python: first(
-          pynectTool['python'] as string | undefined,
-          value['python'] as string | undefined,
-        ),
-        managedPython: first(
-          pynectTool['managedPython'] as string | undefined,
-          value['managedPython'] as string | undefined,
-        ),
-        uvVersion: first(
-          pynectTool['uvVersion'] as string | undefined,
-          value['uvVersion'] as string | undefined,
-        ),
-        installPython: first(
-          pynectTool['installPython'] as boolean | undefined,
-          value['installPython'] as boolean | undefined,
-        ),
-        installUv: first(
-          pynectTool['installUv'] as boolean | undefined,
-          value['installUv'] as boolean | undefined,
-        ),
-        createVirtualEnvironment: first(
-          pynectTool['createVirtualEnvironment'] as boolean | undefined,
-          value['createVirtualEnvironment'] as boolean | undefined,
-        ),
-        autoSync: first(
-          pynectTool['autoSync'] as AutoSyncMode | undefined,
-          value['autoSync'] as AutoSyncMode | undefined,
-        ),
-        lockfile: first(
-          pynectTool['lockfile'] as string | undefined,
-          value['lockfile'] as string | undefined,
-        ),
-        generatedDirectory: first(
-          pynectTool['generatedDirectory'] as string | undefined,
-          value['generatedDirectory'] as string | undefined,
-        ),
+        modules: pynectTool['modules'] as Record<string, PynectModuleManifest> | undefined,
+        requirements: pynectTool['requirements'] as string[] | undefined,
+        python: pynectTool['python'] as string | undefined,
+        managedPython: pynectTool['managedPython'] as string | undefined,
+        requiresUv: pynectTool['requiresUv'] as string | undefined,
+        installPython: pynectTool['installPython'] as boolean | undefined,
+        installUv: pynectTool['installUv'] as boolean | undefined,
+        createVirtualEnvironment: pynectTool['createVirtualEnvironment'] as boolean | undefined,
         callbacks: pynectTool['callbacks'] as PynectCallbackTable | undefined,
       },
     },
   };
 }
 
-function validateOverrides(value: unknown, source: string): void {
-  if (!isRecord(value)) throw new TypeError(`${source}: pynect.overrides must be an object.`);
-  for (const [distribution, constraint] of Object.entries(value)) {
-    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(distribution) ||
-      typeof constraint !== 'string' || !constraint.trim() || /[\0\r\n]/u.test(constraint)) {
-      throw new TypeError(`${source}: invalid Pynect override for ${JSON.stringify(distribution)}.`);
-    }
-  }
-}
-
 function validatePynectTool(value: Record<string, unknown>, source: string): void {
+  assertKnownKeys(value, [
+    'modules',
+    'requirements',
+    'python',
+    'managedPython',
+    'requiresUv',
+    'installPython',
+    'installUv',
+    'createVirtualEnvironment',
+    'callbacks',
+  ], `${source}: pynect.tool.pynect`);
   optionalString(value, 'python', `${source}: pynect.tool.pynect`);
   optionalString(value, 'managedPython', `${source}: pynect.tool.pynect`);
-  optionalString(value, 'uvVersion', `${source}: pynect.tool.pynect`);
-  optionalString(value, 'lockfile', `${source}: pynect.tool.pynect`);
-  optionalString(value, 'generatedDirectory', `${source}: pynect.tool.pynect`);
+  optionalString(value, 'requiresUv', `${source}: pynect.tool.pynect`);
   optionalBoolean(value, 'installPython', `${source}: pynect.tool.pynect`);
   optionalBoolean(value, 'installUv', `${source}: pynect.tool.pynect`);
   optionalBoolean(value, 'createVirtualEnvironment', `${source}: pynect.tool.pynect`);
-  if (value['autoSync'] !== undefined) parseAutoSync(value['autoSync']);
+  if (value['requirements'] !== undefined) {
+    validateRequirements(value['requirements'], `${source}: pynect.tool.pynect.requirements`);
+  }
   if (value['modules'] !== undefined) validateModules(value['modules'], source);
   if (value['callbacks'] !== undefined) {
     const callbacks = optionalRecord(value, 'callbacks', `${source}: pynect.tool.pynect`);
+    assertKnownKeys(callbacks, ['maxDepth'], `${source}: pynect.tool.pynect.callbacks`);
     if (callbacks['maxDepth'] !== undefined &&
       (!Number.isSafeInteger(callbacks['maxDepth']) || (callbacks['maxDepth'] as number) <= 0)) {
       throw new TypeError(`${source}: pynect.tool.pynect.callbacks.maxDepth must be a positive integer.`);
@@ -475,6 +325,7 @@ function validateModules(value: unknown, source: string): void {
       !/^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*$/.test(module['import'])) {
       throw new TypeError(`${source}: pynect.modules.${name}.import must be a Python module name.`);
     }
+    assertKnownKeys(module, ['import', 'include'], `${source}: pynect.modules.${name}`);
     if (module['include'] !== undefined) {
       stringArray(module['include'], `${source}: pynect.modules.${name}.include`);
     }
@@ -485,7 +336,7 @@ function emptyCanonicalManifest(): CanonicalPynectPackageManifest {
   return {
     schemaVersion: CURRENT_PYNECT_SCHEMA_VERSION,
     project: {},
-    tool: { uv: {}, pynect: {} },
+    tool: { pynect: {} },
   };
 }
 
@@ -497,7 +348,6 @@ function mergeCanonicalManifests(
     schemaVersion: CURRENT_PYNECT_SCHEMA_VERSION,
     project: { ...base.project, ...withoutUndefined(override.project) },
     tool: {
-      uv: { ...base.tool.uv, ...withoutUndefined(override.tool.uv) },
       pynect: { ...base.tool.pynect, ...withoutUndefined(override.tool.pynect) },
     },
   };
@@ -507,25 +357,6 @@ function withoutUndefined<T extends object>(value: T): Partial<T> {
   return Object.fromEntries(
     Object.entries(value as Record<string, unknown>).filter(([, item]) => item !== undefined),
   ) as Partial<T>;
-}
-
-function defaultGeneratedDirectory(projectRoot: string): string {
-  const installedPackage = resolveInstalledPackageDirectory(projectRoot, 'pynect');
-  const installParent = installedPackage
-    ? path.dirname(installedPackage)
-    : path.join(projectRoot, 'node_modules');
-  const localInstallParent = path.join(projectRoot, 'node_modules');
-  if (pathsEqual(installParent, localInstallParent)) return path.join(installParent, '.pynect');
-  const projectKey = createHash('sha256').update(path.resolve(projectRoot)).digest('hex').slice(0, 12);
-  return path.join(installParent, '.pynect', projectKey);
-}
-
-function pathsEqual(left: string, right: string): boolean {
-  const resolvedLeft = path.resolve(left);
-  const resolvedRight = path.resolve(right);
-  return process.platform === 'win32'
-    ? resolvedLeft.toLowerCase() === resolvedRight.toLowerCase()
-    : resolvedLeft === resolvedRight;
 }
 
 export function resolveInstalledPackageDirectory(
@@ -540,15 +371,6 @@ export function resolveInstalledPackageDirectory(
     if (parent === current) return undefined;
     current = parent;
   }
-}
-
-function resolveInsideProject(projectRoot: string, value: string, fallback: string): string {
-  const resolved = path.resolve(projectRoot, value || fallback);
-  const relative = path.relative(projectRoot, resolved);
-  if (relative.startsWith('..') || path.isAbsolute(relative)) {
-    throw new TypeError(`Pynect lockfile must be inside the project root: ${resolved}`);
-  }
-  return resolved;
 }
 
 function resolveBoolean(
@@ -569,11 +391,6 @@ export function parseBoolean(value: string, name: string): boolean {
   throw new TypeError(`${name} must be true or false; received ${value}.`);
 }
 
-function parseAutoSync(value: unknown): AutoSyncMode {
-  if (value === 'never' || value === 'if-missing') return value;
-  throw new TypeError(`autoSync must be "never" or "if-missing"; received ${String(value)}.`);
-}
-
 function parseOptionalPositiveInteger(value: string | undefined, name: string): number | undefined {
   if (value === undefined) return undefined;
   const parsed = Number(value);
@@ -586,6 +403,17 @@ function parseOptionalPositiveInteger(value: string | undefined, name: string): 
 function optionalString(value: Record<string, unknown>, key: string, source: string): void {
   if (value[key] !== undefined && typeof value[key] !== 'string') {
     throw new TypeError(`${source}: pynect.${key} must be a string.`);
+  }
+}
+
+function assertKnownKeys(
+  value: Record<string, unknown>,
+  known: readonly string[],
+  source: string,
+): void {
+  const unknown = Object.keys(value).filter(key => !known.includes(key));
+  if (unknown.length > 0) {
+    throw new TypeError(`${source} contains unknown field(s): ${unknown.join(', ')}.`);
   }
 }
 

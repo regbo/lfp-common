@@ -9,7 +9,7 @@ describe('callback configuration and code generation', () => {
     expect(() => resolveConfig({ callbacks: { maxDepth: 0 } })).toThrow(/positive integer/);
   });
 
-  test('maps typed Python callables to branded Pynect callbacks', () => {
+  test('maps typed Python callables to Pynect callback function types', () => {
     expect(mapType('Callable[[int, str], bool]')).toBe(
       'PynectCallback<[number, string], boolean>',
     );

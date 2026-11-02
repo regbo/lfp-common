@@ -1,6 +1,6 @@
 import type { ChildProcessWithoutNullStreams } from 'child_process';
 import { createInterface, type Interface as ReadlineInterface } from 'readline';
-import { createPynectPyfig } from '../env/pyfig-adapter';
+import { createPython } from '../env/python';
 
 export interface IsolatedCallOptions {
   kwargs?: Record<string, unknown>;
@@ -98,12 +98,12 @@ export class IsolatedWorker {
       ...this.options.pythonPath,
       process.env['PYTHONPATH'],
     ].filter(Boolean).join(process.platform === 'win32' ? ';' : ':');
-    const client = createPynectPyfig({
+    const runtime = createPython({
       projectRoot: this.options.projectRoot,
-      pythonPath: this.options.pythonExecutable,
+      python: this.options.pythonExecutable,
       env: this.options.env,
     });
-    const child = await client.python([this.options.scriptPath], {
+    const child = await runtime.uv(['run', '--', 'python', this.options.scriptPath], {
       cwd: this.options.cwd,
       env: {
         ...process.env,

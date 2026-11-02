@@ -29,8 +29,7 @@
     "scripts/cli.js",
     "scripts/ensure-native.js",
     "scripts/postinstall.js",
-    "scripts/pyfig.js",
-    "scripts/python-provisioner.js",
+    "scripts/python.js",
     "scripts/smoke-python-boundary.js",
     "binding.gyp",
     "README.md",
@@ -86,7 +85,7 @@
     "node-gyp": "^11.5.0",
     "node-gyp-build": "^4.8.4",
     "pacwich": "^0.7.3",
-    "pyfig": "^0.6.3",
+    "pyfig": "^0.7.0",
     "semver": "^7.8.5"
   },
   "devDependencies": {

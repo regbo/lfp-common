@@ -433,7 +433,7 @@ def _make_error(exc_type: str, message: str, tb: str) -> Dict[str, Any]:
 # Diagnostic helpers
 
 def get_python_info() -> Dict[str, Any]:
-    """Return basic Python interpreter information (used by PythonDetector)."""
+    """Return basic information about the embedded Python interpreter."""
     import platform
     return {
         "version":      sys.version,

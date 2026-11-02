@@ -26,8 +26,9 @@ import type {
 import { translatePythonError } from '../utils/error-translator';
 import { Logger } from '../utils/logger';
 import {
+  createPynectCallbackScope,
   currentCallbackDepth,
-  serializePynectCallback,
+  type PynectCallbackScope,
 } from './pynect-callback';
 
 const logger = new Logger('PyProxy');
@@ -317,15 +318,27 @@ export class PyProxy {
     args: unknown[],
     controls: PyCallOptions = {},
   ): Promise<unknown> {
+    let callbackScope: PynectCallbackScope | undefined;
     try {
       const addon = internal.addon;
       if (controls.signal?.aborted) {
         throw PyProxy._abortError();
       }
 
+      callbackScope = createPynectCallbackScope(addon, {
+        decode: value => PyProxy._deserializeAddonResult(value, {
+          objectId: 0 as PyObjectId,
+          path: [],
+          addon,
+          callTimeout: internal.callTimeout,
+          executionTimeout: internal.executionTimeout,
+        }),
+        encode: value => PyProxy._serializeArg(value, addon, callbackScope),
+      });
+
       // Serialize arguments
       const serializedArgs = await Promise.all(
-        args.map(arg => PyProxy._serializeArg(arg, addon))
+        args.map(arg => PyProxy._serializeArg(arg, addon, callbackScope))
       );
 
       const callOptions: AddonCallOptions = {
@@ -354,7 +367,10 @@ export class PyProxy {
           callOptions.args = serializedArgs.slice(0, -1);
           const kwargsEntries = await Promise.all(
             Object.entries(lastArg as Record<string, unknown>).map(
-              async ([k, v]) => [k, await PyProxy._serializeArg(v, addon)] as [string, SerializedValue]
+              async ([k, v]) => [
+                k,
+                await PyProxy._serializeArg(v, addon, callbackScope),
+              ] as [string, SerializedValue]
             )
           );
           callOptions.kwargs = Object.fromEntries(kwargsEntries);
@@ -380,6 +396,8 @@ export class PyProxy {
         });
       }
       throw err;
+    } finally {
+      callbackScope?.[Symbol.dispose]();
     }
   }
 
@@ -590,6 +608,7 @@ export class PyProxy {
   static async _serializeArg(
     value: unknown,
     addon?: NativeAddon,
+    callbackScope?: PynectCallbackScope,
   ): Promise<SerializedValue> {
     // Already a SerializedValue
     if (
@@ -600,12 +619,11 @@ export class PyProxy {
       return value as SerializedValue;
     }
 
-    if (addon) {
-      const callback = serializePynectCallback(value, addon);
-      if (callback) return callback;
-    }
     if (typeof value === 'function') {
-      throw new TypeError('JavaScript functions must be registered with ctx.callback() inside withCallbacks().');
+      if (!addon || !callbackScope) {
+        throw new TypeError('JavaScript callbacks are only supported as Python call arguments.');
+      }
+      return callbackScope.register(value as (...args: never[]) => unknown);
     }
 
     // PyProxy -> pass as Python reference

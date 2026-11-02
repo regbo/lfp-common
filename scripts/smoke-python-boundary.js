@@ -3,47 +3,37 @@
 process.env.PYNECT_PREFER_LOCAL ??= '1';
 
 const path = require('path');
-const { ensurePynectEnvironment } = require('./pyfig');
+const { preparePython } = require('./python');
 
 const ROOT = path.resolve(__dirname, '..');
 
 async function main() {
-  const { client, environment } = await ensurePynectEnvironment({ projectRoot: ROOT });
+  const { runtime, environment } = await preparePython({ projectRoot: ROOT });
   const { python } = environment;
   const expected = normalize(python.executable);
   const pynect = require('../dist');
 
-  const detector = new pynect.PythonDetector({ projectRoot: ROOT });
-  const detected = await detector.detect();
-  assertSamePython(detected.executable, expected, 'PythonDetector');
-  const probed = detector.probe(detected.executable);
-  if (!probed) throw new Error('PythonDetector could not probe the selected repository Python.');
-  assertSamePython(probed.executable, expected, 'PythonDetector.probe');
-
-  const selected = client.pythonSync(
-    ['-c', 'import sys; print(sys.executable)'],
+  const selected = runtime.uvSync(
+    ['run', '--', 'python', '-c', 'import sys; print(sys.executable)'],
     { encoding: 'utf8' },
   );
-  assertSuccess(selected, 'PyfigClient.pythonSync');
-  assertSamePython(selected.stdout.trim(), expected, 'PyfigClient.pythonSync');
+  assertSuccess(selected, 'Pyfig Python uvSync run');
+  assertSamePython(selected.stdout.trim(), expected, 'Pyfig Python uvSync run');
 
-  const pip = client.pipSync(['list', '--format', 'json'], { encoding: 'utf8' });
-  assertSuccess(pip, 'PyfigClient.pipSync');
-
-  const uvPip = client.uvSync(
+  const uvPip = runtime.uvSync(
     ['pip', 'list', '--format', 'json'],
     { encoding: 'utf8' },
   );
   assertSuccess(uvPip, 'PyfigClient.uvSync pip');
 
-  const inspector = client.pythonSync(
-    [path.join(ROOT, 'python', 'type_inspector.py'), 'json'],
+  const inspector = runtime.uvSync(
+    ['run', '--', 'python', path.join(ROOT, 'python', 'type_inspector.py'), 'json'],
     { encoding: 'utf8' },
   );
   assertSuccess(inspector, 'codegen inspector');
   JSON.parse(inspector.stdout);
-  const callbackInspection = client.pythonSync(
-    [path.join(ROOT, 'python', 'type_inspector.py'), 'pynect_callback_fixture'],
+  const callbackInspection = runtime.uvSync(
+    ['run', '--', 'python', path.join(ROOT, 'python', 'type_inspector.py'), 'pynect_callback_fixture'],
     {
       encoding: 'utf8',
       env: {
@@ -59,8 +49,8 @@ async function main() {
     throw new Error(`Callback annotation was inspected as ${String(inspectedCallback)}.`);
   }
 
-  const worker = client.pythonSync(
-    [path.join(ROOT, 'python', 'isolated_worker.py')],
+  const worker = runtime.uvSync(
+    ['run', '--', 'python', path.join(ROOT, 'python', 'isolated_worker.py')],
     {
       encoding: 'utf8',
       input: `${JSON.stringify({
@@ -87,7 +77,7 @@ async function main() {
     projectRoot: ROOT,
     allowUnsafeCode: true,
     logLevel: 'error',
-    pythonPath_extra: [path.join(ROOT, 'tests', 'fixtures')],
+    pythonModulePaths: [path.join(ROOT, 'tests', 'fixtures')],
     threadPool: { size: 1 },
     callbacks: { maxDepth: 2 },
   });
@@ -95,43 +85,34 @@ async function main() {
     const embedded = await pynect.py.eval('__import__("sys").executable');
     assertSamePython(embedded, expected, 'embedded CPython');
     const fixture = await pynect.importModule('pynect_callback_fixture');
+    const asyncCallback = async value => {
+      await Promise.resolve();
+      return value * 3;
+    };
+    if (await fixture.invoke(asyncCallback, 4) !== 12) {
+      throw new Error('Async JavaScript callback returned the wrong value.');
+    }
+    await fixture.retain(asyncCallback);
     await assertRejects(
-      () => fixture.invoke((value) => value, 1),
-      /ctx\.callback\(\)/,
-      'unregistered callback',
+      () => fixture.invoke_retained(4),
+      /callback.*(?:disposed|registered)|(?:disposed|registered).*callback/i,
+      'settled callback lifetime',
     );
 
-    let disposedCallback;
-    await pynect.withCallbacks(async ctx => {
-      const asyncCallback = ctx.callback(async value => {
-        await Promise.resolve();
-        return value * 3;
-      });
-      if (await fixture.invoke(asyncCallback, 4) !== 12) {
-        throw new Error('Async JavaScript callback returned the wrong value.');
-      }
+    const reentrantCallback = async value => fixture.double(value);
+    if (await fixture.invoke(reentrantCallback, 5) !== 10) {
+      throw new Error('Reentrant JavaScript callback returned the wrong value.');
+    }
 
-      const reentrantCallback = ctx.callback(async value => fixture.double(value));
-      if (await fixture.invoke(reentrantCallback, 5) !== 10) {
-        throw new Error('Reentrant JavaScript callback returned the wrong value.');
-      }
-
-      let recursiveCallback;
-      recursiveCallback = ctx.callback(async depth => {
-        if (depth <= 0) return 0;
-        return fixture.invoke(recursiveCallback, depth - 1);
-      });
-      await assertRejects(
-        () => fixture.invoke(recursiveCallback, 2),
-        /recursion depth 3 exceeds the configured maximum of 2/,
-        'callback recursion limit',
-      );
-      disposedCallback = asyncCallback;
-    });
+    let recursiveCallback;
+    recursiveCallback = async depth => {
+      if (depth <= 0) return 0;
+      return fixture.invoke(recursiveCallback, depth - 1);
+    };
     await assertRejects(
-      () => fixture.invoke(disposedCallback, 1),
-      /disposed/,
-      'callback context disposal',
+      () => fixture.invoke(recursiveCallback, 2),
+      /recursion depth 3 exceeds the configured maximum of 2/,
+      'callback recursion limit',
     );
   } finally {
     await pynect.shutdown();

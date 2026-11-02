@@ -11,7 +11,7 @@ import {
   type FormattingOptions,
   type ParseError,
 } from 'jsonc-parser';
-import { ensurePynectPython } from '../env/pyfig-adapter';
+import { preparePython } from '../env/python';
 
 type StringMap = Record<string, string>;
 
@@ -565,14 +565,14 @@ async function executeCodegen(options: CodegenOptions): Promise<void> {
     : (options.modules.length ? options.modules : discoverModules(options.src));
   const publicModules = modules.filter(isPublicModule);
   if (!publicModules.length) throw new Error('No public Python modules were found. Packages and modules beginning with "_" are ignored.');
-  const { client } = await ensurePynectPython({
+  const { runtime } = await preparePython({
     projectRoot: options.workspaceDirectory,
   });
   for (const name of publicModules.sort()) {
     const pythonPath = [...options.src, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter);
     const localPath = localModulePath(name, options.src);
     const inspectorArgs = localPath ? [INSPECTOR, '--file', localPath, name] : [INSPECTOR, name];
-    const result = client.pythonSync(inspectorArgs, {
+    const result = runtime.uvSync(['run', '--', 'python', ...inspectorArgs], {
       encoding: 'utf8',
       timeout: 60_000,
       env: { ...process.env, PYTHONPATH: pythonPath },

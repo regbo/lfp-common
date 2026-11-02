@@ -11,7 +11,7 @@ on:
       - scripts/docker-zero-python.sh
       - scripts/native-build-config.json
       - scripts/native-fingerprint.js
-      - scripts/pyfig.js
+      - scripts/python.js
       - scripts/smoke-python-boundary.js
       - scripts/smoke-prebuild.js
       - scripts/stage-prebuild.js
@@ -25,7 +25,7 @@ on:
       - scripts/docker-zero-python.sh
       - scripts/native-build-config.json
       - scripts/native-fingerprint.js
-      - scripts/pyfig.js
+      - scripts/python.js
       - scripts/smoke-python-boundary.js
       - scripts/smoke-prebuild.js
       - scripts/stage-prebuild.js
@@ -112,7 +112,7 @@ jobs:
         run: node scripts/build-native.js
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          PYNECT_AUTO_INSTALL: '0'
+          PYFIG_INSTALL_PYTHON: '0'
 
       - name: Verify shared Python boundary
         run: node scripts/smoke-python-boundary.js
@@ -141,7 +141,7 @@ jobs:
           PYNECT_PYTHON: python
           PYNECT_REQUIRES_PYTHON: "==${{ matrix.compatibility_python }}.*"
           PYNECT_MANAGED_PYTHON: ${{ matrix.compatibility_python }}
-          PYNECT_AUTO_INSTALL: '0'
+          PYFIG_INSTALL_PYTHON: '0'
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v7

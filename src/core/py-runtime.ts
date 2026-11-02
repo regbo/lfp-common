@@ -5,31 +5,21 @@
  */
 
 import path from 'path';
-import { resolveProjectConfig } from '../config/project';
 import type { NativeAddon } from '../types/addon';
 import { resolveConfig } from '../types/config';
 import type { PynectConfig, ResolvedPynectConfig } from '../types/config';
 import type { PyObjectId } from '../types/python';
 import { PyProxy } from './py-proxy';
-import {
-  createPynectCallbackContext,
-  type Awaitable,
-  type PynectCallbackContext,
-} from './pynect-callback';
 import { PyModule } from './py-module';
 import { PyContext } from './py-context';
 import { IsolatedWorker, type IsolatedCallOptions } from './isolated-worker';
 import { PluginManager } from '../plugins/plugin-manager';
-import { PackageInstaller } from '../env/package-installer';
-import { ensurePynectPython } from '../env/pyfig-adapter';
 import {
   createProjectPlan,
   moduleDispatcherIncludes,
-  requiresProjectSync,
-  syncProject,
-  validateProjectEnvironment,
-  type PynectEnvironmentState,
+  projectPythonOptions,
 } from '../env/project-environment';
+import { createPython } from '../env/python';
 import { loadOrBuildNativeAddon } from '../native/native-addon-loader';
 import { MemoryMonitor } from '../utils/memory-monitor';
 import { Logger } from '../utils/logger';
@@ -47,7 +37,7 @@ const logger = new Logger('PyRuntime');
  * ```typescript
  * const runtime = await PyRuntime.create({
  * project: { dependencies: ['pandas'] },
- * tool: { pynect: { autoSync: 'if-missing' } },
+ * tool: { pynect: { requirements: ['requirements.txt'] } },
  * });
  *
  * const pd = await runtime.import('pandas');
@@ -69,7 +59,6 @@ export class PyRuntime {
   private readonly _memoryMonitor: MemoryMonitor;
   private _isolatedWorker?: IsolatedWorker;
   private _running = false;
-  private readonly _callbackContexts = new Set<Disposable>();
 
   private constructor(
     config: ResolvedPynectConfig,
@@ -98,69 +87,21 @@ export class PyRuntime {
    */
   static async create(config: PynectConfig = {}): Promise<PyRuntime> {
     const projectOverrides = {
-      ...config,
       projectRoot: config.projectRoot,
-      python: config.python ?? config.pythonPath,
-      requiresPython: config.requiresPython,
-      managedPython: config.managedPython,
-      uvVersion: config.uvVersion,
-      installPython: config.installPython ?? config.autoInstallPython,
-      installUv: config.installUv ?? config.autoInstallUv,
-      createVirtualEnvironment:
-        config.createVirtualEnvironment ?? config.autoCreateVirtualEnvironment,
-      autoSync: config.autoSync,
-      lockfile: config.lockfile,
-      generatedDirectory: config.generatedDirectory,
+      project: config.project,
+      tool: config.tool,
       env: config.env,
     };
-    const project = resolveProjectConfig(projectOverrides);
     const plan = createProjectPlan(projectOverrides);
-    let environmentState: PynectEnvironmentState | undefined;
-    if (requiresProjectSync(plan)) {
-      if (project.autoSync === 'if-missing') {
-        try {
-          environmentState = validateProjectEnvironment(plan);
-        } catch {
-          environmentState = (await syncProject(projectOverrides)).state;
-        }
-      } else {
-        environmentState = validateProjectEnvironment(plan);
-      }
-    }
-
-    if (config.virtualenv?.autoInstall && (config.virtualenv.packages?.length ?? 0) > 0) {
-      throw new Error(
-        'virtualenv.autoInstall is no longer supported. Declare Python dependencies in the ' +
-        'root package.json pynect.project.dependencies field and run "pynect sync".',
-      );
-    }
 
     // Resolve Python before loading the native addon. On Windows the addon
     // depends on the selected Python DLL, so its directory must already be on
     // PATH when Node loads the .node file.
-    const { python: selected } = await ensurePynectPython({
-      autoInstallPython: project.installPython,
-      autoInstallUv: project.installUv,
-      autoCreateVirtualEnvironment: project.createVirtualEnvironment,
-      managedPython: project.managedPython,
-      uvVersion: project.uvVersion,
-      pythonRange: plan.pythonRange,
-      pythonPath: project.python,
-      projectRoot: project.projectRoot,
-      env: project.env as Record<string, string>,
-    });
-    if (environmentState) {
-      const selectedAbi = `${selected.implementation}-${selected.version}-` +
-        `${selected.architecture}-${selected.pointerBits}`;
-      if (!pathsEqual(environmentState.pythonExecutable, selected.executable) ||
-        environmentState.pythonAbi !== selectedAbi) {
-        throw new Error(
-          'Pynect environment Python changed since the last sync. Run "pynect sync" before ' +
-          'starting the application.',
-        );
-      }
+    const environment = await createPython(projectPythonOptions(plan)).prepare();
+    const selected = environment.python;
+    if (!selected.embedding) {
+      throw new Error(`Pyfig selected ${selected.executable} without CPython embedding files.`);
     }
-    const selectedProjectRoot = project.projectRoot;
     const selectedSitePackages = selected.virtualEnvironment
       ? [process.platform === 'win32'
         ? path.join(selected.prefix, 'Lib', 'site-packages')
@@ -171,35 +112,33 @@ export class PyRuntime {
           'site-packages',
         )]
       : [];
-    if (config.virtualenv?.path) {
-      const configuredVenv = path.resolve(config.virtualenv.path);
-      if (!selected.virtualEnvironment || !pathsEqual(configuredVenv, selected.virtualEnvironment)) {
-        throw new Error(
-          `virtualenv.path must resolve to the Pyfig-selected environment at ${selected.virtualEnvironment}.`,
-        );
-      }
-    }
     const preparedConfig: PynectConfig = {
       ...config,
-      python: selected.executable,
-      pythonPath_extra: [
+      project: {
+        ...config.project,
+        'requires-python': plan.pythonRange,
+      },
+      tool: {
+        ...config.tool,
+        pynect: {
+          ...config.tool?.pynect,
+          python: selected.executable,
+          managedPython: plan.config.managedPython,
+          requiresUv: plan.config.requiresUv,
+          installPython: plan.config.installPython,
+          installUv: plan.config.installUv,
+          createVirtualEnvironment: plan.config.createVirtualEnvironment,
+        },
+      },
+      pythonModulePaths: [
         ...selectedSitePackages,
-        ...(config.pythonPath_extra ?? []),
+        ...(config.pythonModulePaths ?? []),
       ],
-      requiresPython: plan.pythonRange,
-      projectRoot: selectedProjectRoot,
-      installPython: project.installPython,
-      installUv: project.installUv,
-      createVirtualEnvironment: project.createVirtualEnvironment,
-      managedPython: project.managedPython,
-      uvVersion: project.uvVersion,
-      autoSync: project.autoSync,
-      lockfile: project.lockfile,
-      generatedDirectory: project.generatedDirectory,
-      callbacks: project.callbackMaxDepth === undefined
+      projectRoot: plan.config.projectRoot,
+      callbacks: plan.config.callbackMaxDepth === undefined
         ? config.callbacks
-        : { ...config.callbacks, maxDepth: project.callbackMaxDepth },
-      env: project.env as Record<string, string>,
+        : { ...config.callbacks, maxDepth: plan.config.callbackMaxDepth },
+      env: plan.config.env as Record<string, string>,
       dispatcher: {
         ...config.dispatcher,
         include: [
@@ -233,7 +172,7 @@ export class PyRuntime {
     let addon: NativeAddon;
     try {
       addon = loadOrBuildNativeAddon({
-        projectRoot: selectedProjectRoot,
+        projectRoot: plan.config.projectRoot,
         pythonExecutable: selected.executable,
         pythonLibrary: selected.embedding.libraryPath,
         pythonVersion: selected.version,
@@ -284,7 +223,7 @@ export class PyRuntime {
         cwd: this._config.isolation.cwd,
         timeout: this._config.isolation.timeout,
         env: this._config.env,
-        pythonPath: [packagedPython, ...this._config.pythonPathExtra],
+        pythonPath: [packagedPython, ...this._config.pythonModulePaths],
         dispatcher: this._config.dispatcher,
         includeTracebacks: this._config.includeTracebacks,
       });
@@ -305,7 +244,7 @@ export class PyRuntime {
       callTimeout: this._config.callTimeout,
       pythonPathExtra: [
         path.join(__dirname, '..', '..', 'python'),
-        ...this._config.pythonPathExtra,
+        ...this._config.pythonModulePaths,
       ],
       env: this._config.env,
       enableProfiling: this._config.profilingEnabled,
@@ -332,7 +271,7 @@ export class PyRuntime {
 
   private async _setupPythonEnvironment(): Promise<string> {
     const pythonExecutable = this._config.pythonExecutable;
-    logger.info(`Using repository virtualenv: ${path.dirname(path.dirname(pythonExecutable))}`);
+    logger.info(`Using Python environment: ${path.dirname(path.dirname(pythonExecutable))}`);
     return pythonExecutable;
   }
 
@@ -430,34 +369,6 @@ pynect_dispatcher.configure(
       moduleNames.map(async name => [name, await this.import(name)] as const)
     );
     return Object.fromEntries(modules);
-  }
-
-  /** Run work with an owning scope for registered JavaScript callbacks. */
-  async withCallbacks<Result>(
-    work: (context: PynectCallbackContext) => Awaitable<Result>,
-  ): Promise<Result> {
-    this._ensureRunning();
-    let context: PynectCallbackContext & Disposable;
-    context = createPynectCallbackContext(
-      this._addon,
-      {
-        decode: value => PyProxy._deserializeAddonResult(value, {
-          objectId: 0 as PyObjectId,
-          path: [],
-          addon: this._addon,
-          callTimeout: this._config.callTimeout,
-          executionTimeout: this._config.executionTimeout,
-        }),
-        encode: value => PyProxy._serializeArg(value, this._addon),
-      },
-      () => this._callbackContexts.delete(context),
-    );
-    this._callbackContexts.add(context);
-    try {
-      return await work(context);
-    } finally {
-      context[Symbol.dispose]();
-    }
   }
 
   /**
@@ -587,25 +498,6 @@ pynect_dispatcher.configure(
     return PyContext.create(this._addon);
   }
 
-  // Package Management
-
-  /**
-   * Install Python packages into the active environment.
-   */
-  async installPackages(packages: string[]): Promise<void> {
-    this._ensureRunning();
-    if (!this._config.allowPackageInstall) {
-      throw new Error('Runtime package installation is disabled; set allowPackageInstall: true.');
-    }
-
-    const installer = new PackageInstaller({
-      pythonExecutable: this._pythonExecutable,
-      cwd: this._config.projectRoot,
-    });
-    await installer.install(packages);
-
-  }
-
   // Memory Management
 
   /**
@@ -660,8 +552,6 @@ pynect_dispatcher.configure(
 
     await this._isolatedWorker?.close();
     this._isolatedWorker = undefined;
-
-    for (const context of [...this._callbackContexts]) context[Symbol.dispose]();
 
     // Finalize Python interpreter
     try {
@@ -719,12 +609,4 @@ pynect_dispatcher.configure(
     };
     return Math.floor(value * (units[unit] ?? 1));
   }
-}
-
-function pathsEqual(left: string, right: string): boolean {
-  const normalize = (value: string): string => {
-    const resolved = path.resolve(value);
-    return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
-  };
-  return normalize(left) === normalize(right);
 }
