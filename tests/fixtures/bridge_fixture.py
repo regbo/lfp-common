@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Iterator
-from typing import Any
+from typing import Any, TypedDict
+
+
+class BridgeRow(TypedDict):
+    id: int
+    active: bool
 
 
 def add(left: Any, right: Any) -> Any:
@@ -20,6 +25,12 @@ async def async_add(left: int, right: int) -> int:
 
 def call_callback(callback: Callable[[int], Any], value: int) -> Any:
     return callback(value)
+
+
+def filter_rows(
+    rows: list[BridgeRow], callback: Callable[[BridgeRow], bool]
+) -> list[BridgeRow]:
+    return [row for row in rows if callback(row)]
 
 
 def count(limit: int) -> Iterator[int]:

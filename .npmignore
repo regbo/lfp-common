@@ -1,4 +1,4 @@
-python/__pycache__/
+src/py/__pycache__/
 *.py[cod]
 build/
 node_modules/

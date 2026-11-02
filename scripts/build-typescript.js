@@ -16,4 +16,11 @@ const result = spawnSync(process.execPath, [tsc, '-p', path.join(root, 'tsconfig
 });
 
 if (result.error) throw result.error;
-process.exitCode = result.status ?? 1;
+if (result.status !== 0) {
+  process.exitCode = result.status ?? 1;
+} else {
+  fs.cpSync(path.join(root, 'src', 'py'), path.join(output, 'py'), {
+    filter: source => !source.endsWith('__pycache__') && !source.endsWith('.pyc'),
+    recursive: true,
+  });
+}

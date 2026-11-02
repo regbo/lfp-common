@@ -107,14 +107,14 @@ const python = createVenv({
 
 Set `validatePydantic: false` to preserve the deserialized values exactly. Pynect does not install Pydantic implicitly.
 
-## Python-only code generation
+## Code generation
 
-The generator is a self-contained uv script. Generating bindings does not start
-Node or Bun and does not require either executable to be installed. uv reads the
-script's inline dependencies and caches its small CLI environment:
+The Node-based `pynect codegen` command owns options, configuration, validation,
+and editor setup. It uses Pyfig to resolve uv and Python, then sends one private
+JSON request to the bundled Python inspection engine:
 
 ```sh
-uv run --script python/pynect_codegen.py generate \
+pynect codegen generate \
   --module name_generator \
   --module my_project.models \
   --class-name MyProjectPython \
@@ -161,7 +161,7 @@ validatePydantic = true
 Then generation is one command:
 
 ```sh
-uv run --script scripts/pynect_codegen.py generate
+pynect codegen generate
 ```
 
 `modules` may be a list using automatic aliases or an alias-to-import mapping.
@@ -178,14 +178,12 @@ The same fields work in a standalone JSON file:
 ```
 
 ```sh
-uv run --script scripts/pynect_codegen.py generate --config pynect.codegen.json
+pynect codegen generate --config pynect.codegen.json
 ```
 
 In `package.json`, place that same object under `pynect.codegen`. Configuration
-precedence is CLI flags, `PYNECT_CODEGEN_*` environment variables, the discovered
-`pyproject.toml` or `package.json`, then defaults. Sequence-valued environment
-variables accept JSON arrays or comma-separated values; `PYNECT_CODEGEN_MODULES`
-also accepts a JSON alias map.
+precedence is CLI flags, the discovered `pyproject.toml` or `package.json`, then
+defaults.
 
 The generated TypeScript imports `pynect` only when the bindings are later
 consumed by a JavaScript application. Because inspection imports the requested
@@ -193,19 +191,16 @@ Python modules, run the generator only against trusted projects and packages.
 
 ### Generate on save
 
-Run setup from the copy shipped with the Node wrapper dependency:
+Run setup through the binary shipped with the Node wrapper dependency:
 
 ```sh
-uv run --script ../node-wrapper/node_modules/pynect/python/pynect_codegen.py \
-  setup-dev --root . --dry-run
+pynect codegen setup-dev --root . --dry-run
 
-uv run --script ../node-wrapper/node_modules/pynect/python/pynect_codegen.py \
-  setup-dev --root .
+pynect codegen setup-dev --root .
 ```
 
-Setup copies the same script to `scripts/pynect_codegen.py`, adds
-`pucelle.run-on-save` to `.vscode/extensions.json`, and adds a debounced Python
-save command to `.vscode/settings.json`. The generated setting uses
+Setup adds `pucelle.run-on-save` to `.vscode/extensions.json` and adds a
+debounced `pynect codegen generate` command to `.vscode/settings.json`. The setting uses
 `runOnSave.ignoreFilesBy = [".gitignore"]`, so ignored Python files do not trigger
 generation. [Run on Save](https://marketplace.visualstudio.com/items?itemName=pucelle.run-on-save)
 is the recommended extension because it supports `.gitignore`, glob matching,
@@ -214,24 +209,6 @@ debouncing, and quiet background commands directly.
 The setup command merges valid JSON files and is idempotent. It refuses to
 rewrite JSON-with-comments because doing so would discard comments; convert those
 workspace files to plain JSON or add the documented entries manually.
-
-### Generate during Python builds
-
-When the Python project uses Hatchling, `setup-dev` configures the copied script
-as the custom build hook:
-
-```toml
-[tool.hatch.build.hooks.custom]
-path = "scripts/pynect_codegen.py"
-```
-
-Hatchling imports that same file and calls the same settings loader, inspector,
-and renderer immediately before the build. PEP 517 does not define a generic
-pre-build command. In particular, `uv_build` deliberately omits build scripts;
-uv recommends Hatchling when they are required. Setup therefore leaves other
-build backends unchanged and reports that the hook was skipped. See the
-[Hatch custom-hook documentation](https://hatch.pypa.io/1.0/plugins/build-hook/)
-and [uv build-backend guidance](https://docs.astral.sh/uv/concepts/build-backend/).
 
 Generated code can also supply its module map directly without a wrapper class:
 
@@ -267,7 +244,7 @@ Important options are:
 | `callTimeoutMs` | `0` | per-call RPC limit; zero disables it |
 | `uvArgs` | `[]` | additional `uv run` flags before the worker command |
 
-Python and uv selection options such as `python`, `requiresPython`, `managedPython`, `requiresUv`, `autoInstall`, and installation timeouts are passed to Pyfig.
+Python and uv selection options such as `python`, `uv`, and `debug` are passed to Pyfig.
 
 ## Transport and lifecycle
 
@@ -289,6 +266,7 @@ try {
 
 ```sh
 bun install --frozen-lockfile --ignore-scripts
+uv sync --locked
 bun run verify
 ```
 

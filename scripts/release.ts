@@ -104,6 +104,8 @@ const archiveRoot = await mkdtemp(join(tmpdir(), 'pynect-release-'));
 try {
   await runCommand(process.execPath, ['run', 'typecheck'], { inherit: true });
   await runCommand(process.execPath, ['run', 'typecheck:release'], { inherit: true });
+  await runCommand(process.execPath, ['run', 'check:python'], { inherit: true });
+  await runCommand(process.execPath, ['run', 'format:python:check'], { inherit: true });
   await runCommand(process.execPath, ['test'], { inherit: true });
   await runCommand(process.execPath, ['run', 'build'], { inherit: true });
   const filename = `${manifest.name}-${plan.nextVersion}.tgz`;

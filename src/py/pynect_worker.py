@@ -642,9 +642,7 @@ def decode_wire(value: Any, bridge: Bridge) -> Any:
         return None
     if wire_type is WireValueType.DATETIME:
         # Python 3.10 needs the UTC designator normalized before fromisoformat.
-        return dt.datetime.fromisoformat(
-            str(value["value"]).replace("Z", "+00:00")  # noqa: FURB162
-        )
+        return dt.datetime.fromisoformat(str(value["value"]).replace("Z", "+00:00"))
     if wire_type is WireValueType.DATE:
         return dt.date.fromisoformat(str(value["value"]))
     if wire_type is WireValueType.TIME:

@@ -9,7 +9,7 @@ const allowedRootFiles = new Set([
   'SECURITY.md',
   'package.json',
 ]);
-const allowedPrefixes = ['dist/', 'python/'] as const;
+const allowedPrefixes = ['dist/'] as const;
 const emailPattern = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
 const secretPatterns = [
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
@@ -36,11 +36,14 @@ export async function auditArchive(
     const packageRoot = join(extractionRoot, 'package');
     const manifest = JSON.parse(
       await readFile(join(packageRoot, 'package.json'), 'utf8'),
-    ) as { name?: string; version?: string };
+    ) as { bin?: Record<string, string>; name?: string; version?: string };
     if (manifest.name !== expectedName || manifest.version !== expectedVersion) {
       throw new Error(
         `Archive manifest is ${manifest.name}@${manifest.version}; expected ${expectedName}@${expectedVersion}`,
       );
+    }
+    if (manifest.bin?.['pynect'] !== 'dist/js/cli.js') {
+      throw new Error('Archive does not expose the pynect binary');
     }
 
     const files = Array.from(
@@ -51,9 +54,11 @@ export async function auditArchive(
       'LICENSE',
       'README.md',
       'SECURITY.md',
-      'dist/index.d.ts',
-      'dist/index.js',
-      'python/pynect_worker.py',
+      'dist/js/cli.js',
+      'dist/js/index.d.ts',
+      'dist/js/index.js',
+      'dist/py/pynect_codegen.py',
+      'dist/py/pynect_worker.py',
     ]) {
       if (!files.includes(required)) {
         throw new Error(`Archive is missing required file: ${required}`);

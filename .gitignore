@@ -13,6 +13,7 @@ node_modules/
 .tmp-generated/
 .pynect/
 generated/.pynect/
+/example/app/src/generated/
 *.tsbuildinfo
 *.tgz
 *.log

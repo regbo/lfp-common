@@ -12,4 +12,5 @@ export type {
 } from './python-object';
 export { PythonError, VenvClosedError, VenvStartupError } from './errors';
 export type { RemotePythonError } from './errors';
+export { createVenvOptionsSchema } from './config';
 export type { CreateVenvOptions } from './config';

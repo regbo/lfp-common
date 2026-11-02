@@ -1,7 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
 import path from 'node:path';
-import { ensurePython, type PythonEnvironment } from 'pyfig';
+import { memoize } from 'loqkit';
+import { pyfig, type PythonContext } from 'pyfig';
 import {
   resolveVenvOptions,
   type CreateVenvOptions,
@@ -12,13 +13,14 @@ import { RPC_OPERATION } from './protocol';
 import type { PythonModule } from './python-object';
 import { RpcClient } from './rpc-client';
 import { LocalIpcServer } from './transport/local-ipc';
+import { withLock } from './utils/lock';
 
 const WORKER_REQUIREMENT = 'msgpack>=1.1,<2';
 
 export interface PynectModules {}
 
 export interface VenvInfo {
-  readonly environment: PythonEnvironment;
+  readonly environment: PythonContext;
   readonly modules: Readonly<Record<string, string>>;
   readonly project: string | false | undefined;
 }
@@ -31,25 +33,23 @@ interface StartedVenv {
 }
 
 const activeVenvs = new Set<PythonVenv>();
-let exitHookRegistered = false;
 
 /** A lazily started, uv-backed Python environment and object bridge. */
 export class PythonVenv<Modules extends object = PynectModules> implements AsyncDisposable {
   readonly #options: ResolvedVenvOptions;
   #runtime: StartedVenv | undefined;
-  #starting: Promise<StartedVenv> | undefined;
-  #closed = false;
+  #state?: 'started' | 'closed';
 
   constructor(options: CreateVenvOptions = {}) {
     this.#options = resolveVenvOptions(options);
   }
 
   get started(): boolean {
-    return this.#runtime !== undefined;
+    return this.#state === 'started';
   }
 
   get closed(): boolean {
-    return this.#closed;
+    return this.#state === 'closed';
   }
 
   import<Name extends keyof Modules & string>(name: Name): Promise<Modules[Name]>;
@@ -68,15 +68,20 @@ export class PythonVenv<Modules extends object = PynectModules> implements Async
   }
 
   async close(): Promise<void> {
-    if (this.#closed) return;
-    this.#closed = true;
-    const runtime = this.#runtime ?? (this.#starting ? await this.#starting.catch(() => undefined) : undefined);
-    if (!runtime) return;
-    activeVenvs.delete(this);
-    await runtime.client.close();
-    await terminateChild(runtime.child);
-    await runtime.transport.close();
-    this.#runtime = undefined;
+    await withLock(
+      this,
+      venv => venv.#state !== 'closed',
+      async venv => {
+        venv.#state = 'closed';
+        const runtime = venv.#runtime;
+        if (!runtime) return;
+        activeVenvs.delete(venv);
+        await runtime.client.close();
+        await terminateChild(runtime.child);
+        await runtime.transport.close();
+        venv.#runtime = undefined;
+      },
+    );
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
@@ -84,6 +89,7 @@ export class PythonVenv<Modules extends object = PynectModules> implements Async
   }
 
   forceClose(): void {
+    this.#state = 'closed';
     const runtime = this.#runtime;
     if (!runtime) return;
     runtime.client.forceClose();
@@ -92,31 +98,32 @@ export class PythonVenv<Modules extends object = PynectModules> implements Async
   }
 
   #start(): Promise<StartedVenv> {
-    if (this.#closed) return Promise.reject(new VenvClosedError());
+    if (this.#state === 'closed') return Promise.reject(new VenvClosedError());
     if (this.#runtime) return Promise.resolve(this.#runtime);
-    this.#starting ??= this.#startRuntime().then(runtime => {
-      if (this.#closed) {
-        runtime.client.forceClose();
-        runtime.child.kill();
-        void runtime.transport.close();
-        throw new VenvClosedError();
-      }
-      this.#runtime = runtime;
-      activeVenvs.add(this);
-      registerExitHook();
+    return withLock(
+      this,
+      venv => venv.#state !== 'closed',
+      async venv => {
+        if (venv.#runtime) return venv.#runtime;
+        const runtime = await venv.#startRuntime();
+        venv.#runtime = runtime;
+        venv.#state = 'started';
+        activeVenvs.add(venv);
+        registerExitHook();
+        return runtime;
+      },
+    ).then(runtime => {
+      if (!runtime) throw new VenvClosedError();
       return runtime;
-    }).finally(() => {
-      this.#starting = undefined;
     });
-    return this.#starting;
   }
 
   async #startRuntime(): Promise<StartedVenv> {
-    const environment = await ensurePython(this.#options.pyfig);
+    const environment = await pyfig(this.#options.pyfig);
     const transport = await LocalIpcServer.listen();
     const token = randomBytes(32).toString('hex');
     const child = spawn(
-      environment.uv.executable,
+      environment.uv.path,
       buildUvArguments(this.#options, environment),
       {
         cwd: this.#options.cwd,
@@ -161,7 +168,7 @@ export class PythonVenv<Modules extends object = PynectModules> implements Async
         transport,
       };
       child.once('exit', (code, signal) => {
-        if (!this.#closed) {
+        if (this.#state !== 'closed') {
           client.forceClose(new VenvClosedError(
             `Python worker exited unexpectedly (${signal ?? `code ${code ?? 'unknown'}`}).`,
           ));
@@ -185,12 +192,12 @@ export function createVenv<Modules extends object = PynectModules>(
 
 function buildUvArguments(
   options: ResolvedVenvOptions,
-  environment: PythonEnvironment,
+  environment: PythonContext,
 ): string[] {
   const args = ['run', '--quiet'];
   if (options.project === false) args.push('--no-project');
   else if (typeof options.project === 'string') args.push('--project', options.project);
-  args.push('--python', environment.python.executable);
+  args.push('--python', environment.python.path);
   for (const requirement of [WORKER_REQUIREMENT, ...options.with]) {
     args.push('--with', requirement);
   }
@@ -206,7 +213,7 @@ function buildUvArguments(
 }
 
 function resolveWorkerPath(): string {
-  return path.resolve(__dirname, '..', 'python', 'pynect_worker.py');
+  return path.resolve(__dirname, '..', 'py', 'pynect_worker.py');
 }
 
 function childFailure(child: ChildProcess): Promise<never> {
@@ -233,10 +240,8 @@ async function terminateChild(child: ChildProcess): Promise<void> {
   if (!exited && child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
 }
 
-function registerExitHook(): void {
-  if (exitHookRegistered) return;
-  exitHookRegistered = true;
+const registerExitHook = memoize(() => {
   process.once('exit', () => {
     for (const venv of activeVenvs) venv.forceClose();
   });
-}
+});

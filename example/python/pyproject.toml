@@ -1,0 +1,15 @@
+[project]
+name = "pynect-example-python"
+version = "0.1.0"
+description = "Small Python project consumed by the Pynect example"
+requires-python = ">=3.10"
+dependencies = []
+
+[tool.uv]
+package = false
+
+[tool.pynect.codegen]
+modules = ["calculator"]
+className = "ExamplePython"
+out = "../app/src/generated/example-python.ts"
+project = "."
