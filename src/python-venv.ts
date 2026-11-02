@@ -18,6 +18,7 @@ export interface PynectModules {}
 
 export interface VenvInfo {
   readonly environment: PythonEnvironment;
+  readonly modules: Readonly<Record<string, string>>;
   readonly project: string | false | undefined;
 }
 
@@ -55,7 +56,7 @@ export class PythonVenv<Modules extends object = PynectModules> implements Async
   async import(name: string): Promise<unknown> {
     if (!name.trim()) throw new TypeError('Python module name cannot be empty.');
     const runtime = await this.#start();
-    return runtime.client.request('import', { name });
+    return runtime.client.request('import', { name: this.#options.modules[name] ?? name });
   }
 
   /** Prepare the environment explicitly without importing a module. */
@@ -149,7 +150,11 @@ export class PythonVenv<Modules extends object = PynectModules> implements Async
       const runtime: StartedVenv = {
         child,
         client,
-        info: Object.freeze({ environment, project: this.#options.project }),
+        info: Object.freeze({
+          environment,
+          modules: this.#options.modules,
+          project: this.#options.project,
+        }),
         transport,
       };
       child.once('exit', (code, signal) => {

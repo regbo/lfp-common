@@ -3,9 +3,13 @@ import { createVenv, kwargs, type PythonObject } from '../src';
 
 describe('Python Venv bridge', () => {
   test('bridges calls, objects, callbacks, kwargs, async functions, and iteration', async () => {
-    const venv = createVenv({ autoClose: false, project: false });
+    const venv = createVenv({
+      autoClose: false,
+      modules: { fixture: 'tests.fixtures.bridge_fixture' },
+      project: false,
+    });
     try {
-      const fixture = await venv.import('tests.fixtures.bridge_fixture');
+      const fixture = await venv.import('fixture');
 
       expect(await fixture.add(2, 3)).toBe(5);
       expect(await fixture.describe('pynect', kwargs({ suffix: '!' }))).toBe('pynect!');
@@ -26,6 +30,22 @@ describe('Python Venv bridge', () => {
       const iterator = await fixture.count(3) as PythonObject;
       for await (const value of iterator) values.push(value);
       expect(values).toEqual([0, 1, 2]);
+    } finally {
+      await venv.close();
+    }
+  }, 120_000);
+
+  test('validates deserialized models with Pydantic by default', async () => {
+    const venv = createVenv({
+      autoClose: false,
+      project: false,
+      with: ['pydantic>=2,<3'],
+    });
+    try {
+      const fixture = await venv.import('tests.fixtures.pydantic_fixture');
+
+      expect(await fixture.user_label({ id: '42', name: 'pynect' })).toBe('42:PYNECT');
+      expect(await fixture.make_user('7', 'bridge')).toEqual({ id: 7, name: 'BRIDGE' });
     } finally {
       await venv.close();
     }

@@ -107,6 +107,63 @@ const python = createVenv({
 
 Set `validatePydantic: false` to preserve the deserialized values exactly. Pynect does not install Pydantic implicitly.
 
+## Python-only code generation
+
+The generator is a standalone standard-library Python program. Generating bindings does not start Node or Bun and does not require either executable to be installed:
+
+```sh
+python python/pynect_codegen.py \
+  --module names=name_generator \
+  --module models=my_project.models \
+  --class-name MyProjectPython \
+  --project . \
+  --out generated/my-project-python.ts
+```
+
+It imports the selected Python modules, inspects their public functions and classes, translates annotations, and emits:
+
+- module and class interfaces;
+- a typed module map for `PythonVenv`;
+- a lazy project class with typed module getters;
+- project, module-alias, `with`, and `withRequirements` defaults.
+
+Generation can also use a JSON settings file:
+
+```json
+{
+  "className": "MyProjectPython",
+  "out": "generated/my-project-python.ts",
+  "project": ".",
+  "with": ["httpx>=0.28"],
+  "modules": {
+    "names": "name_generator",
+    "models": "my_project.models"
+  }
+}
+```
+
+```sh
+python python/pynect_codegen.py --config pynect.codegen.json
+```
+
+The generated TypeScript imports `pynect` only when the bindings are later consumed by a JavaScript application. Because inspection imports the requested Python modules, run the generator only against trusted projects and packages.
+
+Generated code can also supply its module map directly without a wrapper class:
+
+```ts
+interface Modules {
+  names: {
+    generate_name(): Promise<string>;
+  };
+}
+
+const python = createVenv<Modules>({
+  modules: { names: 'name_generator' },
+});
+
+const names = await python.import('names');
+```
+
 ## Configuration
 
 Important options are:
@@ -118,6 +175,7 @@ Important options are:
 | `with` | `[]` | additional uv requirements |
 | `withEditable` | `[]` | additional editable requirements |
 | `withRequirements` | `[]` | requirements, pylock, or inline-metadata files |
+| `modules` | `{}` | public aliases mapped to Python import names |
 | `validatePydantic` | `true` | validate annotated inputs when Pydantic is available |
 | `autoClose` | `true` | allow natural host exit and terminate the child on shutdown |
 | `startupTimeoutMs` | `120000` | environment preparation and worker handshake limit |

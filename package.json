@@ -19,7 +19,7 @@
   },
   "files": [
     "dist/",
-    "python/pynect_worker.py",
+    "python/*.py",
     "README.md",
     "SECURITY.md",
     "LICENSE"

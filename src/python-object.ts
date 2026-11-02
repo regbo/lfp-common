@@ -9,9 +9,11 @@ export interface PythonReference {
   readonly path: readonly string[];
 }
 
-export interface PythonKeywordArguments {
+export interface PythonKeywordArguments<
+  Values extends Readonly<Record<string, unknown>> = Readonly<Record<string, unknown>>,
+> {
   readonly [PYTHON_KWARGS]: true;
-  readonly value: Readonly<Record<string, unknown>>;
+  readonly value: Values;
 }
 
 export interface PythonObjectMethods {
@@ -37,7 +39,9 @@ interface ProxyState extends PythonReference {
   readonly type?: string;
 }
 
-export function kwargs(value: Readonly<Record<string, unknown>>): PythonKeywordArguments {
+export function kwargs<Values extends Readonly<Record<string, unknown>>>(
+  value: Values,
+): PythonKeywordArguments<Values> {
   return Object.freeze({ [PYTHON_KWARGS]: true as const, value });
 }
 

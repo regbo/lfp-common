@@ -8,6 +8,7 @@ Pynect imports and executes Python packages with the operating-system permission
 - Module names, attribute paths, projects, requirements, and additional uv arguments must not come directly from untrusted request data.
 - `validatePydantic` validates data shapes. Pydantic validators and serializers can execute arbitrary Python code.
 - JavaScript callbacks execute in the host process and can call Python again.
+- Python code generation imports the selected modules for inspection and can run their import-time code.
 - Unix sockets are created with user-only filesystem permissions. Windows named pipes use the local pipe namespace. Every worker connection must also complete a random-token handshake.
 - RPC frames have a fixed maximum size, but application calls can still allocate substantial memory or CPU in either process.
 - Pyfig owns uv and Python provisioning. Pynect does not download executables or implement a second package resolver.

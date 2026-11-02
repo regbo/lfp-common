@@ -18,6 +18,8 @@ export interface CreateVenvOptions extends Omit<
   withEditable?: readonly string[];
   /** Requirements, pylock, or inline-metadata files passed to --with-requirements. */
   withRequirements?: readonly string[];
+  /** Public import aliases mapped to their Python module names. */
+  modules?: Readonly<Record<string, string>>;
   /** Additional uv run options inserted before the Python command. */
   uvArgs?: readonly string[];
   /** Validate annotated arguments through Pydantic when Pydantic is available. */
@@ -35,6 +37,7 @@ export interface ResolvedVenvOptions {
   readonly callTimeoutMs: number;
   readonly cwd: string;
   readonly env: NodeJS.ProcessEnv;
+  readonly modules: Readonly<Record<string, string>>;
   readonly project: string | false | undefined;
   readonly pyfig: PyfigOptions;
   readonly startupTimeoutMs: number;
@@ -60,6 +63,7 @@ export function resolveVenvOptions(options: CreateVenvOptions = {}): ResolvedVen
     autoClose: _autoClose,
     callTimeoutMs: _callTimeoutMs,
     cwd: _cwd,
+    modules: _modules,
     project: _project,
     startupTimeoutMs: _startupTimeoutMs,
     uvArgs: _uvArgs,
@@ -75,6 +79,7 @@ export function resolveVenvOptions(options: CreateVenvOptions = {}): ResolvedVen
     callTimeoutMs: options.callTimeoutMs ?? DEFAULT_CALL_TIMEOUT_MS,
     cwd,
     env,
+    modules: Object.freeze({ ...(options.modules ?? {}) }),
     project,
     pyfig: {
       ...pyfigOptions,
