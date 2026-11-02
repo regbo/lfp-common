@@ -1,7 +1,7 @@
 {
   "name": "pyfig",
   "version": "0.7.0",
-  "description": "Prepare isolated, content-addressed Python venvs with uv.",
+  "description": "Resolve uv and Python executables into one pinned runtime context.",
   "type": "module",
   "main": "./dist/cjs/index.js",
   "types": "./dist/index.d.ts",
@@ -12,9 +12,6 @@
       "require": "./dist/cjs/index.js"
     }
   },
-  "bin": {
-    "pyfig": "dist/cli.js"
-  },
   "files": [
     "dist/",
     "LICENSE",
@@ -24,7 +21,6 @@
   "scripts": {
     "build": "bun run scripts/build.ts",
     "test": "bun test",
-    "test:zero-python": "bun run scripts/smoke-zero-python.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.scripts.json",
     "verify": "bun run typecheck && bun test",
     "release": "bun run scripts/release.ts",
@@ -35,9 +31,8 @@
   "keywords": [
     "python",
     "uv",
-    "bootstrap",
     "bun",
-    "cli"
+    "node"
   ],
   "author": "Reggie Bowser",
   "license": "MIT",
@@ -62,12 +57,10 @@
   },
   "dependencies": {
     "@renovatebot/pep440": "^5.0.1",
-    "commander": "^14.0.3",
-    "env-paths": "^4.0.0",
     "fflate": "^0.8.3",
     "loqkit": ">=0.0.5 <0.1.0",
-    "tar": "^7.4.3",
-    "undici": "^7.30.1",
+    "tar": "^7.5.22",
+    "undici": "^8.12.3",
     "which": "^6.0.1"
   },
   "devDependencies": {
@@ -75,6 +68,7 @@
     "@types/node": "^26.6.6",
     "@types/semver": "^7.8.0",
     "@types/which": "^3.0.4",
+    "commander": "^14.0.3",
     "semver": "^7.8.5",
     "typescript": "^7.0.2"
   }
