@@ -113,12 +113,19 @@ The generator is a standalone standard-library Python program. Generating bindin
 
 ```sh
 python python/pynect_codegen.py \
-  --module names=name_generator \
-  --module models=my_project.models \
+  --module name_generator \
+  --module my_project.models \
   --class-name MyProjectPython \
   --project . \
   --out generated/my-project-python.ts
 ```
+
+A module passed without an explicit alias uses its final import segment. If names
+conflict, the generator prepends one package parent at a time until they are
+unique. For example, `one.shared.name_generator` and
+`two.shared.name_generator` become `one_shared_name_generator` and
+`two_shared_name_generator`. Use `alias=package.module` when you want to choose
+the public name yourself.
 
 It imports the selected Python modules, inspects their public functions and classes, translates annotations, and emits:
 

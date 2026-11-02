@@ -23,6 +23,10 @@ describe('Python code generation', () => {
       path.resolve('python/pynect_codegen.py'),
       '--module',
       'fixture=tests.fixtures.bridge_fixture',
+      '--module',
+      'tests.fixtures.one.shared.name_generator',
+      '--module',
+      'tests.fixtures.two.shared.name_generator',
       '--class-name',
       'FixturePython',
       '--no-project',
@@ -38,6 +42,14 @@ describe('Python code generation', () => {
     expect(result.stderr).toBe('');
     const generated = readFileSync(output, 'utf8');
     expect(generated).toContain('export interface FixtureModule');
+    expect(generated).toContain('export interface OneSharedNameGeneratorModule');
+    expect(generated).toContain('export interface TwoSharedNameGeneratorModule');
+    expect(generated).toContain(
+      '"one_shared_name_generator": "tests.fixtures.one.shared.name_generator"',
+    );
+    expect(generated).toContain(
+      '"two_shared_name_generator": "tests.fixtures.two.shared.name_generator"',
+    );
     expect(generated).toContain('readonly add: (left: unknown, right: unknown): Promise<unknown>');
     expect(generated).toContain('export class FixturePython implements AsyncDisposable');
     expect(generated).toContain('modules: { ...defaults.modules, ...options.modules }');

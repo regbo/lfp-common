@@ -29,6 +29,12 @@ class GeneratorSettings:
     with_values: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class ModuleRequest:
+    import_name: str
+    alias: str | None = None
+
+
 def annotation_to_typescript(annotation: Any) -> str:
     if annotation in {inspect.Signature.empty, inspect.Parameter.empty, Any, typing.Any}:
         return "unknown"
@@ -271,22 +277,109 @@ def pascal_case(value: str) -> str:
     return f"_{result}" if result[0].isdigit() else result
 
 
-def parse_module(value: str) -> tuple[str, str]:
+def parse_module(value: str) -> ModuleRequest:
     alias, separator, import_name = value.partition("=")
-    if not separator:
-        import_name = alias
-        alias = import_name.rsplit(".", 1)[-1]
-    if not alias or not import_name:
-        raise argparse.ArgumentTypeError("modules must be ALIAS=IMPORT_NAME or IMPORT_NAME")
-    return alias, import_name
+    if separator:
+        if not alias or not import_name:
+            raise argparse.ArgumentTypeError(
+                "modules must be ALIAS=IMPORT_NAME or IMPORT_NAME"
+            )
+        return ModuleRequest(import_name=import_name, alias=alias)
+    if not alias:
+        raise argparse.ArgumentTypeError(
+            "modules must be ALIAS=IMPORT_NAME or IMPORT_NAME"
+        )
+    return ModuleRequest(import_name=alias)
+
+
+def resolve_modules(
+    configured: Any,
+    requests: list[ModuleRequest],
+) -> dict[str, str]:
+    if not isinstance(configured, dict):
+        raise ValueError("modules must be an object mapping aliases to import names")
+
+    modules: dict[str, str] = {}
+
+    def add_explicit(alias: Any, import_name: Any) -> None:
+        if not isinstance(alias, str) or not alias:
+            raise ValueError("module aliases must be non-empty strings")
+        if not isinstance(import_name, str) or not import_name:
+            raise ValueError("module import names must be non-empty strings")
+        existing = modules.get(alias)
+        if existing is not None and existing != import_name:
+            raise ValueError(
+                f"Module alias {alias!r} refers to both {existing!r} and {import_name!r}"
+            )
+        modules[alias] = import_name
+
+    for alias, import_name in configured.items():
+        add_explicit(alias, import_name)
+    for request in requests:
+        if request.alias is not None:
+            add_explicit(request.alias, request.import_name)
+
+    explicitly_imported = set(modules.values())
+    automatic_imports = list(
+        dict.fromkeys(
+            request.import_name
+            for request in requests
+            if request.alias is None and request.import_name not in explicitly_imported
+        )
+    )
+    modules.update(resolve_automatic_aliases(automatic_imports, set(modules)))
+    return modules
+
+
+def resolve_automatic_aliases(
+    import_names: list[str],
+    reserved_aliases: set[str],
+) -> dict[str, str]:
+    parts = [import_name.split(".") for import_name in import_names]
+    depths = [1 for _ in import_names]
+
+    while True:
+        aliases = [
+            "_".join(module_parts[-depth:])
+            for module_parts, depth in zip(parts, depths, strict=True)
+        ]
+        groups: dict[str, list[int]] = {}
+        for index, alias in enumerate(aliases):
+            groups.setdefault(alias, []).append(index)
+
+        conflicts = {
+            alias: indexes
+            for alias, indexes in groups.items()
+            if alias in reserved_aliases or len(indexes) > 1
+        }
+        if not conflicts:
+            return dict(zip(aliases, import_names, strict=True))
+
+        for alias, indexes in conflicts.items():
+            expandable = [index for index in indexes if depths[index] < len(parts[index])]
+            fixed = [index for index in indexes if index not in expandable]
+            if alias in reserved_aliases:
+                if fixed:
+                    import_name = import_names[fixed[0]]
+                    raise ValueError(
+                        f"Cannot derive a unique alias for {import_name!r}; "
+                        "use ALIAS=IMPORT_NAME"
+                    )
+            elif len(fixed) > 1 or not expandable:
+                names = ", ".join(repr(import_names[index]) for index in indexes)
+                raise ValueError(
+                    f"Cannot derive unique aliases for {names}; use ALIAS=IMPORT_NAME"
+                )
+
+            for index in expandable:
+                depths[index] += 1
 
 
 def load_settings(arguments: argparse.Namespace) -> GeneratorSettings:
     config: dict[str, Any] = {}
     if arguments.config:
         config = json.loads(Path(arguments.config).read_text(encoding="utf-8"))
-    modules = dict(config.get("modules", {}))
-    modules.update(dict(arguments.module or []))
+    modules = resolve_modules(config.get("modules", {}), arguments.module or [])
     if not modules:
         raise ValueError("At least one module must be configured")
     project = arguments.project if arguments.project is not None else config.get("project")
