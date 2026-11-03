@@ -8,7 +8,7 @@
         "@renovatebot/pep440": "^5.0.1",
         "fflate": "^0.8.3",
         "loqkit": ">=0.0.5 <0.1.0",
-        "optionkit": "^0.0.3",
+        "optionkit": "^0.0.6",
         "tar": "^7.5.22",
         "undici": "^8.12.3",
         "which": "^6.0.1",
@@ -121,7 +121,7 @@
 
     "ohash": ["ohash@2.0.12", "", {}, "sha512-65S/5gk9YSsaRjcyf7Nfa6h/d3E8/1gslpXfI4W7Dxn/oap8IKRuNT5VXkLQ1YFKIEg4apRY4Pj6aiwFzrDdmw=="],
 
-    "optionkit": ["optionkit@0.0.3", "", { "dependencies": { "@antfu/install-pkg": "^2.1.0" }, "peerDependencies": { "fireargs": "catalog:", "zod": "catalog:" }, "optionalPeers": ["fireargs", "zod"] }, "sha512-H7DxDnsqVe6XLa6CfVSYcR7tITiprOQmu8eSVrMopYiR0zJY5c+GTAvNNIgDajFXdTZ6WBTMS+PLPP4300zEVw=="],
+    "optionkit": ["optionkit@0.0.6", "", { "dependencies": { "@antfu/install-pkg": "^2.1.0" }, "peerDependencies": { "fireargs": "catalog:", "zod": "catalog:" }, "optionalPeers": ["fireargs", "zod"] }, "sha512-CThB3eAkggDzxJGi867jP8NNnUlMbb5I9SM9QSQKjjdGAk6f5OZ2exfop1ZXAsFKI/6tc0TubIrADOKOwLV0+g=="],
 
     "package-manager-detector": ["package-manager-detector@1.9.0", "", {}, "sha512-zAMfbta9nPA8AKkA4WdmNAT8R8s6Dk0/xwPsqNnRidMFcLo1YkLuPDTgs2f64XdzS8vbLNnoJ+uUIkgbz7oRHA=="],
 

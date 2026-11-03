@@ -67,7 +67,7 @@
     "@renovatebot/pep440": "^5.0.1",
     "fflate": "^0.8.3",
     "loqkit": ">=0.0.5 <0.1.0",
-    "optionkit": "^0.0.3",
+    "optionkit": "^0.0.6",
     "tar": "^7.5.22",
     "undici": "^8.12.3",
     "which": "^6.0.1",
