@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { catalog } from '../src/_generated/catalog.ts';
 
 test('keeps install-pkg as the only runtime dependency', async () => {
   const root = path.resolve(import.meta.dir, '..');
@@ -34,4 +35,5 @@ test('keeps install-pkg as the only runtime dependency', async () => {
     zod: '^4.6.7',
   });
   expect(manifest.catalog).toEqual(workspace.catalog);
+  expect(catalog).toEqual(manifest.catalog);
 });

@@ -49,7 +49,8 @@ Only `@antfu/install-pkg` is a runtime dependency of optionkit. Fireargs,
 Zod, and `clean-stack` are development dependencies whose ranges are generated
 into the build from the catalog in `pnpm-workspace.yaml`. A matching root
 catalog keeps Bun compatible, and verification fails if the two catalogs
-diverge. The Fireargs range is also exported as `FIREARGS_VERSION`. The stack
+diverge. `src/_generated/catalog.ts` is a one-to-one runtime mirror of the root
+catalog. The Fireargs range is also exported as `FIREARGS_VERSION`. The stack
 cleaner is installed separately and best-effort: a failure never prevents the
 CLI from starting, and `formatError` falls back to the original stack. Fireargs
 and Zod are also declared as optional peers, so a consumer's compatible

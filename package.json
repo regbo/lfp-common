@@ -18,8 +18,8 @@
     "README.md"
   ],
   "scripts": {
-    "build": "bun run generate && tsc -p tsconfig.json",
-    "generate": "bun run scripts/generate-cli-dependencies.ts",
+    "build": "bun run scripts/build.ts",
+    "generate": "bun run scripts/generate-catalog.ts",
     "test": "bun run generate && bun test",
     "test:packed": "bun run build && bun run scripts/test-packed.ts",
     "typecheck": "bun run generate && tsc --noEmit -p tsconfig.json && tsc --noEmit -p tests/tsconfig.json",

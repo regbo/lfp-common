@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { detectPackageManager, installPackage } from '@antfu/install-pkg';
 import type { OptionConfig } from 'fireargs';
 import type { ZodObject, ZodReadonly, ZodType } from 'zod';
-import { CLI_DEPENDENCY_VERSIONS } from './cli-dependencies.generated.js';
+import { catalog } from './_generated/catalog.js';
 import { toEnvironmentKey } from './config.js';
 import { importPackageIfAvailable } from './resolve.js';
 
@@ -78,12 +78,13 @@ export interface OptionKit<Schema extends ObjectSchema> {
 
 export type OptionSchemaFactory<Schema extends ObjectSchema> = (z: ZodNamespace) => Schema;
 
-export const FIREARGS_VERSION = CLI_DEPENDENCY_VERSIONS.fireargs;
+export const FIREARGS_VERSION = catalog.fireargs;
 
-const REQUIRED_CLI_DEPENDENCY_SPECIFIERS = Object.entries(CLI_DEPENDENCY_VERSIONS)
-  .filter(([name]) => name !== 'clean-stack')
-  .map(([name, version]) => `${name}@${version}`);
-const CLEAN_STACK_SPECIFIER = `clean-stack@${CLI_DEPENDENCY_VERSIONS['clean-stack']}`;
+const REQUIRED_CLI_DEPENDENCY_SPECIFIERS = [
+  `fireargs@${catalog.fireargs}`,
+  `zod@${catalog.zod}`,
+];
+const CLEAN_STACK_SPECIFIER = `clean-stack@${catalog['clean-stack']}`;
 const installPromises = new Map<string, Promise<LoadedDependencies>>();
 const cleanStackPromises = new Map<string, Promise<CleanStack | undefined>>();
 
