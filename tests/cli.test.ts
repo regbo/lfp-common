@@ -94,6 +94,13 @@ describe('CLI', () => {
     expect(result.stderr).toContain('[pyfig:debug] Resolving runtime context.');
     expect(result.stderr).toContain('[pyfig:debug] Resolved Python through uv.');
   }, 60_000);
+
+  test('formats handler failures through Optionkit', async () => {
+    const result = await runCli(['resolve', '--uv', 'not a valid uv request']);
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('TypeError: uv must resolve to an executable');
+  }, 30_000);
 });
 
 function runCli(

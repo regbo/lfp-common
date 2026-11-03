@@ -12,7 +12,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const debug = argv.includes('--debug') ||
     ['y', 'yes', 'true', 'on', '1'].includes(process.env.DEBUG?.toLowerCase() || '');
   const log = createDebugLogger(debug);
-  const { f, z } = await createOptionKit({ log, moduleUrl: import.meta.url });
+  const { f, formatError, z } = await createOptionKit({ log, moduleUrl: import.meta.url });
   const createInput = () => pyfigOptionsSchema.unwrap();
   const output = z.object({
     uv: z.object({
@@ -85,7 +85,12 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     description: 'Resolve and run uv and its selected Python.',
   }).router({ resolve, uv, python });
 
-  await program.parseAsync(argv);
+  try {
+    await program.parseAsync(argv);
+  } catch (error) {
+    process.stderr.write(`${formatError(error)}\n`);
+    process.exitCode = 1;
+  }
 }
 
 async function runExecutable(
