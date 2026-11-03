@@ -2,7 +2,7 @@ import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import './generate-catalog.ts';
 
-const root = path.resolve(import.meta.dirname, '..');
+const root = path.resolve(import.meta.dir, '..');
 const distribution = path.join(root, 'dist');
 if (path.dirname(distribution) !== root || path.basename(distribution) !== 'dist') {
   throw new Error(`Refusing to clean an unexpected build directory: ${distribution}`);

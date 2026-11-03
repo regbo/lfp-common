@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-const root = path.resolve(import.meta.dirname, '..');
+const root = path.resolve(import.meta.dir, '..');
 const monorepoRoot = path.resolve(root, '..', '..');
 const manifest = JSON.parse(
   await readFile(path.join(root, 'package.json'), 'utf8'),

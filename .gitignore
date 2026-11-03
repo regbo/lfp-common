@@ -40,7 +40,7 @@ packages/*/dist/
 packages/*/release/
 !/tsconfig.base.json
 !/tsconfig.projen.json
-!/tsconfig.scripts.json
+!/tsconfig.json
 !/README.md
 !/docs/llm/UTILITIES.md
 !/.github/workflows/publish.yml

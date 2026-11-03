@@ -7,6 +7,7 @@
     ".projen/tasks.json",
     "LICENSE",
     "package.json",
+    "scripts/tsconfig.json",
     "test/tsconfig.json",
     "tsconfig.json"
   ],

@@ -172,18 +172,14 @@ projenrc.tsconfig.addExtends(baseTsconfig);
 projenrc.tsconfig.removeInclude('**/*.ts');
 
 new javascript.TypescriptConfig(root, {
-  fileName: 'tsconfig.scripts.json',
+  fileName: 'tsconfig.json',
   extends: javascript.TypescriptConfigExtends.fromTypescriptConfigs([baseTsconfig]),
   compilerOptions: {
     allowImportingTsExtensions: true,
-    declaration: false,
-    declarationMap: false,
     noEmit: true,
     rootDir: '.',
-    inlineSources: false,
-    sourceMap: false,
   },
-  include: ['scripts/**/*.ts', 'tests/**/*.ts'],
+  include: ['.projenrc.ts', 'scripts/**/*.ts', 'tests/**/*.ts'],
   exclude: ['dist', 'node_modules', 'packages'],
 });
 
@@ -362,8 +358,10 @@ loqkit.addFields({
 loqkit.compileTask.reset();
 loqkit.compileTask.execArgs(['tsc', '-p', 'tsconfig.json']);
 loqkit.compileTask.execArgs(['bun', 'scripts/build-cjs.ts']);
+configureScriptTypes(loqkit);
 configureTestsAndTypecheck(loqkit, [
   ['tsc', '--noEmit', '-p', 'tsconfig.json'],
+  ['tsc', '--noEmit', '-p', 'scripts/tsconfig.json'],
 ]);
 
 const optionkit = workspace({
@@ -400,21 +398,7 @@ optionkit.addFields({
     zod: { optional: true },
   },
 });
-new javascript.TypescriptConfig(optionkit, {
-  fileName: 'tsconfig.scripts.json',
-  extends: javascript.TypescriptConfigExtends.fromTypescriptConfigs([optionkit.tsconfig!]),
-  compilerOptions: {
-    allowImportingTsExtensions: true,
-    declaration: false,
-    declarationMap: false,
-    noEmit: true,
-    rootDir: '.',
-    inlineSources: false,
-    sourceMap: false,
-  },
-  include: ['scripts/**/*.ts'],
-  exclude: ['dist', 'node_modules'],
-});
+configureScriptTypes(optionkit);
 optionkit.compileTask.reset();
 optionkit.compileTask.execArgs(['bun', 'scripts/build.ts']);
 optionkit.testTask.reset();
@@ -423,7 +407,7 @@ optionkit.testTask.execArgs(['bun', 'test']);
 configureTypecheck(optionkit, [
   ['bun', 'scripts/generate-catalog.ts'],
   ['tsc', '--noEmit', '-p', 'tsconfig.json'],
-  ['tsc', '--noEmit', '-p', 'tsconfig.scripts.json'],
+  ['tsc', '--noEmit', '-p', 'scripts/tsconfig.json'],
   ['tsc', '--noEmit', '-p', 'tests/tsconfig.json'],
 ]);
 optionkit.addTask('test:packed', {
@@ -471,26 +455,12 @@ pyfig.addFields({
     bun: '>=1.2.0',
   },
 });
-new javascript.TypescriptConfig(pyfig, {
-  fileName: 'tsconfig.scripts.json',
-  extends: javascript.TypescriptConfigExtends.fromTypescriptConfigs([pyfig.tsconfig!]),
-  compilerOptions: {
-    allowImportingTsExtensions: true,
-    declaration: false,
-    declarationMap: false,
-    noEmit: true,
-    rootDir: '.',
-    inlineSources: false,
-    sourceMap: false,
-  },
-  include: ['scripts/**/*.ts'],
-  exclude: ['dist', 'node_modules'],
-});
+configureScriptTypes(pyfig);
 pyfig.compileTask.reset();
 pyfig.compileTask.execArgs(['bun', 'scripts/build.ts']);
 configureTestsAndTypecheck(pyfig, [
   ['tsc', '--noEmit', '-p', 'tsconfig.json'],
-  ['tsc', '--noEmit', '-p', 'tsconfig.scripts.json'],
+  ['tsc', '--noEmit', '-p', 'scripts/tsconfig.json'],
   ['tsc', '--noEmit', '-p', 'tests/tsconfig.json'],
 ]);
 pyfig.addScripts({ pyfig: 'bun ./src/cli.ts' });
@@ -577,8 +547,7 @@ const workspaceTypecheck = root.addTask('typecheck:workspaces', {
   description: 'Type-check Projen, shared scripts, and built workspaces.',
 });
 workspaceTypecheck.execArgs([...PACWICH, 'verify', '--strict']);
-workspaceTypecheck.execArgs(['tsc', '--noEmit', '-p', 'tsconfig.projen.json']);
-workspaceTypecheck.execArgs(['tsc', '--noEmit', '-p', 'tsconfig.scripts.json']);
+workspaceTypecheck.execArgs(['tsc', '--noEmit', '-p', 'tsconfig.json']);
 workspaceTypecheck.execArgs(['bun', 'run', '--filter', WORKSPACE_FILTER, 'typecheck']);
 
 const typecheck = root.addTask('typecheck', {
@@ -745,6 +714,20 @@ function configureTestsAndTypecheck(
   project.testTask.reset();
   project.testTask.execArgs(['bun', 'test']);
   configureTypecheck(project, commands);
+}
+
+function configureScriptTypes(project: typescript.TypeScriptProject): void {
+  new javascript.TypescriptConfig(project, {
+    fileName: 'scripts/tsconfig.json',
+    extends: javascript.TypescriptConfigExtends.fromTypescriptConfigs([project.tsconfig!]),
+    compilerOptions: {
+      allowImportingTsExtensions: true,
+      noEmit: true,
+      rootDir: '..',
+    },
+    include: ['**/*.ts'],
+    exclude: ['../dist', '../node_modules'],
+  });
 }
 
 function configureTypecheck(

@@ -196,15 +196,7 @@
             "tsc",
             "--noEmit",
             "-p",
-            "tsconfig.projen.json"
-          ]
-        },
-        {
-          "execArgs": [
-            "tsc",
-            "--noEmit",
-            "-p",
-            "tsconfig.scripts.json"
+            "tsconfig.json"
           ]
         },
         {

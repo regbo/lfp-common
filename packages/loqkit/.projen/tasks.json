@@ -107,6 +107,14 @@
             "-p",
             "tsconfig.json"
           ]
+        },
+        {
+          "execArgs": [
+            "tsc",
+            "--noEmit",
+            "-p",
+            "scripts/tsconfig.json"
+          ]
         }
       ]
     },

@@ -130,7 +130,7 @@
             "tsc",
             "--noEmit",
             "-p",
-            "tsconfig.scripts.json"
+            "scripts/tsconfig.json"
           ]
         },
         {

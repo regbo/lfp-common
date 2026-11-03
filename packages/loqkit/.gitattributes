@@ -10,5 +10,6 @@
 /bun.lockb linguist-generated
 /LICENSE linguist-generated
 /package.json linguist-generated
+/scripts/tsconfig.json linguist-generated linguist-language=JSON-with-Comments
 /test/tsconfig.json linguist-generated linguist-language=JSON-with-Comments
 /tsconfig.json linguist-generated linguist-language=JSON-with-Comments

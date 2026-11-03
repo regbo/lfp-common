@@ -3,14 +3,11 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "allowImportingTsExtensions": true,
-    "declaration": false,
-    "declarationMap": false,
     "noEmit": true,
-    "rootDir": ".",
-    "inlineSources": false,
-    "sourceMap": false
+    "rootDir": "."
   },
   "include": [
+    ".projenrc.ts",
     "scripts/**/*.ts",
     "tests/**/*.ts"
   ],

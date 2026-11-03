@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-const root = path.resolve(import.meta.dirname, '..');
+const root = path.resolve(import.meta.dir, '..');
 const monorepo = JSON.parse(
   await readFile(path.resolve(root, '..', '..', 'package.json'), 'utf8'),
 ) as { packageManager: string };
