@@ -1,29 +1,38 @@
 {
   "name": "optionkit",
   "version": "0.0.1",
-  "description": "Resolve typed Node.js configuration from defaults, environment variables, and CLI flags.",
+  "description": "Turn Zod configuration schemas into zero-setup Fireargs options.",
   "type": "module",
-  "main": "./index.js",
-  "types": "./index.d.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./index.d.ts",
-      "import": "./index.js",
-      "default": "./index.js"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     }
   },
   "files": [
-    "index.js",
-    "index.d.ts"
+    "dist/",
+    "LICENSE",
+    "README.md"
   ],
   "scripts": {
-    "test": "bun test"
+    "build": "bun run generate && tsc -p tsconfig.json",
+    "generate": "bun run scripts/generate-cli-dependencies.ts",
+    "test": "bun run generate && bun test",
+    "test:packed": "bun run build && bun run scripts/test-packed.ts",
+    "typecheck": "bun run generate && tsc --noEmit -p tsconfig.json && tsc --noEmit -p tests/tsconfig.json",
+    "verify": "bun run typecheck && bun test && bun run build",
+    "prepack": "bun run verify"
   },
   "keywords": [
     "args",
     "cli",
     "config",
-    "environment"
+    "environment",
+    "fireargs",
+    "zod"
   ],
   "license": "MIT",
   "repository": {
@@ -34,9 +43,34 @@
     "url": "https://github.com/regbo/optionkit/issues"
   },
   "homepage": "https://github.com/regbo/optionkit#readme",
+  "sideEffects": false,
   "engines": {
     "node": ">=18"
   },
+  "dependencies": {
+    "@antfu/install-pkg": "^2.1.0"
+  },
+  "peerDependencies": {
+    "fireargs": "^0.6.2",
+    "zod": "^4.6.7"
+  },
+  "peerDependenciesMeta": {
+    "fireargs": {
+      "optional": true
+    },
+    "zod": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.4",
+    "@types/node": "^26.6.6",
+    "clean-stack": "^7.0.0",
+    "fireargs": "^0.6.2",
+    "typescript": "^7.0.2",
+    "zod": "^4.6.7"
+  },
+  "packageManager": "bun@1.4.4",
   "publishConfig": {
     "access": "public"
   }

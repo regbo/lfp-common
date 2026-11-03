@@ -1,0 +1,94 @@
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+
+const root = path.resolve(import.meta.dirname, '..');
+const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'optionkit-packed-'));
+const consumer = path.join(temporaryRoot, 'consumer');
+const cache = path.join(temporaryRoot, 'cache');
+
+try {
+  const packed = run([
+    'bun',
+    'pm',
+    'pack',
+    '--ignore-scripts',
+    '--destination',
+    temporaryRoot,
+    '--quiet',
+  ], root);
+  const reportedArchive = packed.stdout.trim().split(/\r?\n/u).at(-1);
+  if (!reportedArchive) throw new Error('bun pm pack did not report an archive path.');
+  const archive = path.resolve(root, reportedArchive);
+  await mkdir(consumer);
+  await writeFile(path.join(consumer, 'package.json'), `${JSON.stringify({
+    name: 'packed-consumer',
+    private: true,
+    type: 'module',
+    packageManager: 'bun@1.4.4',
+  }, null, 2)}\n`, 'utf8');
+  run(['bun', 'add', archive], consumer);
+  await writeFile(path.join(consumer, 'cli.mjs'), `
+import { createOptionKit } from 'optionkit';
+
+const { f, options, z } = await createOptionKit(
+  z => z.object({
+    uv: z.string().default('>=0.10,<1').describe('uv request.'),
+    python: z.string().optional().describe('Python request.'),
+    debug: z.boolean().default(false).describe('Write diagnostics.'),
+  }),
+  { moduleUrl: import.meta.url },
+);
+const command = f.command({ name: 'resolve', description: 'Resolve runtimes.' })
+  .input(z.object(options))
+  .output(z.void())
+  .handler(() => undefined);
+await command.parseAsync(process.argv);
+`.trimStart(), 'utf8');
+
+  const manifestBefore = await readFile(path.join(consumer, 'package.json'));
+  const lockBefore = await readFile(path.join(consumer, 'bun.lock'));
+  const result = run(['bun', 'run', 'cli.mjs', '--help'], consumer, {
+    ...process.env,
+    OPTIONKIT_CACHE_DIR: cache,
+  });
+  const help = result.stdout.replace(/\s+/gu, ' ');
+  assertIncludes(help, '-u, --uv <value>');
+  assertIncludes(help, 'env: PACKED_CONSUMER_UV');
+  assertIncludes(help, '-p, --python <value>');
+  assertIncludes(help, '-d, --debug');
+
+  const manifestAfter = await readFile(path.join(consumer, 'package.json'));
+  const lockAfter = await readFile(path.join(consumer, 'bun.lock'));
+  if (!manifestBefore.equals(manifestAfter) || !lockBefore.equals(lockAfter)) {
+    throw new Error('The lazy install changed the consumer manifest or lockfile.');
+  }
+
+  console.log('Packed lazy-install smoke test passed.');
+} finally {
+  const resolvedTemporaryRoot = path.resolve(temporaryRoot);
+  if (!path.basename(resolvedTemporaryRoot).startsWith('optionkit-packed-')) {
+    throw new Error(`Refusing to remove unexpected directory: ${resolvedTemporaryRoot}`);
+  }
+  await rm(resolvedTemporaryRoot, { recursive: true, force: true });
+}
+
+function run(
+  command: string[],
+  cwd: string,
+  env: Record<string, string | undefined> = process.env,
+): { stderr: string; stdout: string } {
+  const result = Bun.spawnSync(command, { cwd, env, stderr: 'pipe', stdout: 'pipe' });
+  const stderr = result.stderr.toString();
+  const stdout = result.stdout.toString();
+  if (result.exitCode !== 0) {
+    throw new Error(`${command.join(' ')} failed with exit ${result.exitCode}:\n${stderr}${stdout}`);
+  }
+  return { stderr, stdout };
+}
+
+function assertIncludes(value: string, expected: string): void {
+  if (!value.includes(expected)) {
+    throw new Error(`Expected output to include ${JSON.stringify(expected)}:\n${value}`);
+  }
+}
