@@ -88,6 +88,21 @@ describe('CLI', () => {
     expect(result.stdout).toMatch(/^uv \d+\.\d+/mu);
   }, 60_000);
 
+  test('keeps wrapper help before the passthrough separator', async () => {
+    const result = await runCli(['python', '--help']);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('Run Python through the resolved uv executable.');
+    expect(result.stdout).toContain('[args...]');
+  });
+
+  test('passes help through after the separator', async () => {
+    const result = await runCli(['uv', '--', '--help']);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toMatch(/^Usage: uv\b/mu);
+  }, 60_000);
+
   test('still accepts direct executable options without a separator', async () => {
     const result = await runCli(['uv', '--version']);
 
