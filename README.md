@@ -118,7 +118,10 @@ installation; there is no default version cache.
 and `clean-stack` are optional peers and development dependencies. Their ranges
 live in the package catalog and are generated into `src/_generated/catalog.ts` as
 a one-to-one runtime mirror. `clean-stack` is best-effort: failure never blocks a
-CLI, and the returned `formatError(error)` falls back to the original stack.
+CLI. Rejected handlers and renderers are formatted at the `parseAsync` boundary,
+written to the command's configured error output, and set exit code 1 by default.
+Set `formatErrors: false` to keep rejection handling in the consumer. The returned
+`formatError(error)` uses the same formatter and falls back to the original stack.
 
 Use the returned `z` when the consumer does not otherwise depend on Zod; it is
 resolved from the same location as the CLI adapter. `resolvePackage` and

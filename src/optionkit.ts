@@ -164,6 +164,7 @@ interface RuntimeOption {
 
 interface RuntimeCliCommand extends CliCommand {
   readonly options?: readonly RuntimeOption[];
+  configureOutput?: () => { writeErr?: (value: string) => void };
   option?: (flags: string, description?: string) => RuntimeCliCommand;
 }
 
@@ -201,6 +202,8 @@ export interface CreateOptionKitSettings {
   cacheDirectory?: string;
   /** Optional diagnostics sink. optionkit never writes install progress itself. */
   log?: OptionKitLogger;
+  /** Format rejected handlers and renderers at the parse boundary. Defaults to true. */
+  formatErrors?: boolean;
 }
 
 export interface OptionKit {
@@ -239,14 +242,15 @@ export async function createOptionKit(
     settings.environmentPrefix,
     settings.projectName ?? packageInfo.name,
   );
+  const errorFormatter = (error: unknown) => formatError(error, loaded.cleanStack);
 
   return {
-    f: createAdapter(loaded.f, loaded.z, environmentPrefix, settings),
+    f: createAdapter(loaded.f, loaded.z, environmentPrefix, settings, errorFormatter),
     z: loaded.z,
     environmentPrefix,
     packageRoot: packageInfo.root,
     dependencySource: loaded.source,
-    formatError: error => formatError(error, loaded.cleanStack),
+    formatError: errorFormatter,
   };
 }
 
@@ -535,6 +539,7 @@ function createAdapter(
   zod: ZodNamespace,
   environmentPrefix: string | false,
   settings: CreateOptionKitSettings,
+  errorFormatter: (error: unknown) => string,
 ): OptionKitAdapter {
   const environmentBindings = new WeakMap<CliRoute, readonly StructuredEnvironmentBinding[]>();
   return {
@@ -573,7 +578,11 @@ function createAdapter(
               const attach = (route: CliCommand): CliCommand => {
                 addBooleanNegations(route, negations);
                 environmentBindings.set(route, bindings);
-                wrapStructuredEnvironment(route, () => bindings);
+                wrapParseBoundary(
+                  route,
+                  () => bindings,
+                  settings.formatErrors === false ? undefined : errorFormatter,
+                );
                 return route;
               };
               return {
@@ -599,10 +608,14 @@ function createAdapter(
       return {
         router(routes: Readonly<Record<string, CliRoute>>) {
           const program = builder.router(routes as never);
-          wrapStructuredEnvironment(program, (argv, options) => {
-            const selected = selectedLeaf(program as unknown as RuntimeRoute, argv, options);
-            return selected ? environmentBindings.get(selected) ?? [] : [];
-          });
+          wrapParseBoundary(
+            program,
+            (argv, options) => {
+              const selected = selectedLeaf(program as unknown as RuntimeRoute, argv, options);
+              return selected ? environmentBindings.get(selected) ?? [] : [];
+            },
+            settings.formatErrors === false ? undefined : errorFormatter,
+          );
           return program;
         },
       };
@@ -865,41 +878,51 @@ function decodeStructuredValue(value: string, kind: StructuredValueKind): unknow
   return kind === 'array' ? splitArrayValue(value) ?? value : value;
 }
 
-function wrapStructuredEnvironment(
+function wrapParseBoundary(
   route: CliRoute,
   bindings: (
     argv: readonly string[] | undefined,
     options: CliParseOptions | undefined,
   ) => readonly StructuredEnvironmentBinding[],
+  errorFormatter: ((error: unknown) => string) | undefined,
 ): void {
   const parse = route.parseAsync.bind(route);
   route.parseAsync = async (argv, options) => {
     const active = bindings(argv, options);
-    if (!active.length) return parse(argv, options);
-
-    const effectiveArgv = [...(argv ?? process.argv)];
-    const userOffset = argvOffset(options);
-    const userArguments = effectiveArgv.slice(userOffset);
-    const insertion = effectiveArgv.indexOf('--', userOffset);
-    const injected: string[] = [];
-    const previous = new Map<string, string>();
-
-    for (const binding of active) {
-      const value = process.env[binding.env];
-      if (value === undefined) continue;
-      previous.set(binding.env, value);
-      delete process.env[binding.env];
-      if (hasOption(userArguments, binding)) continue;
-      const decoded = decodeStructuredValue(value, 'array');
-      const values = Array.isArray(decoded) ? decoded : [decoded];
-      for (const item of values) injected.push(`--${binding.name}=${stringifyCliValue(item)}`);
-    }
-
-    effectiveArgv.splice(insertion === -1 ? effectiveArgv.length : insertion, 0, ...injected);
     try {
-      return await parse(effectiveArgv, options);
-    } finally {
-      for (const [name, value] of previous) process.env[name] = value;
+      if (!active.length) return await parse(argv, options);
+
+      const effectiveArgv = [...(argv ?? process.argv)];
+      const userOffset = argvOffset(options);
+      const userArguments = effectiveArgv.slice(userOffset);
+      const insertion = effectiveArgv.indexOf('--', userOffset);
+      const injected: string[] = [];
+      const previous = new Map<string, string>();
+
+      for (const binding of active) {
+        const value = process.env[binding.env];
+        if (value === undefined) continue;
+        previous.set(binding.env, value);
+        delete process.env[binding.env];
+        if (hasOption(userArguments, binding)) continue;
+        const decoded = decodeStructuredValue(value, 'array');
+        const values = Array.isArray(decoded) ? decoded : [decoded];
+        for (const item of values) injected.push(`--${binding.name}=${stringifyCliValue(item)}`);
+      }
+
+      effectiveArgv.splice(insertion === -1 ? effectiveArgv.length : insertion, 0, ...injected);
+      try {
+        return await parse(effectiveArgv, options);
+      } finally {
+        for (const [name, value] of previous) process.env[name] = value;
+      }
+    } catch (error) {
+      if (!errorFormatter) throw error;
+      const command = route as RuntimeCliCommand;
+      const writer = command.configureOutput?.().writeErr ?? (value => process.stderr.write(value));
+      writer(`${errorFormatter(error)}\n`);
+      process.exitCode = 1;
+      return undefined;
     }
   };
 }

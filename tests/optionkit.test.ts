@@ -266,6 +266,46 @@ describe('optionkit', () => {
     });
     expect(command.helpInformation()).toContain('[args...]');
   });
+
+  test('formats rejected handlers at the parse boundary by default', async () => {
+    const previousExitCode = process.exitCode;
+    let stderr = '';
+    try {
+      const kit = await createOptionKit({
+        moduleUrl: import.meta.url,
+        projectName: 'errors',
+      });
+      const command = kit.f.command({
+        configureOutput: {
+          writeErr: (value: string) => { stderr += value; },
+        },
+      })
+        .input(kit.z.object({}))
+        .output(kit.z.void())
+        .handler(() => {
+          throw new Error('handler failed');
+        });
+
+      await command.parseAsync([], { from: 'user' });
+      expect(process.exitCode).toBe(1);
+      expect(stderr).toContain('Error: handler failed');
+
+      const raw = await createOptionKit({
+        formatErrors: false,
+        moduleUrl: import.meta.url,
+        projectName: 'raw-errors',
+      });
+      const rawCommand = raw.f.command()
+        .input(raw.z.object({}))
+        .output(raw.z.void())
+        .handler(() => {
+          throw new Error('raw failure');
+        });
+      await expect(rawCommand.parseAsync([], { from: 'user' })).rejects.toThrow('raw failure');
+    } finally {
+      process.exitCode = previousExitCode ?? 0;
+    }
+  });
 });
 
 function restoreEnvironment(key: string, value: string | undefined): void {
