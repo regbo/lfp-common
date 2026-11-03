@@ -1,4 +1,4 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { chmod, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { runBun, runCommand } from './process.ts';
 import {
@@ -35,12 +35,15 @@ const versionFiles = [
   'bun.lock',
   ...WORKSPACES.map(workspace => `${workspace.path}/package.json`),
 ] as const;
-const snapshots = new Map<string, Buffer>();
+const snapshots = new Map<string, { readonly content: Buffer; readonly mode: number }>();
 for (const filename of versionFiles) {
-  snapshots.set(filename, await readFile(path.join(ROOT, filename)));
+  const absolutePath = path.join(ROOT, filename);
+  const [content, metadata] = await Promise.all([readFile(absolutePath), stat(absolutePath)]);
+  snapshots.set(filename, { content, mode: metadata.mode & 0o777 });
 }
 let historyCreated = false;
 let pushed = false;
+let versionChanged = false;
 
 try {
   await assertCleanWorkspace();
@@ -100,7 +103,10 @@ try {
   console.log(
     `${dryRun ? 'Dry run' : 'Release'}: ${plan.currentVersion ?? 'initial'} -> ${plan.nextVersion} (${tag}).`,
   );
-  if (plan.nextVersion !== currentVersion) await updateSharedVersion(plan.nextVersion);
+  if (plan.nextVersion !== currentVersion) {
+    await updateSharedVersion(plan.nextVersion);
+    versionChanged = true;
+  }
 
   await runBun(['run', 'projen'], {
     cwd: ROOT,
@@ -146,9 +152,15 @@ try {
   }
   throw error;
 } finally {
-  if (dryRun || (!historyCreated && !pushed)) {
-    for (const [filename, content] of snapshots) {
-      await writeFile(path.join(ROOT, filename), content);
+  if (versionChanged && (dryRun || (!historyCreated && !pushed))) {
+    for (const [filename, snapshot] of snapshots) {
+      const absolutePath = path.join(ROOT, filename);
+      await chmod(absolutePath, 0o600);
+      try {
+        await writeFile(absolutePath, snapshot.content);
+      } finally {
+        await chmod(absolutePath, snapshot.mode);
+      }
     }
   }
 }
