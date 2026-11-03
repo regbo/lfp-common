@@ -1,6 +1,6 @@
 {
   "name": "optionkit",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "Turn Zod configuration schemas into zero-setup CLI options.",
   "type": "module",
   "main": "./dist/index.js",
