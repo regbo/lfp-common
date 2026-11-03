@@ -7,7 +7,8 @@ of this package.
 
 ```ts
 import { createOptionKit } from 'optionkit';
-import { z } from 'zod';
+
+const { f, z } = await createOptionKit({ moduleUrl: import.meta.url });
 
 const appOptionsSchema = z.object({
   port: z.number().default(3000).describe('Port to listen on.'),
@@ -16,12 +17,8 @@ const appOptionsSchema = z.object({
     .describe('Minimum log level.'),
 }).readonly();
 
-const { f, options } = await createOptionKit(appOptionsSchema, {
-  moduleUrl: import.meta.url,
-});
-
 const serve = f.command({ name: 'serve', description: 'Start the server.' })
-  .input(z.object(options))
+  .input(appOptionsSchema)
   .output(z.void())
   .handler(async config => {
     await startServer(config);
@@ -36,14 +33,21 @@ If the consuming package is named `my-app`, the fields above receive
 conflict. When two options share an initial, neither gets that automatic short
 flag.
 
+Adaptation happens at each command's `.input(...)` boundary. Subcommands need no
+special handling: build each leaf from its own schema, then mount the leaves with
+`f.program(...).router({ serve, status })`. Environment and short-flag conflicts
+are calculated independently for each leaf.
+
 ## Lazy CLI dependencies
 
 optionkit first resolves Fireargs and Zod from the consuming CLI package. If
 they are unavailable, it detects the package manager from the invocation
-directory and installs the pinned Fireargs and Zod ranges together in a
-versioned user cache. Fireargs' own package metadata supplies its remaining
-peer dependencies. The consuming package's manifest and lockfile remain
-unchanged, and installer output stays silent so JSON output is not polluted.
+directory and installs the pinned Fireargs and Zod ranges from the consuming
+package root. `cacheDirectory` opts into an isolated install explicitly; there
+is no default versioned cache. Fireargs' package metadata supplies its remaining
+peer dependencies. Optionkit restores the consuming manifest and lockfile
+byte-for-byte after installation, and installer output stays silent so JSON
+output is not polluted.
 
 Only `@antfu/install-pkg` is a runtime dependency of optionkit. Fireargs,
 Zod, and `clean-stack` are development dependencies whose ranges are generated
@@ -56,21 +60,19 @@ original stack. Fireargs and Zod are also declared as optional peers, so a
 consumer's compatible installation is reused without making either package a
 required install.
 
-For a CLI that does not otherwise use Zod, pass a schema factory to guarantee
-that the schema uses the same cached Zod instance as Fireargs:
+Use the returned `z` when the consuming package does not otherwise depend on
+Zod. It always comes from the same dependency location as the CLI adapter:
 
 ```ts
-const { f, z, options } = await createOptionKit(
-  z => z.object({ verbose: z.boolean().default(false) }),
-  { moduleUrl: import.meta.url },
-);
+const { f, z } = await createOptionKit({ moduleUrl: import.meta.url });
+const input = z.object({ verbose: z.boolean().default(false) });
 ```
 
 Use `environmentPrefix` or `projectName` to override automatic package-name
 translation. Per-field `env` and `short` values can be overridden or disabled:
 
 ```ts
-await createOptionKit(appOptionsSchema, {
+await createOptionKit({
   environmentPrefix: 'SERVICE',
   fields: {
     debug: { env: false, short: 'x' },
@@ -103,38 +105,23 @@ missing package; initialization errors from an installed package still surface.
 ## Pyfig migration
 
 Pyfig can keep `pyfigOptionsSchema` as its API source of truth. Its CLI only
-needs to replace the manual Fireargs loader and five `f.option(...)` calls:
+needs to replace the manual loader; Optionkit adapts every command input:
 
 ```ts
-const { f, options: pyfigOptions } = await createOptionKit(pyfigOptionsSchema, {
+const { f, z } = await createOptionKit({
   log,
   moduleUrl: import.meta.url,
 });
 
-const createInput = (passthrough = false) => z.object({
-  ...pyfigOptions,
+const createInput = (passthrough = false) => pyfigOptionsSchema.unwrap().extend({
   ...(passthrough ? { args: f.argument().schema(passthroughArguments) } : {}),
 });
 ```
 
 The command, router, output schemas, handlers, and passthrough behavior do not
-change. `PYFIG_*` names and `-u/-p/-d/-c/-e` flags are derived automatically.
-After optionkit is published, Pyfig can depend on it and remove its direct
-`@antfu/install-pkg` dependency and local loader. Pyfig should retain Fireargs
-in `devDependencies` for typechecking and retain its optional peer metadata:
-
-```json
-{
-  "peerDependencies": { "fireargs": "^0.6.2" },
-  "peerDependenciesMeta": { "fireargs": { "optional": true } },
-  "devDependencies": { "fireargs": "^0.6.2" }
-}
-```
-
-Keeping the peer optional is important for packed and `bunx` execution: the
-package advertises its CLI integration without making Fireargs a required
-preinstalled peer, leaving optionkit's resolve-first loader free to populate
-the isolated cache.
+change. `PYFIG_*` names and conflict-free short flags are derived automatically.
+Pyfig needs only `optionkit` for its CLI integration; it does not need its own
+Fireargs peer metadata, Fireargs development dependency, or install helper.
 
 ## Install
 

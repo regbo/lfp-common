@@ -22,9 +22,11 @@
     "generate": "bun run scripts/generate-catalog.ts",
     "test": "bun run generate && bun test",
     "test:packed": "bun run build && bun run scripts/test-packed.ts",
-    "typecheck": "bun run generate && tsc --noEmit -p tsconfig.json && tsc --noEmit -p tests/tsconfig.json",
+    "typecheck": "bun run generate && tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.scripts.json && tsc --noEmit -p tests/tsconfig.json",
     "verify": "bun run typecheck && bun test && bun run build",
-    "prepack": "bun run verify"
+    "release": "bun run scripts/release.ts",
+    "release:pack": "bun run scripts/pack-for-publish.ts",
+    "prepack": "bun run scripts/prepack.ts"
   },
   "keywords": [
     "args",
@@ -80,6 +82,8 @@
   },
   "packageManager": "bun@1.4.4",
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org"
   }
 }

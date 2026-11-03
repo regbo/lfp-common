@@ -12,12 +12,12 @@ describe('optionkit', () => {
       cwd: z.string().default(() => process.cwd()).describe('Working directory.'),
       env: z.record(z.string(), z.string()).optional().describe('Environment overrides.'),
     }).readonly();
-    const kit = await createOptionKit(schema, {
+    const kit = await createOptionKit({
       moduleUrl: import.meta.url,
       projectName: 'pyfig',
     });
     const command = kit.f.command({ name: 'resolve', description: 'Resolve runtimes.' })
-      .input(z.object(kit.options))
+      .input(schema)
       .output(z.void())
       .handler(() => undefined);
     const help = command.helpInformation();
@@ -39,7 +39,7 @@ describe('optionkit', () => {
       python: z.string().optional(),
       debug: z.boolean().default(false),
     });
-    const kit = await createOptionKit(schema, {
+    const kit = await createOptionKit({
       environmentPrefix: 'example',
       fields: {
         debug: { env: false, short: 'x' },
@@ -47,7 +47,7 @@ describe('optionkit', () => {
       moduleUrl: import.meta.url,
     });
     const command = kit.f.command({ name: 'serve' })
-      .input(z.object(kit.options))
+      .input(schema)
       .output(z.void())
       .handler(() => undefined);
     const help = command.helpInformation();
@@ -60,7 +60,7 @@ describe('optionkit', () => {
   });
 
   test('derives the consuming package root from its module URL', async () => {
-    const kit = await createOptionKit(z.object({ value: z.string() }), {
+    const kit = await createOptionKit({
       moduleUrl: import.meta.url,
       shortFlags: false,
     });
@@ -87,13 +87,14 @@ describe('optionkit', () => {
     process.env[customKey] = 'alpha,beta';
 
     try {
-      const kit = await createOptionKit(z.object({
+      const schema = z.object({
         tags: z.array(z.string()).optional(),
         labels: z.array(z.string()).optional(),
         settings: z.record(z.string(), z.string()).optional(),
         source: z.union([z.record(z.string(), z.string()), z.string()]).optional(),
         custom: z.array(z.string()).optional(),
-      }), {
+      });
+      const kit = await createOptionKit({
         moduleUrl: import.meta.url,
         projectName: 'structured-test',
         fields: {
@@ -102,7 +103,7 @@ describe('optionkit', () => {
       });
       let received: unknown;
       const command = kit.f.command({ name: 'structured' })
-        .input(z.object(kit.options))
+        .input(schema)
         .output(z.void())
         .handler(input => {
           received = input;
@@ -125,6 +126,37 @@ describe('optionkit', () => {
       restoreEnvironment(sourceKey, previousSource);
       restoreEnvironment(customKey, previousCustom);
     }
+  });
+
+  test('adapts each subcommand input while preserving registered field metadata', async () => {
+    const kit = await createOptionKit({
+      moduleUrl: import.meta.url,
+      projectName: 'subcommands',
+    });
+    const input = kit.z.object({
+      target: kit.f.argument().string().describe('Target name.'),
+      values: kit.f.option({ parse: value => value.split(';') })
+        .schema(kit.z.array(kit.z.string()).describe('Values.')),
+    });
+    let received: unknown;
+    const run = kit.f.command({ description: 'Run a target.' })
+      .input(input)
+      .output(kit.z.void())
+      .handler(value => {
+        received = value;
+        return undefined;
+      });
+    const inspect = kit.f.command({ description: 'Inspect configuration.' })
+      .input(kit.z.object({ verbose: kit.z.boolean().default(false) }))
+      .output(kit.z.void())
+      .handler(() => undefined);
+    const program = kit.f.program({ name: 'example' }).router({ run, inspect });
+
+    await program.parseAsync(['run', 'demo', '--values', 'one;two'], { from: 'user' });
+
+    expect(received).toEqual({ target: 'demo', values: ['one', 'two'] });
+    expect(program.helpInformation()).toContain('run');
+    expect(program.helpInformation()).toContain('inspect');
   });
 });
 

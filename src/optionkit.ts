@@ -1,13 +1,19 @@
-import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
-import { access, mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
-import os from 'node:os';
+import { access, mkdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { detectPackageManager, installPackage } from '@antfu/install-pkg';
-import type { ZodObject, ZodReadonly, ZodType } from 'zod';
+import type {
+  ZodArray,
+  ZodBoolean,
+  ZodNumber,
+  ZodObject,
+  ZodReadonly,
+  ZodString,
+  ZodType,
+} from 'zod';
 import { catalog } from './_generated/catalog.js';
-import { importPackageIfAvailable } from './resolve.js';
+import { importPackageIfAvailable, resolvePackage } from './resolve.js';
 
 type CleanStack = typeof import('clean-stack').default;
 type CliAdapterModule = typeof import('fireargs');
@@ -16,14 +22,8 @@ type ZodShape = Record<string, ZodType>;
 type StructuredValueKind = 'array' | 'object';
 type InternalValueParser = (value: string) => never;
 type ObjectSchema = ZodObject<ZodShape> | ZodReadonly<ZodObject<ZodShape>>;
-type ShapeOf<Schema> = Schema extends ZodReadonly<infer Inner>
-  ? Inner extends ObjectSchema
-    ? ShapeOf<Inner>
-    : never
-  : Schema extends ZodObject<infer Shape>
-    ? Shape
-    : never;
-type InputOf<Field> = Field extends ZodType ? import('zod').input<Field> : unknown;
+type SchemaInput<Schema extends ZodType> = import('zod').input<Schema>;
+type SchemaOutput<Schema extends ZodType> = import('zod').output<Schema>;
 
 export interface OptionConfiguration<Value = unknown> {
   /** Long flag without dashes. Defaults to the kebab-case field key. */
@@ -42,6 +42,85 @@ export interface OptionConfiguration<Value = unknown> {
   parse?: (value: string) => Value;
 }
 
+export interface ArgumentConfiguration<Value = unknown> {
+  name?: string;
+  defaultDescription?: string;
+  parse?: (value: string) => Value;
+}
+
+export type CommandConfiguration = Record<string, unknown>;
+export type ProgramConfiguration = Record<string, unknown>;
+
+export interface CliParseOptions {
+  from?: 'electron' | 'node' | 'user';
+}
+
+export interface CliRoute {
+  readonly type: 'command' | 'program';
+  helpInformation(): string;
+  parseAsync(argv?: readonly string[], options?: CliParseOptions): Promise<unknown>;
+}
+
+export interface CliCommand extends CliRoute {
+  readonly type: 'command';
+}
+
+export interface CliProgram extends CliRoute {
+  readonly type: 'program';
+}
+
+export interface CommandContext {
+  readonly command: CliCommand;
+  readonly json: boolean;
+}
+
+export interface RenderContext<Input> {
+  readonly command: CliCommand;
+  readonly input: Input;
+  readonly json: false;
+}
+
+export interface FieldBuilder<Value = never> {
+  string(): ZodString;
+  number(): ZodNumber;
+  boolean(): ZodBoolean;
+  enum<const Values extends readonly [string, ...string[]]>(values: Values): ZodType<Values[number]>;
+  array<Inner extends ZodType>(inner: Inner): ZodArray<Inner>;
+  schema<Schema extends ZodType>(schema: Schema): Schema;
+}
+
+interface HandlerBuilder<Input extends ObjectSchema, Output extends ZodType> {
+  handler(
+    handler: (
+      input: SchemaOutput<Input>,
+      context: CommandContext,
+    ) => SchemaInput<Output> | Promise<SchemaInput<Output>>,
+  ): CliCommand;
+}
+
+interface OutputBuilder<Input extends ObjectSchema, Output extends ZodType>
+  extends HandlerBuilder<Input, Output> {
+  render(
+    render: (
+      output: SchemaOutput<Output>,
+      context: RenderContext<SchemaOutput<Input>>,
+    ) => string | void | Promise<string | void>,
+  ): HandlerBuilder<Input, Output>;
+}
+
+export interface OptionKitAdapter {
+  argument<Value = never>(configuration?: ArgumentConfiguration<Value>): FieldBuilder<Value>;
+  command(configuration?: CommandConfiguration): {
+    input<Input extends ObjectSchema>(schema: Input): {
+      output<Output extends ZodType>(schema: Output): OutputBuilder<Input, Output>;
+    };
+  };
+  option<Value = never>(configuration?: OptionConfiguration<Value>): FieldBuilder<Value>;
+  program(configuration?: ProgramConfiguration): {
+    router(routes: Readonly<Record<string, CliRoute>>): CliProgram;
+  };
+}
+
 type ResolvedOptionConfiguration = Omit<OptionConfiguration<never>, 'env' | 'short'> & {
   env?: string;
   /** Internal compatibility parser for structured values carried by one env string. */
@@ -54,7 +133,7 @@ export type OptionKitLogger = (
   details?: Readonly<Record<string, unknown>>,
 ) => void;
 
-export interface CreateOptionKitSettings<Schema extends ObjectSchema> {
+export interface CreateOptionKitSettings {
   /** Module URL for the consuming CLI; used to find its nearest package.json. */
   moduleUrl?: string | URL;
   /** Explicit consuming package root when moduleUrl discovery is not appropriate. */
@@ -68,35 +147,29 @@ export interface CreateOptionKitSettings<Schema extends ObjectSchema> {
   /** Letters that automatic short-flag generation must not use. */
   reservedShortFlags?: readonly string[];
   /** Per-field CLI metadata applied after generated values. */
-  fields?: Partial<{
-    [Key in keyof ShapeOf<Schema>]: OptionConfiguration<InputOf<ShapeOf<Schema>[Key]>>;
-  }>;
+  fields?: Readonly<Record<string, OptionConfiguration>>;
   /** Working directory used to detect the caller's package manager. */
   invocationDirectory?: string;
-  /** Parent directory for optionkit's versioned dependency cache. */
+  /** Explicit isolated install directory. By default, missing packages install at packageRoot. */
   cacheDirectory?: string;
   /** Optional diagnostics sink. optionkit never writes install progress itself. */
   log?: OptionKitLogger;
 }
 
-export interface OptionKit<Schema extends ObjectSchema> {
+export interface OptionKit {
   /** CLI builder namespace, loaded from the project or the lazy cache. */
-  f: CliAdapterModule['f'];
+  f: OptionKitAdapter;
   /** Zod from the same dependency location as the CLI adapter. */
   z: ZodNamespace;
-  /** The source schema fields tagged with generated CLI option metadata. */
-  options: ShapeOf<Schema>;
   /** Prefix used for generated environment variables, including its trailing underscore. */
   environmentPrefix: string | false;
   /** The consuming package root discovered for this CLI. */
   packageRoot: string;
-  /** Whether CLI dependencies came from the consuming project or optionkit's cache. */
-  dependencySource: 'project' | 'cache';
+  /** Where the CLI dependencies were resolved or installed. */
+  dependencySource: 'cache' | 'package-root' | 'project';
   /** Render an error with clean-stack when the optional dependency is available. */
   formatError: (error: unknown) => string;
 }
-
-export type OptionSchemaFactory<Schema extends ObjectSchema> = (z: ZodNamespace) => Schema;
 
 const REQUIRED_CLI_DEPENDENCY_SPECIFIERS = [
   `fireargs@${catalog.fireargs}`,
@@ -107,33 +180,22 @@ const installPromises = new Map<string, Promise<LoadedDependencies>>();
 const cleanStackPromises = new Map<string, Promise<CleanStack | undefined>>();
 
 /**
- * Load the CLI adapter on demand and map a Zod object schema to environment-aware,
- * conflict-free CLI options without duplicating the schema's field definitions.
+ * Load the CLI adapter on demand. Every command input is transparently augmented
+ * with environment bindings and conflict-free short flags.
  */
-export async function createOptionKit<const Schema extends ObjectSchema>(
-  schemaOrFactory: Schema | OptionSchemaFactory<Schema>,
-  settings: CreateOptionKitSettings<Schema> = {},
-): Promise<OptionKit<Schema>> {
+export async function createOptionKit(
+  settings: CreateOptionKitSettings = {},
+): Promise<OptionKit> {
   const packageInfo = await consumingPackage(settings);
   const loaded = await loadDependencies(packageInfo.root, settings);
-  const schema = typeof schemaOrFactory === 'function'
-    ? schemaOrFactory(loaded.z)
-    : schemaOrFactory;
-  const shape = objectShape(schema);
   const environmentPrefix = resolveEnvironmentPrefix(
     settings.environmentPrefix,
     settings.projectName ?? packageInfo.name,
   );
-  const configurations = optionConfigurations(shape, environmentPrefix, loaded.z, settings);
-  const options = Object.fromEntries(Object.entries(shape).map(([key, field]) => [
-    key,
-    loaded.f.option(configurations[key]).schema(field),
-  ])) as unknown as ShapeOf<Schema>;
 
   return {
-    f: loaded.f,
+    f: createAdapter(loaded.f, loaded.z, environmentPrefix, settings),
     z: loaded.z,
-    options,
     environmentPrefix,
     packageRoot: packageInfo.root,
     dependencySource: loaded.source,
@@ -150,11 +212,11 @@ interface LoadedDependencies {
   cleanStack?: CleanStack;
   f: CliAdapterModule['f'];
   z: ZodNamespace;
-  source: 'project' | 'cache';
+  source: 'cache' | 'package-root' | 'project';
 }
 
-async function consumingPackage<Schema extends ObjectSchema>(
-  settings: CreateOptionKitSettings<Schema>,
+async function consumingPackage(
+  settings: CreateOptionKitSettings,
 ): Promise<PackageInfo> {
   const root = settings.packageRoot
     ? path.resolve(settings.packageRoot)
@@ -206,76 +268,77 @@ async function findPackageRoot(start: string): Promise<string> {
   }
 }
 
-async function loadDependencies<Schema extends ObjectSchema>(
+async function loadDependencies(
   packageRoot: string,
-  settings: CreateOptionKitSettings<Schema>,
+  settings: CreateOptionKitSettings,
 ): Promise<LoadedDependencies> {
   const project = await importDependencies(packageRoot);
   const invocationDirectory = path.resolve(settings.invocationDirectory ?? process.cwd());
   const detected = await detectPackageManager(invocationDirectory);
   const packageManager = detected ?? 'npm';
-  const managerName = packageManager.split('@')[0] ?? packageManager;
-  const cacheRoot = path.join(
-    settings.cacheDirectory ?? defaultCacheDirectory(),
-    cacheKey(managerName),
-  );
+  const installRoot = path.resolve(settings.cacheDirectory ?? packageRoot);
+  const installSource = settings.cacheDirectory ? 'cache' : 'package-root';
+  if (settings.cacheDirectory) await ensureCachePackage(installRoot);
   if (project) {
     const projectCleanStack = await importCleanStack(packageRoot, settings.log);
     const cleanStack = projectCleanStack ?? await cachedCleanStack(
-      cacheRoot,
+      installRoot,
       packageManager,
       settings.log,
     );
     return { ...project, cleanStack, source: 'project' };
   }
 
-  let installation = installPromises.get(cacheRoot);
+  let installation = installPromises.get(installRoot);
   if (!installation) {
-    installation = installAndImport(cacheRoot, packageManager, settings.log);
-    installPromises.set(cacheRoot, installation);
+    installation = installAndImport(
+      installRoot,
+      packageManager,
+      installSource,
+      settings.log,
+    );
+    installPromises.set(installRoot, installation);
   }
   try {
     return await installation;
   } catch (error) {
-    installPromises.delete(cacheRoot);
+    installPromises.delete(installRoot);
     throw error;
   }
 }
 
 async function installAndImport(
-  cacheRoot: string,
+  installRoot: string,
   packageManager: string,
+  source: 'cache' | 'package-root',
   log: OptionKitLogger | undefined,
 ): Promise<LoadedDependencies> {
-  await ensureCachePackage(cacheRoot);
-  const cleanStack = await cachedCleanStack(cacheRoot, packageManager, log);
-  const cached = await importDependencies(cacheRoot);
-  if (cached) return { ...cached, cleanStack, source: 'cache' };
+  const cleanStack = await cachedCleanStack(installRoot, packageManager, log);
+  const existing = await importDependencies(installRoot);
+  if (existing) return { ...existing, cleanStack, source };
 
   log?.('Installing required CLI dependencies.', {
-    cacheDirectory: cacheRoot,
+    installDirectory: installRoot,
     packages: REQUIRED_CLI_DEPENDENCY_SPECIFIERS,
     packageManager,
   });
   try {
-    await installPackage(REQUIRED_CLI_DEPENDENCY_SPECIFIERS, {
-      cwd: cacheRoot,
-      packageManager,
-      preferOffline: true,
-      silent: true,
-    });
+    await installWithoutSaving(REQUIRED_CLI_DEPENDENCY_SPECIFIERS, installRoot, packageManager);
   } catch (error) {
     log?.('Could not install required CLI dependencies.', {
       error: formatError(error, cleanStack),
     });
     throw error;
   }
-  const installed = await importDependencies(cacheRoot);
+  const installed = await importDependencies(installRoot);
   if (!installed) {
-    throw new Error(`CLI dependencies were installed but could not be resolved from ${cacheRoot}.`);
+    const unresolved = ['fireargs', 'zod'].filter(name => !resolvePackage(name, installRoot));
+    throw new Error(
+      `CLI dependencies were installed but ${unresolved.join(' and ') || 'their exports'} could not be resolved from ${installRoot}.`,
+    );
   }
-  log?.('Required CLI dependencies are ready.', { cacheDirectory: cacheRoot });
-  return { ...installed, cleanStack, source: 'cache' };
+  log?.('Required CLI dependencies are ready.', { installDirectory: installRoot });
+  return { ...installed, cleanStack, source };
 }
 
 async function importDependencies(
@@ -310,28 +373,22 @@ async function cachedCleanStack(
 }
 
 async function installCleanStack(
-  cacheRoot: string,
+  installRoot: string,
   packageManager: string,
   log: OptionKitLogger | undefined,
 ): Promise<CleanStack | undefined> {
-  await ensureCachePackage(cacheRoot);
-  const existing = await importCleanStack(cacheRoot, log);
+  const existing = await importCleanStack(installRoot, log);
   if (existing) return existing;
 
   log?.('Installing optional stack cleaner.', {
-    cacheDirectory: cacheRoot,
+    installDirectory: installRoot,
     package: CLEAN_STACK_SPECIFIER,
     packageManager,
   });
   try {
-    await installPackage(CLEAN_STACK_SPECIFIER, {
-      cwd: cacheRoot,
-      packageManager,
-      preferOffline: true,
-      silent: true,
-    });
-    const installed = await importCleanStack(cacheRoot, log);
-    if (installed) log?.('Optional stack cleaner is ready.', { cacheDirectory: cacheRoot });
+    await installWithoutSaving(CLEAN_STACK_SPECIFIER, installRoot, packageManager);
+    const installed = await importCleanStack(installRoot, log);
+    if (installed) log?.('Optional stack cleaner is ready.', { installDirectory: installRoot });
     return installed;
   } catch (error) {
     log?.('Optional stack cleaner is unavailable.', { error: formatError(error) });
@@ -378,30 +435,121 @@ async function ensureCachePackage(cacheRoot: string): Promise<void> {
   }
 }
 
-function defaultCacheDirectory(): string {
-  const configured = process.env.OPTIONKIT_CACHE_DIR;
-  if (configured) return path.resolve(configured);
-  if (process.platform === 'win32') {
-    return path.join(process.env.LOCALAPPDATA ?? path.join(os.homedir(), 'AppData', 'Local'), 'optionkit');
+const INSTALL_STATE_FILES = [
+  'package.json',
+  'bun.lock',
+  'bun.lockb',
+  'package-lock.json',
+  'pnpm-lock.yaml',
+  'yarn.lock',
+] as const;
+
+async function installWithoutSaving(
+  packages: string | string[],
+  installRoot: string,
+  packageManager: string,
+): Promise<void> {
+  const snapshots = new Map<string, Buffer | undefined>();
+  for (const name of INSTALL_STATE_FILES) {
+    const filename = path.join(installRoot, name);
+    try {
+      snapshots.set(filename, await readFile(filename));
+    } catch (error) {
+      if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
+      snapshots.set(filename, undefined);
+    }
   }
-  if (process.platform === 'darwin') return path.join(os.homedir(), 'Library', 'Caches', 'optionkit');
-  return path.join(process.env.XDG_CACHE_HOME ?? path.join(os.homedir(), '.cache'), 'optionkit');
+  try {
+    await installPackage(packages, {
+      additionalArgs: agent => noSaveArguments(agent),
+      cwd: installRoot,
+      packageManager,
+      preferOffline: true,
+      silent: true,
+    });
+  } finally {
+    for (const [filename, content] of snapshots) {
+      if (content) await writeFile(filename, content);
+      else await rm(filename, { force: true });
+    }
+  }
 }
 
-function cacheKey(packageManager: string): string {
-  const digest = createHash('sha256')
-    .update(`${packageManager}\0${[...REQUIRED_CLI_DEPENDENCY_SPECIFIERS, CLEAN_STACK_SPECIFIER].join('\0')}`)
-    .digest('hex')
-    .slice(0, 16);
-  return `${packageManager}-${digest}`;
+function noSaveArguments(agent: string): string[] {
+  if (agent === 'bun') return ['--no-save'];
+  if (agent === 'npm') return ['--no-save', '--package-lock=false'];
+  if (agent === 'pnpm') return ['--lockfile=false'];
+  if (agent === 'yarn') return ['--no-lockfile'];
+  return [];
+}
+
+function createAdapter(
+  adapter: CliAdapterModule['f'],
+  zod: ZodNamespace,
+  environmentPrefix: string | false,
+  settings: CreateOptionKitSettings,
+): OptionKitAdapter {
+  return {
+    ...adapter,
+    command(configuration: CommandConfiguration = {}) {
+      const builder = adapter.command(configuration);
+      return {
+        input<Input extends ObjectSchema>(schema: Input) {
+          const adapted = adaptInputSchema(
+            schema,
+            adapter,
+            zod,
+            environmentPrefix,
+            settings,
+          );
+          return builder.input(adapted) as never;
+        },
+      };
+    },
+  } as OptionKitAdapter;
+}
+
+type RegisteredFieldConfiguration =
+  | ({ kind: 'argument' } & ArgumentConfiguration)
+  | ({ kind: 'option' } & OptionConfiguration);
+
+function adaptInputSchema(
+  schema: ObjectSchema,
+  adapter: CliAdapterModule['f'],
+  zod: ZodNamespace,
+  environmentPrefix: string | false,
+  settings: CreateOptionKitSettings,
+): ZodObject<ZodShape> {
+  const object = objectSchema(schema);
+  const shape = object.shape as ZodShape;
+  const registered = Object.fromEntries(Object.entries(shape).flatMap(([key, field]) => {
+    const configuration = registeredFieldConfiguration(field, zod);
+    return configuration ? [[key, configuration]] : [];
+  })) as Record<string, RegisteredFieldConfiguration | undefined>;
+  const configurations = optionConfigurations(
+    shape,
+    environmentPrefix,
+    zod,
+    settings,
+    registered,
+  );
+  const fields = Object.fromEntries(Object.entries(shape).map(([key, field]) => {
+    if (registered[key]?.kind === 'argument') return [key, field];
+    return [key, adapter.option(configurations[key]).schema(field)];
+  })) as ZodShape;
+  return object.safeExtend(fields) as ZodObject<ZodShape>;
 }
 
 function objectShape(schema: ObjectSchema): ZodShape {
+  return objectSchema(schema).shape as ZodShape;
+}
+
+function objectSchema(schema: ObjectSchema): ZodObject<ZodShape> {
   let candidate: unknown = schema;
   while (candidate && typeof candidate === 'object') {
     if ('shape' in candidate) {
       const shape = candidate.shape;
-      if (shape && typeof shape === 'object') return shape as ZodShape;
+      if (shape && typeof shape === 'object') return candidate as ZodObject<ZodShape>;
     }
     if (!('unwrap' in candidate) || typeof candidate.unwrap !== 'function') break;
     candidate = candidate.unwrap();
@@ -423,10 +571,17 @@ function optionConfigurations<Schema extends ObjectSchema>(
   shape: ZodShape,
   environmentPrefix: string | false,
   zod: ZodNamespace,
-  settings: CreateOptionKitSettings<Schema>,
+  settings: CreateOptionKitSettings,
+  registered: Readonly<Record<string, RegisteredFieldConfiguration | undefined>> = {},
 ): Record<string, ResolvedOptionConfiguration> {
-  const keys = Object.keys(shape);
-  const overrides = settings.fields as Record<string, OptionConfiguration | undefined> | undefined;
+  const keys = Object.keys(shape).filter(key => registered[key]?.kind !== 'argument');
+  const overrides = Object.fromEntries(keys.map(key => {
+    const existing = registered[key];
+    const existingOption = existing?.kind === 'option'
+      ? Object.fromEntries(Object.entries(existing).filter(([name]) => name !== 'kind'))
+      : {};
+    return [key, { ...settings.fields?.[key], ...existingOption }];
+  })) as Record<string, OptionConfiguration | undefined>;
   const shorts = generatedShortFlags(keys, overrides, settings);
 
   return Object.fromEntries(keys.map(key => {
@@ -449,6 +604,30 @@ function optionConfigurations<Schema extends ObjectSchema>(
     }
     return [key, generated];
   }));
+}
+
+function registeredFieldConfiguration(
+  schema: ZodType,
+  zod: ZodNamespace,
+  seen = new Set<ZodType>(),
+): RegisteredFieldConfiguration | undefined {
+  if (seen.has(schema)) return undefined;
+  seen.add(schema);
+  const metadata = zod.globalRegistry.get(schema) as Record<string, unknown> | undefined;
+  const registered = metadata?.fireargs;
+  if (registered && typeof registered === 'object' && 'kind' in registered) {
+    const kind = (registered as { kind?: unknown }).kind;
+    if (kind === 'argument' || kind === 'option') {
+      return registered as RegisteredFieldConfiguration;
+    }
+  }
+  if (schema instanceof zod.ZodPipe) {
+    return registeredFieldConfiguration(schema.in as ZodType, zod, seen);
+  }
+  const wrapper = schema as ZodType & { unwrap?: () => ZodType };
+  return typeof wrapper.unwrap === 'function'
+    ? registeredFieldConfiguration(wrapper.unwrap(), zod, seen)
+    : undefined;
 }
 
 /**
@@ -532,10 +711,10 @@ function splitArrayValue(value: string): string[] | undefined {
   return result;
 }
 
-function generatedShortFlags<Schema extends ObjectSchema>(
+function generatedShortFlags(
   keys: readonly string[],
   overrides: Record<string, OptionConfiguration | undefined> | undefined,
-  settings: CreateOptionKitSettings<Schema>,
+  settings: CreateOptionKitSettings,
 ): Record<string, string | undefined> {
   if (settings.shortFlags === false) return {};
   const reserved = new Set(['h', ...(settings.reservedShortFlags ?? [])].map(value => value.toLowerCase()));

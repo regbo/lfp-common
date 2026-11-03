@@ -5,7 +5,6 @@ import path from 'node:path';
 const root = path.resolve(import.meta.dirname, '..');
 const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'optionkit-packed-'));
 const consumer = path.join(temporaryRoot, 'consumer');
-const cache = path.join(temporaryRoot, 'cache');
 
 try {
   const packed = run([
@@ -40,19 +39,17 @@ try {
   await writeFile(path.join(consumer, 'cli.mjs'), `
 import { createOptionKit } from 'optionkit';
 
-const { f, options, z } = await createOptionKit(
-  z => z.object({
-    uv: z.string().default('>=0.10,<1').describe('uv request.'),
-    python: z.string().optional().describe('Python request.'),
-    debug: z.boolean().default(false).describe('Write diagnostics.'),
-    tags: z.array(z.string()).optional().describe('Tags as a JSON array.'),
-    labels: z.array(z.string()).optional().describe('Labels as shell words.'),
-    settings: z.record(z.string(), z.string()).optional().describe('Settings as a JSON object.'),
-  }),
-  { moduleUrl: import.meta.url },
-);
+const { f, z } = await createOptionKit({ moduleUrl: import.meta.url });
+const input = z.object({
+  uv: z.string().default('>=0.10,<1').describe('uv request.'),
+  python: z.string().optional().describe('Python request.'),
+  debug: z.boolean().default(false).describe('Write diagnostics.'),
+  tags: z.array(z.string()).optional().describe('Tags as a JSON array.'),
+  labels: z.array(z.string()).optional().describe('Labels as shell words.'),
+  settings: z.record(z.string(), z.string()).optional().describe('Settings as a JSON object.'),
+});
 const command = f.command({ name: 'resolve', description: 'Resolve runtimes.' })
-  .input(z.object(options))
+  .input(input)
   .output(z.object({
     tags: z.array(z.string()).optional(),
     labels: z.array(z.string()).optional(),
@@ -65,10 +62,7 @@ await command.parseAsync(process.argv);
 
   const manifestBefore = await readFile(path.join(consumer, 'package.json'));
   const lockBefore = await readFile(path.join(consumer, 'bun.lock'));
-  const result = run(['bun', 'run', 'cli.mjs', '--help'], consumer, {
-    ...process.env,
-    OPTIONKIT_CACHE_DIR: cache,
-  });
+  const result = run(['bun', 'run', 'cli.mjs', '--help'], consumer);
   const help = result.stdout.replace(/\s+/gu, ' ');
   assertIncludes(help, '-u, --uv <value>');
   assertIncludes(help, 'env: PACKED_CONSUMER_UV');
@@ -77,7 +71,6 @@ await command.parseAsync(process.argv);
 
   const structured = run(['bun', 'run', 'cli.mjs'], consumer, {
     ...process.env,
-    OPTIONKIT_CACHE_DIR: cache,
     PACKED_CONSUMER_TAGS: '["one","two"]',
     PACKED_CONSUMER_LABELS: 'one, "two words", three\\,four',
     PACKED_CONSUMER_SETTINGS: '{"PORT":"3000"}',
