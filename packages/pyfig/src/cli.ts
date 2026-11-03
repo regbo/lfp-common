@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
+import { realpathSync } from 'node:fs';
 import { once } from 'node:events';
-import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createOptionKit } from 'optionkit';
 import { createDebugLogger } from './logging.js';
@@ -100,6 +100,6 @@ async function runExecutable(
 }
 
 const invokedPath = process.argv[1];
-if (invokedPath && pathToFileURL(path.resolve(invokedPath)).href === import.meta.url) {
+if (invokedPath && pathToFileURL(realpathSync(invokedPath)).href === import.meta.url) {
   await main();
 }
