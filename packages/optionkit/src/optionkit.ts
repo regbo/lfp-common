@@ -503,12 +503,7 @@ async function installWithoutSaving(
   const snapshots = new Map<string, Buffer | undefined>();
   for (const name of INSTALL_STATE_FILES) {
     const filename = path.join(installRoot, name);
-    try {
-      snapshots.set(filename, await readFile(filename));
-    } catch (error) {
-      if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
-      snapshots.set(filename, undefined);
-    }
+    snapshots.set(filename, await readFileIfPresent(filename));
   }
   try {
     await installPackage(packages, {
@@ -520,9 +515,21 @@ async function installWithoutSaving(
     });
   } finally {
     for (const [filename, content] of snapshots) {
+      const current = await readFileIfPresent(filename);
+      if (content && current?.equals(content)) continue;
+      if (!content && !current) continue;
       if (content) await writeFile(filename, content);
       else await rm(filename, { force: true });
     }
+  }
+}
+
+async function readFileIfPresent(filename: string): Promise<Buffer | undefined> {
+  try {
+    return await readFile(filename);
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return undefined;
+    throw error;
   }
 }
 
