@@ -59,7 +59,7 @@ describe('optionkit', () => {
     expect(help).not.toContain('EXAMPLE_DEBUG');
   });
 
-  test('adds negated twins for defaulted and optional booleans', async () => {
+  test('adds negated twins for booleans and options that accept false', async () => {
     const debugKey = 'NEGATIONS_DEBUG';
     const previousDebug = process.env[debugKey];
     process.env[debugKey] = 'true';
@@ -73,6 +73,7 @@ describe('optionkit', () => {
         .input(kit.z.object({
           cache: kit.z.boolean().default(true),
           debug: kit.z.boolean().default(false),
+          project: kit.z.union([kit.z.string(), kit.z.literal(false)]).optional(),
           verbose: kit.z.boolean().optional(),
         }))
         .output(kit.z.void())
@@ -84,11 +85,17 @@ describe('optionkit', () => {
 
       expect(help.match(/--no-cache/gu)).toHaveLength(1);
       expect(help).toContain('--no-debug');
+      expect(help).toContain('--no-project');
       expect(help).toContain('--no-verbose');
-      await command.parseAsync(['--no-cache', '--no-debug', '--no-verbose'], {
+      await command.parseAsync(['--no-cache', '--no-debug', '--no-project', '--no-verbose'], {
         from: 'user',
       });
-      expect(received).toEqual({ cache: false, debug: false, verbose: false });
+      expect(received).toEqual({
+        cache: false,
+        debug: false,
+        project: false,
+        verbose: false,
+      });
     } finally {
       restoreEnvironment(debugKey, previousDebug);
     }

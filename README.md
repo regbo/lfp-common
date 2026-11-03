@@ -102,6 +102,12 @@ Available Optionkit-level controls include `projectName`, `environmentPrefix`,
 or the `fields` setting is forwarded unchanged and bypasses automatic structured
 decoding.
 
+Optionkit adds `--no-*` twins for booleans and for other option schemas that
+explicitly accept `false`, such as `z.union([z.string(), z.literal(false)])`.
+The twin writes `false` to the original field, so consumers do not need a
+separate `noProject`-style adapter. Set `booleanNegations: false` to disable
+these generated flags.
+
 The returned `f` keeps the underlying command, program, option, and argument
 configuration available. Refer to the [Fireargs package](https://www.npmjs.com/package/fireargs)
 for those builder options instead of learning a second configuration vocabulary.

@@ -154,7 +154,7 @@ interface StructuredEnvironmentBinding {
   readonly short?: string;
 }
 
-interface BooleanNegation {
+interface OptionNegation {
   readonly name: string;
 }
 
@@ -657,7 +657,7 @@ function adaptInputSchema(
 ): {
   readonly adapted: ZodObject<ZodShape>;
   readonly bindings: readonly StructuredEnvironmentBinding[];
-  readonly negations: readonly BooleanNegation[];
+  readonly negations: readonly OptionNegation[];
 } {
   const object = objectSchema(schema);
   const shape = object.shape as ZodShape;
@@ -699,7 +699,7 @@ function adaptInputSchema(
           configuration.parse !== undefined ||
           name.startsWith('no-') ||
           optionNames.has(`no-${name}`) ||
-          !booleanValue(shape[key], zod)
+          !negatableValue(shape[key], zod)
         ) return [];
         return [{ name }];
       });
@@ -712,7 +712,7 @@ function adaptInputSchema(
 
 function addBooleanNegations(
   route: CliCommand,
-  negations: readonly BooleanNegation[],
+  negations: readonly OptionNegation[],
 ): void {
   const command = route as RuntimeCliCommand;
   if (typeof command.option !== 'function') return;
@@ -723,7 +723,7 @@ function addBooleanNegations(
   }
 }
 
-function booleanValue(
+function negatableValue(
   schema: ZodType | undefined,
   zod: ZodNamespace,
   seen = new Set<ZodType>(),
@@ -731,12 +731,17 @@ function booleanValue(
   if (!schema || seen.has(schema)) return false;
   seen.add(schema);
   if (schema instanceof zod.ZodBoolean) return true;
+  if (schema instanceof zod.ZodLiteral) return schema.values.has(false);
+  if (schema instanceof zod.ZodUnion) {
+    return (schema.options as readonly ZodType[])
+      .some(option => negatableValue(option, zod, seen));
+  }
   if (schema instanceof zod.ZodPipe) {
-    return booleanValue(schema.in as ZodType, zod, seen);
+    return negatableValue(schema.in as ZodType, zod, seen);
   }
   const wrapper = schema as ZodType & { unwrap?: () => ZodType };
   return typeof wrapper.unwrap === 'function'
-    ? booleanValue(wrapper.unwrap(), zod, seen)
+    ? negatableValue(wrapper.unwrap(), zod, seen)
     : false;
 }
 
