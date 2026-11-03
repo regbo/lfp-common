@@ -1,0 +1,89 @@
+{
+  "name": "optionkit",
+  "version": "0.0.7",
+  "description": "Turn Zod configuration schemas into zero-setup CLI options.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "bun run scripts/build.ts",
+    "generate": "bun run scripts/generate-catalog.ts",
+    "test": "bun run generate && bun test",
+    "test:packed": "bun run build && bun run scripts/test-packed.ts",
+    "typecheck": "bun run generate && tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.scripts.json && tsc --noEmit -p tests/tsconfig.json",
+    "verify": "bun run typecheck && bun test && bun run build",
+    "release": "bun run scripts/release.ts",
+    "release:pack": "bun run scripts/pack-for-publish.ts",
+    "prepack": "bun run scripts/prepack.ts"
+  },
+  "keywords": [
+    "args",
+    "cli",
+    "config",
+    "environment",
+    "fireargs",
+    "zod"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/regbo/optionkit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/regbo/optionkit/issues"
+  },
+  "homepage": "https://github.com/regbo/optionkit#readme",
+  "workspaces": [
+    "."
+  ],
+  "catalog": {
+    "clean-stack": "^7.0.0",
+    "fireargs": "^0.6.2",
+    "zod": "^4.6.7"
+  },
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@antfu/install-pkg": "^2.1.0"
+  },
+  "peerDependencies": {
+    "fireargs": "catalog:",
+    "zod": "catalog:"
+  },
+  "peerDependenciesMeta": {
+    "fireargs": {
+      "optional": true
+    },
+    "zod": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.4",
+    "@types/node": "^26.6.6",
+    "clean-stack": "catalog:",
+    "fireargs": "catalog:",
+    "typescript": "^7.0.2",
+    "zod": "catalog:"
+  },
+  "packageManager": "bun@1.4.4",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org"
+  }
+}
