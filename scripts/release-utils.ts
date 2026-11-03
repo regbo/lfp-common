@@ -3,6 +3,11 @@ import semver from 'semver';
 export const RELEASE_INCREMENTS = ['major', 'minor', 'patch'] as const;
 export type ReleaseIncrement = typeof RELEASE_INCREMENTS[number];
 
+interface GitStatusEntry {
+  readonly path: string;
+  readonly status: string;
+}
+
 /** Select the greatest valid SemVer tag from `git ls-remote --tags --refs`. */
 export function latestRemoteVersion(output: string): string {
   const versions = output
@@ -28,4 +33,49 @@ export function isPyfigGitHubRemote(value: string): boolean {
 
 export function isPrivateGitHubEmail(value: string): boolean {
   return /^(?:\d+\+)?[^@\s]+@users\.noreply\.github\.com$/iu.test(value);
+}
+
+/** Parse ordinary entries from `git status --porcelain=v1`. */
+export function parseGitStatus(output: string): GitStatusEntry[] {
+  return output
+    .split(/\r?\n/u)
+    .filter(Boolean)
+    .map(line => {
+      if (line.length < 4) throw new Error(`Could not parse git status entry: ${line}`);
+      const status = line.slice(0, 2);
+      const rawPath = line.slice(3);
+      const path = rawPath.includes(' -> ') ? rawPath.split(' -> ').at(-1) ?? '' : rawPath;
+      return { path: unquoteGitPath(path), status };
+    });
+}
+
+/** Reject files that should never be included in an automatic release-preparation commit. */
+export function assertAutoCommitCompatible(output: string): GitStatusEntry[] {
+  const entries = parseGitStatus(output);
+  const conflicts = entries.filter(entry => /[ADU]/u.test(entry.status));
+  if (conflicts.length > 0) {
+    throw new Error(`Cannot auto-commit unresolved merge conflicts: ${formatPaths(conflicts)}.`);
+  }
+  const releaseMetadata = entries.filter(entry =>
+    entry.path === 'package.json' || entry.path === 'bun.lock'
+  );
+  if (releaseMetadata.length > 0) {
+    throw new Error(
+      `Cannot auto-commit release metadata; commit or restore it manually: ${formatPaths(releaseMetadata)}.`,
+    );
+  }
+  return entries;
+}
+
+function formatPaths(entries: readonly GitStatusEntry[]): string {
+  return entries.map(entry => entry.path).join(', ');
+}
+
+function unquoteGitPath(value: string): string {
+  if (!value.startsWith('"') || !value.endsWith('"')) return value;
+  try {
+    return JSON.parse(value) as string;
+  } catch {
+    return value;
+  }
 }

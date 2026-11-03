@@ -73,6 +73,14 @@
     "which": "^6.0.1",
     "zod": "^4.6.7"
   },
+  "peerDependencies": {
+    "fireargs": "^0.6.2"
+  },
+  "peerDependenciesMeta": {
+    "fireargs": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@types/bun": "^1.4.4",
     "@types/node": "^26.6.6",

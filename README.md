@@ -131,12 +131,23 @@ published.
 
 ## CLI
 
-The optional CLI resolves uv and Python before printing their metadata:
+The optional CLI resolves uv and Python before printing their metadata, or runs
+either executable with inherited standard I/O:
 
 ```sh
 pyfig resolve --python ">=3.11,<4"
 pyfig resolve --json
+pyfig python --python ">=3.11,<4" -- --version
+pyfig uv -- pip list
 ```
+
+Put Pyfig options before `--`. Everything after `--` is passed unchanged to uv
+or Python. Direct executable options such as `pyfig uv --version` also remain
+supported.
+
+CLI options may also come from `PYFIG_UV`, `PYFIG_PYTHON`, `PYFIG_DEBUG`,
+`PYFIG_CWD`, and `PYFIG_ENV`. Command-line options take precedence over these
+variables. `PYFIG_ENV` uses the same JSON object format as `--env`.
 
 ## Development
 
@@ -152,3 +163,8 @@ From a clean, synchronized `main` branch, `bun run release` verifies locally,
 builds and audits the package, commits the next version, creates its Git tag,
 and pushes both atomically. The tag workflow publishes that exact package to
 npm through trusted publishing.
+
+Use `bun run release -- --commit` to first verify, commit, and push compatible
+worktree changes. It refuses merge conflicts, in-progress Git operations,
+divergence from `origin/main`, and pre-existing `package.json` or `bun.lock`
+changes before creating the release commit and tag.

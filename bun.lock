@@ -23,6 +23,12 @@
         "semver": "^7.8.5",
         "typescript": "^7.0.2",
       },
+      "peerDependencies": {
+        "fireargs": "^0.6.2",
+      },
+      "optionalPeers": [
+        "fireargs",
+      ],
     },
   },
   "packages": {

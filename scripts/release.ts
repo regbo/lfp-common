@@ -1,8 +1,10 @@
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
 import {
+  assertAutoCommitCompatible,
   isPrivateGitHubEmail,
   isPyfigGitHubRemote,
   latestRemoteVersion,
@@ -24,23 +26,28 @@ const program = new Command()
   .name('bun run release')
   .description('Verify, commit, tag, and push the next Pyfig release from GitHub SemVer tags.')
   .argument('[increment]', 'SemVer increment: major, minor, or patch', parseIncrement, 'patch')
+  .option('--commit', 'verify, commit, and push compatible worktree changes before releasing')
   .option('--dry-run', 'verify the next release without committing, tagging, or pushing')
   .showHelpAfterError()
   .parse();
 
 const increment = program.processedArgs[0] as ReleaseIncrement;
-const { dryRun } = program.opts<{ dryRun: boolean }>();
+const { commit, dryRun } = program.opts<{ commit: boolean; dryRun: boolean }>();
+if (commit && dryRun) program.error('--commit cannot be combined with --dry-run');
 
 try {
-  await release(increment, dryRun);
+  await release(increment, dryRun, commit);
 } catch (error) {
   const detail = error instanceof Error ? error.message : String(error);
   console.error(`Release failed: ${detail}`);
   process.exitCode = 1;
 }
 
-async function release(releaseIncrement: ReleaseIncrement, isDryRun: boolean): Promise<void> {
-  assertCleanWorkspace();
+async function release(
+  releaseIncrement: ReleaseIncrement,
+  isDryRun: boolean,
+  shouldCommit: boolean,
+): Promise<void> {
   assertReleaseIdentity();
 
   const remoteUrl = captureGit(['remote', 'get-url', 'origin']);
@@ -48,11 +55,15 @@ async function release(releaseIncrement: ReleaseIncrement, isDryRun: boolean): P
     throw new Error(`origin must be the regbo/pyfig GitHub repository, received ${remoteUrl}.`);
   }
 
-  runGit(['fetch', '--prune', '--tags', 'origin', 'main']);
-  assertCleanWorkspace();
   if (captureGit(['branch', '--show-current']) !== 'main') {
     throw new Error('Releases must be created from the main branch.');
   }
+  assertNoGitOperation();
+  if (shouldCommit) await commitCompatibleChanges();
+  else assertCleanWorkspace();
+
+  runGit(['fetch', '--prune', '--tags', 'origin', 'main']);
+  assertCleanWorkspace();
   if (captureGit(['rev-parse', 'HEAD']) !== captureGit(['rev-parse', 'origin/main'])) {
     throw new Error('Local main must exactly match origin/main before releasing.');
   }
@@ -129,6 +140,23 @@ async function release(releaseIncrement: ReleaseIncrement, isDryRun: boolean): P
   }
 }
 
+async function commitCompatibleChanges(): Promise<void> {
+  runGit(['fetch', '--prune', 'origin', 'main']);
+  if (captureGit(['rev-parse', 'HEAD']) !== captureGit(['rev-parse', 'origin/main'])) {
+    throw new Error('Local main must exactly match origin/main before auto-committing changes.');
+  }
+
+  const status = captureGit(['status', '--porcelain=v1', '--untracked-files=all']);
+  const entries = assertAutoCommitCompatible(status);
+  if (entries.length === 0) return;
+
+  runBun(['run', 'verify'], { cwd: root });
+  runGit(['add', '--all', '--', '.']);
+  runGit(['commit', '-m', 'chore: prepare release']);
+  runGit(['push', 'origin', 'main']);
+  console.log(`Committed and pushed ${entries.length} compatible worktree change(s).`);
+}
+
 function parseIncrement(value: string): ReleaseIncrement {
   if (RELEASE_INCREMENTS.includes(value as ReleaseIncrement)) return value as ReleaseIncrement;
   throw new InvalidArgumentError('expected major, minor, or patch');
@@ -138,6 +166,19 @@ function assertCleanWorkspace(): void {
   if (captureGit(['status', '--porcelain=v1', '--untracked-files=all'])) {
     throw new Error('The worktree must be clean before releasing.');
   }
+}
+
+function assertNoGitOperation(): void {
+  const gitDirectory = captureGit(['rev-parse', '--git-dir']);
+  const inProgress = [
+    'CHERRY_PICK_HEAD',
+    'MERGE_HEAD',
+    'REBASE_HEAD',
+    'rebase-apply',
+    'rebase-merge',
+    'REVERT_HEAD',
+  ].find(name => existsSync(path.resolve(root, gitDirectory, name)));
+  if (inProgress) throw new Error(`Cannot release while Git operation ${inProgress} is in progress.`);
 }
 
 function assertReleaseIdentity(): void {

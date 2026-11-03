@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  assertAutoCommitCompatible,
   isPrivateGitHubEmail,
   isPyfigGitHubRemote,
   latestRemoteVersion,
@@ -27,5 +28,18 @@ describe('release utilities', () => {
   test('requires a GitHub noreply release identity', () => {
     expect(isPrivateGitHubEmail('1002473+regbo@users.noreply.github.com')).toBe(true);
     expect(isPrivateGitHubEmail('regbo@example.com')).toBe(false);
+  });
+
+  test('accepts ordinary source changes for automatic commits', () => {
+    expect(assertAutoCommitCompatible(' M src/cli.ts\n?? docs/release.md')).toEqual([
+      { path: 'src/cli.ts', status: ' M' },
+      { path: 'docs/release.md', status: '??' },
+    ]);
+  });
+
+  test('rejects conflicts and existing release metadata changes', () => {
+    expect(() => assertAutoCommitCompatible('UU src/cli.ts')).toThrow('merge conflicts');
+    expect(() => assertAutoCommitCompatible(' M package.json')).toThrow('release metadata');
+    expect(() => assertAutoCommitCompatible(' M bun.lock')).toThrow('release metadata');
   });
 });
