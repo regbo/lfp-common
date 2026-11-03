@@ -1,0 +1,89 @@
+name: Publish npm package
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions: {}
+
+env:
+  # Admin-created tags have already passed the local release gate. Keep npm's
+  # lifecycle hook from repeating tests anywhere in this workflow.
+  PYFIG_SKIP_PREPACK: '1'
+
+concurrency:
+  group: npm-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'regbo/pyfig'
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v6
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+
+      - name: Set up Node.js for npm trusted publishing
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Install trusted-publishing npm CLI
+        run: npm install --global npm@12.2.1
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Validate release tag and registry state
+        id: release
+        run: bun run release:check
+
+      - name: Build release package
+        run: bun run build
+
+      - name: Build exact release archive
+        id: pack
+        shell: bash
+        run: |
+          mkdir release
+          npm pack --pack-destination release
+          mapfile -t archives < <(find release -maxdepth 1 -type f -name '*.tgz' -print)
+          if [[ "${#archives[@]}" -ne 1 ]]; then
+            echo "Expected exactly one npm archive, found ${#archives[@]}." >&2
+            exit 1
+          fi
+          archive="${archives[0]}"
+          echo "archive=${archive}" >> "${GITHUB_OUTPUT}"
+
+      - name: Audit release archive
+        run: bun run release:audit -- ${{ steps.pack.outputs.archive }}
+
+      - name: Create or update the GitHub Release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ARCHIVE: ${{ steps.pack.outputs.archive }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$RELEASE_ARCHIVE" --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$GITHUB_REF_NAME" "$RELEASE_ARCHIVE" \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes
+          fi
+
+      - name: Publish through npm trusted publishing
+        run: npm publish "./${{ steps.pack.outputs.archive }}" --tag "${{ steps.release.outputs.dist-tag }}"

@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  bun:
+    name: Bun / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: latest-known
+      - run: bun install --frozen-lockfile
+      - run: bun run verify
+      - run: bun run build
+
+  node:
+    name: Node ${{ matrix.node }} exports
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24, 26]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - name: Verify ESM and CommonJS exports
+        run: |
+          node --input-type=module -e "const api = await import('./dist/index.js'); if (typeof api.pyfig !== 'function' || typeof api.PythonContext !== 'function') process.exit(1)"
+          node -e "const api = require('./dist/cjs/index.js'); if (typeof api.pyfig !== 'function' || typeof api.PythonContext !== 'function') process.exit(1)"
