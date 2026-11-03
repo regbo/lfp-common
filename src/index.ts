@@ -4,4 +4,9 @@ export {
   pyfigOptionsSchema,
   PythonContext,
 } from './pyfig.js';
-export type { ExecutableMetadata, PyfigOptions, ResolvedExecutable } from './pyfig.js';
+export type {
+  PyfigOptions,
+  PythonExecutable,
+  UvExecutable,
+  UvSource,
+} from './pyfig.js';

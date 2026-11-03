@@ -1,7 +1,7 @@
 {
   "name": "pyfig",
   "version": "0.7.3",
-  "description": "Resolve uv and Python executables into one pinned runtime context.",
+  "description": "Bootstrap uv and delegate Python execution to it.",
   "type": "module",
   "main": "./dist/cjs/index.js",
   "types": "./dist/index.d.ts",

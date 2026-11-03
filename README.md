@@ -1,8 +1,8 @@
 # pyfig
 
-`pyfig` resolves or provisions compatible uv and Python executables from Node.js
-or Bun. Its only managed state is a uv tool cache; uv retains responsibility for
-Python, environments, dependencies, and command execution.
+`pyfig` resolves or provisions uv and returns a small runtime context for uv and
+Python. UV owns Python selection, managed downloads, project discovery, and
+environment behavior.
 
 ## Install
 
@@ -10,123 +10,126 @@ Python, environments, dependencies, and command execution.
 bun add pyfig
 ```
 
-Pyfig reuses a compatible uv from `PATH` or its OS cache. When neither exists,
-it installs the greatest official uv release allowed by the requested version.
-Python discovery and managed installation are delegated to
-[`uv python find`](https://docs.astral.sh/uv/reference/cli/#uv-python-find).
-
 ## Use
 
 ```ts
 import { once } from 'node:events';
 import { pyfig } from 'pyfig';
 
-const python = await pyfig({
+const context = await pyfig({
   uv: '>=0.10,<1',
   python: '>=3.11,<4',
-  requireEmbedding: true,
-  requireGil: true,
 });
 
-console.log(python.uv.path, python.uv.version);
-console.log(python.python.path, python.python.version);
+console.log(context.uv.path, context.uv.version, context.uv.source);
 
-const child = python.uv.spawn('pip', 'list');
-const completed = python.python.spawn('-c', 'print("hello")');
-await once(completed, 'close');
-console.log(completed.exitCode, completed.signalCode);
+const child = await context.python.spawn('-c', 'print("hello")');
+await once(child, 'close');
 ```
 
-Both resolved executables expose `spawn(...args, options?)`, which returns
-Node's `ChildProcess` immediately. The optional final argument accepts Node's
-built-in `SpawnOptions`. Use `once(child, 'close')` from `node:events` when the
-caller needs to wait. Defaults are the resolved working directory and
-environment, inherited standard I/O, and a hidden console window on Windows.
-Caller options can override those defaults except `UV_PYTHON`, which is always
-pinned to the resolved interpreter. `python.spawn()` executes `uv run python`;
-its string arguments are forwarded unchanged.
+The context has two immutable fields:
 
-## CLI
-
-The package includes a `pyfig` executable with flags derived from the same Zod
-schemas used by the library:
-
-```sh
-pyfig resolve --python ">=3.11,<4" --require-embedding --require-gil
-```
-
-The `uv` and `python` subcommands resolve the requested executables and inherit
-the caller's standard input, output, error, environment, and working directory.
-Both set `UV_PYTHON` to the resolved Python path. The `python` command executes
-`uv run python`, while `uv` executes uv directly:
-
-```sh
-pyfig python --version
-pyfig python --python "<3.11" --uv "<0.10" -- --version
-pyfig uv --python ">=3.12,<4" -- pip list
-```
-
-Use `--` when a child argument could otherwise be parsed as a Pyfig option. Use
-`pyfig resolve --json` for structured metadata or `pyfig --llms` for Fireargs'
-tool manifest. Environment overrides can be passed as a JSON object:
-
-```sh
-pyfig resolve --env '{"UV_PYTHON_PREFERENCE":"only-system"}'
-```
-
-When invoked, the CLI installs Fireargs and its Commander peer into the current
-project through `@antfu/install-pkg`, then runs the generated command. They are
-not installed or loaded when Pyfig is used only as a library.
-
-`pyfig()` returns an immutable `PythonContext` containing:
-
-| Field | Meaning |
+| Field | Public values |
 | --- | --- |
-| `uv` | Immutable resolved uv metadata with a `spawn()` method. |
-| `python` | Immutable resolved Python metadata with a `spawn()` method. |
+| `uv` | `path`, `version`, `source`, and async `spawn()` |
+| `python` | Async `spawn()` only. Interpreter metadata remains private. |
+
+`pyfig()` resolves uv immediately. Python remains unresolved until the first
+`python.spawn()`. Awaiting `spawn()` resolves Python before returning its Node
+`ChildProcess`; the user command itself runs exactly once through `uv run`.
+
+Both spawn helpers accept string arguments followed by an optional Node
+`SpawnOptions` object. Their defaults are the context working directory and
+environment, inherited standard I/O, and a hidden Windows console window.
+
+```ts
+const child = await context.uv.spawn('--version', {
+  stdio: ['ignore', 'pipe', 'pipe'],
+});
+```
+
+## Python resolution
+
+The `python` option is passed unchanged to `uv run --python`. It may be any
+request UV supports, including a version, implementation, variant, or
+interpreter path. Omit it to let UV use the current project, Python pin, or its
+normal default.
+
+UV considers applicable environments and installed interpreters before a
+managed download. Pyfig does not search hard-coded Python locations or expose
+the selected interpreter path. Every user command executes through `uv run`,
+so UV remains responsible for project locking, lockfile policy, and environment
+synchronization. Use UV's documented environment variables, including
+`UV_NO_PROJECT`, `UV_NO_SYNC`, `UV_FROZEN`, `UV_OFFLINE`, and `UV_PROJECT`, to
+change that behavior without adding a second Pyfig policy layer.
+
+For UV before 0.11, Python downloads normally originate from GitHub. If that
+attempt specifically fails at the canonical python-build-standalone GitHub
+release URL, Pyfig retries once through Astral's official mirror. It does not
+override `UV_PYTHON_INSTALL_MIRROR`, `UV_PYTHON_DOWNLOADS_JSON_URL`, or
+`UV_ASTRAL_MIRROR_URL`. UV 0.11 and later owns its native mirror order and
+fallback behavior.
+
+Concurrent Python spawns share one in-flight resolution through Loqkit. A
+successful resolution remains cached for that context. Failures do not: a later
+spawn retries, allowing recovery after a VPN, proxy, DNS, or registry outage.
+Calls with a custom `cwd` or `env` resolve against those overrides instead of
+reusing the context resolution. An `AbortSignal` can stop one caller from
+waiting without cancelling resolution shared by another caller.
+
+## UV resolution
+
+For a UV version constraint, Pyfig:
+
+1. Lazily probes `PATH` entries in order and stops at the first compatible uv.
+2. Probes cached versions from greatest to least and stops at the first valid uv.
+3. Reads Astral's official release manifest, downloads the selected platform
+   artifact, verifies its published SHA-256 checksum, and publishes the probed
+   executable to Pyfig's cache.
+
+An explicit UV executable takes precedence over version parsing:
+
+```ts
+const context = await pyfig({ uv: '/opt/bin/uv' });
+```
 
 `pyfig()` accepts:
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `uv` | `>=0.10,<1` | uv executable or PEP 440 version constraint. |
-| `python` | system, then managed | Python executable or PEP 440 version constraint. |
-| `requireEmbedding` | `false` | Require CPython headers, a linkable library, and matching architecture. |
-| `requireGil` | `false` | Reject free-threaded Python builds. |
-| `cwd` | `process.cwd()` | Directory used for uv configuration and project discovery. |
-| `env` | `process.env` | Environment used during executable resolution and provisioning. |
+| `uv` | `>=0.10,<1` | UV executable or PEP 440 version constraint. |
+| `python` | UV default | Python request passed unchanged to UV on first spawn. |
+| `cwd` | `process.cwd()` | Directory used for UV project and configuration discovery. |
+| `env` | `process.env` | Environment used during resolution and child processes. |
+| `debug` | `false` | Write resolution diagnostics to standard error. |
 
-For both `uv` and `python`, Pyfig first checks whether the value resolves to an
-executable. An executable wins over version parsing. An explicit uv executable
-is trusted without a version check or setup. An explicit Python executable skips
-version selection and installation, but it must still be a working Python and
-satisfy requested embedding, architecture, and GIL capabilities. A value that
-is not executable must be a valid PEP 440 specifier.
-
-For a Python version specifier, Pyfig first asks uv for a matching system
-interpreter. If it is absent or fails the requested capabilities, Pyfig asks uv
-for a managed interpreter. For a uv version specifier, Pyfig checks `PATH`, then
-its cache, then downloads a matching checksum-verified release. Cached
-executables are used without a metadata or network request. Release metadata is
-cached for 24 hours and refreshed under Loqkit's layered check-lock-check flow.
-The cache lives below `%LOCALAPPDATA%\pyfig` on Windows,
+Compatible cached UV executables require no network access. Release metadata is
+cached for 24 hours and refreshed through Loqkit's coordinated check-lock-check
+flow. The cache lives below `%LOCALAPPDATA%\pyfig` on Windows,
 `~/Library/Caches/pyfig` on macOS, and `${XDG_CACHE_HOME:-~/.cache}/pyfig` on
-Linux.
+Linux. `PYFIG_CACHE_DIR` overrides that location.
 
-Executable paths can be used directly:
-
-```ts
-const python = await pyfig({
-  uv: '/opt/bin/uv',
-  python: '/opt/python/bin/python3',
-  requireEmbedding: true,
-});
-```
+By default, release metadata and artifacts use Astral first and canonical
+GitHub second. `UV_ASTRAL_MIRROR_URL`, `UV_INSTALLER_GITHUB_BASE_URL`, and
+`UV_INSTALLER_GHE_BASE_URL` are honored as exclusive custom sources; Pyfig does
+not escape to public infrastructure when one applies. A custom installer base
+also requires `UV_ASTRAL_MIRROR_URL` for release metadata. Provisioning uses
+JavaScript extraction and needs no Python, PowerShell, shell, `curl`, or `wget`.
 
 The runtime package exports `pyfig`, `pyfigOptionsSchema`, `DEFAULT_UV`, and
-`PythonContext`. TypeScript also exposes `PyfigOptions` and
-`ResolvedExecutable`. Matching ESM and CommonJS entry points are published for
-the library API.
+`PythonContext`. TypeScript also exports `PyfigOptions`, `UvExecutable`,
+`PythonExecutable`, and `UvSource`. Matching ESM and CommonJS entry points are
+published.
+
+## CLI
+
+The optional CLI resolves uv, verifies Python, and prints UV metadata without
+printing Python interpreter metadata:
+
+```sh
+pyfig resolve --python ">=3.11,<4"
+pyfig resolve --json
+```
 
 ## Development
 

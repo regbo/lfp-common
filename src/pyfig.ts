@@ -1,63 +1,44 @@
+import type { ChildProcess, SpawnOptions } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import {
-  filter,
+  maxSatisfying,
   valid as validVersion,
   validRange,
 } from '@renovatebot/pep440';
+import { memoize } from 'loqkit';
 import { z } from 'zod';
+import { createDebugLogger, type DebugLogger } from './logging.js';
 import {
   capture,
+  CapturedProcessError,
+  environmentValue,
   findExecutable,
-  findExecutables,
+  mergeEnvironment,
+  spawnCommand,
+  splitSpawnArguments,
+  waitForPromise,
+  type SpawnArgument,
 } from './process.js';
 import { resolveUv } from './uv.js';
-import { debugLog, setDebugLogging } from './logging.js';
 
 export const DEFAULT_UV = '>=0.10,<1';
 
-const PYTHON_PROBE = String.raw`
-import json
-import os
-import platform
-import struct
-import sys
-import sysconfig
-
-base_prefix = getattr(sys, "base_prefix", sys.prefix)
-include_directory = sysconfig.get_path("include") or ""
-header_path = os.path.join(include_directory, "Python.h") if include_directory else ""
-library_candidates = []
-if os.name == "nt":
-    library_directory = sysconfig.get_config_var("LIBDIR") or os.path.join(base_prefix, "libs")
-    configured_library = sysconfig.get_config_var("LDLIBRARY") or ""
-    if configured_library:
-        library_candidates.append(os.path.join(library_directory, os.path.splitext(configured_library)[0] + ".lib"))
-    library_candidates.append(os.path.join(library_directory, f"python{sys.version_info.major}{sys.version_info.minor}.lib"))
-else:
-    for directory in [
-        sysconfig.get_config_var("LIBDIR"),
-        sysconfig.get_config_var("LIBPL"),
-        os.path.join(base_prefix, "lib"),
-    ]:
-        for name in [sysconfig.get_config_var("LDLIBRARY"), sysconfig.get_config_var("LIBRARY")]:
-            if directory and name:
-                library_candidates.append(os.path.join(directory, name))
-
-release_suffix = {"alpha": "a", "beta": "b", "candidate": "rc", "final": ""}[sys.version_info.releaselevel]
-if release_suffix:
-    release_suffix += str(sys.version_info.serial)
-
-print(json.dumps({
-    "executable": sys.executable,
-    "version": ".".join(map(str, sys.version_info[:3])) + release_suffix,
-    "implementation": sys.implementation.name,
-    "architecture": platform.machine().lower(),
-    "pointerBits": struct.calcsize("P") * 8,
-    "gilDisabled": bool(sysconfig.get_config_var("Py_GIL_DISABLED")),
-    "embedding": os.path.isfile(header_path) and any(os.path.isfile(path) for path in library_candidates),
-}))
-`;
+const ASTRAL_PYTHON_INSTALL_MIRROR =
+  'https://releases.astral.sh/github/python-build-standalone/releases/download';
+const CUSTOM_PYTHON_SOURCE_ENVIRONMENT = [
+  'UV_ASTRAL_MIRROR_URL',
+  'UV_PYTHON_DOWNLOADS_JSON_URL',
+  'UV_PYTHON_INSTALL_MIRROR',
+] as const;
+const GITHUB_PYTHON_RELEASE = /github\.com\/astral-sh\/python-build-standalone\/releases\/download/iu;
+const OLD_UV_RANGE = '<0.11';
+const PYTHON_FIND_ATTEMPTS = [
+  { args: [], name: 'default' },
+  { args: ['--managed-python', '--no-python-downloads'], name: 'installed managed' },
+  { args: ['--no-managed-python', '--no-python-downloads'], name: 'system' },
+] as const;
+const PYTHON_PROBE = 'import sys; print(sys.executable)';
 
 export const pyfigOptionsSchema = z.object({
   uv: z.string()
@@ -66,16 +47,10 @@ export const pyfigOptionsSchema = z.object({
     .default(DEFAULT_UV)
     .describe('uv executable or PEP 440 constraint. Executables take precedence.'),
   python: z.string()
-    .trim()
     .min(1, 'python must not be empty.')
+    .refine(value => value.trim().length > 0, 'python must not be empty.')
     .optional()
-    .describe('Python executable or PEP 440 constraint. Executables take precedence.'),
-  requireEmbedding: z.boolean()
-    .default(false)
-    .describe('Require CPython headers, a linkable library, and matching runtime architecture.'),
-  requireGil: z.boolean()
-    .default(false)
-    .describe('Reject free-threaded Python builds.'),
+    .describe('Python request passed unchanged to uv when Python is first spawned.'),
   debug: z.boolean()
     .default(false)
     .describe('Write resolution, download, and provisioning diagnostics to stderr.'),
@@ -93,156 +68,143 @@ export const pyfigOptionsSchema = z.object({
   ])
     .optional()
     .describe('Environment overrides used during executable resolution and provisioning.'),
-}).readonly().describe('Options for resolving a compatible uv and Python runtime context.');
+}).readonly().describe('Options for resolving uv and creating a lazy Python runtime context.');
 
 export type PyfigOptions = z.input<typeof pyfigOptionsSchema>;
+export type UvSource = 'cache' | 'download' | 'explicit' | 'path';
 
-export interface ExecutableMetadata {
-  /** Absolute path to the executable. */
+export interface UvExecutable {
+  /** Absolute path to the resolved uv executable. */
   readonly path: string;
-  /** How the executable was selected or obtained. */
-  readonly source: 'cache' | 'download' | 'explicit' | 'managed' | 'path' | 'system';
-  /** PEP 440-compatible executable version. */
+  /** How uv was selected or obtained. */
+  readonly source: UvSource;
+  /** PEP 440-compatible uv version. */
   readonly version: string;
+  /** Start uv with context defaults and optional Node spawn overrides. */
+  spawn(...args: string[]): Promise<ChildProcess>;
+  spawn(...args: [...string[], SpawnOptions]): Promise<ChildProcess>;
 }
 
-export interface ResolvedExecutable extends ExecutableMetadata {
-  /** Start the executable and return its child process immediately. */
-  spawn(...args: string[]): ChildProcess;
-  spawn(...args: [...string[], SpawnOptions]): ChildProcess;
+export interface PythonExecutable {
+  /** Resolve Python privately, then execute it through uv run. */
+  spawn(...args: string[]): Promise<ChildProcess>;
+  spawn(...args: [...string[], SpawnOptions]): Promise<ChildProcess>;
 }
 
-interface RuntimeState {
+interface RuntimeDefaults {
   readonly cwd: string;
   readonly env: NodeJS.ProcessEnv;
-  readonly executable: string;
-  readonly prefix?: readonly string[];
-  readonly pythonPath: string;
+  readonly log: DebugLogger;
 }
 
-const runtimeStates = new WeakMap<ResolvedExecutable, RuntimeState>();
-
-class RuntimeExecutable implements ResolvedExecutable {
+interface UvMetadata {
   readonly path: string;
-  readonly source: ExecutableMetadata['source'];
+  readonly source: UvSource;
   readonly version: string;
+}
 
-  constructor(metadata: ExecutableMetadata, state: RuntimeState) {
+interface PythonResolution {
+  readonly executable: string;
+}
+
+interface PythonRuntimeDefaults extends RuntimeDefaults {
+  readonly pythonRequest: string | undefined;
+  readonly uvPath: string;
+  readonly uvVersion: string;
+}
+
+class ResolvedUv implements UvExecutable {
+  readonly path: string;
+  readonly source: UvSource;
+  readonly version: string;
+  readonly #defaults: RuntimeDefaults;
+
+  constructor(metadata: UvMetadata, defaults: RuntimeDefaults) {
     this.path = metadata.path;
     this.source = metadata.source;
     this.version = metadata.version;
-    runtimeStates.set(this, state);
+    this.#defaults = defaults;
     Object.freeze(this);
   }
 
-  spawn(...args: string[]): ChildProcess;
-  spawn(...args: [...string[], SpawnOptions]): ChildProcess;
-  spawn(...values: (SpawnOptions | string)[]): ChildProcess {
-    const state = runtimeStates.get(this);
-    if (!state) throw new Error('Executable runtime state is unavailable.');
+  async spawn(...values: SpawnArgument[]): Promise<ChildProcess> {
     const { args, options } = splitSpawnArguments(values);
-    return spawn(state.executable, [...state.prefix ?? [], ...args], {
-      cwd: state.cwd,
-      stdio: 'inherit',
-      windowsHide: true,
+    options.signal?.throwIfAborted();
+    return spawnCommand(this.path, args, this.#defaults.cwd, this.#defaults.env, options);
+  }
+}
+
+class LazyPython implements PythonExecutable {
+  readonly #defaults: PythonRuntimeDefaults;
+  readonly #resolve: () => Promise<PythonResolution>;
+
+  constructor(defaults: PythonRuntimeDefaults) {
+    this.#defaults = defaults;
+    // Loqkit shares in-flight work and successful results, while rejected
+    // resolutions remain retryable after transient network or policy failures.
+    this.#resolve = memoize(() => resolvePython(defaults));
+    Object.freeze(this);
+  }
+
+  async spawn(...values: SpawnArgument[]): Promise<ChildProcess> {
+    const { args, options } = splitSpawnArguments(values);
+    options.signal?.throwIfAborted();
+    const hasRuntimeOverrides = options.cwd !== undefined || options.env !== undefined;
+    const resolution = hasRuntimeOverrides
+      ? resolvePython(runtimeDefaultsForSpawn(this.#defaults, options), options.signal)
+      : waitForPromise(this.#resolve(), options.signal);
+    const resolved = await resolution;
+    const childOptions: SpawnOptions = {
       ...options,
-      env: spawnEnvironment(state.env, options.env, state.pythonPath),
-    });
+      env: mergeEnvironment(options.env ?? {}, { UV_PYTHON: resolved.executable }),
+    };
+    return spawnCommand(
+      this.#defaults.uvPath,
+      ['run', '--', 'python', ...args],
+      this.#defaults.cwd,
+      this.#defaults.env,
+      childOptions,
+    );
   }
-}
-
-function splitSpawnArguments(values: (SpawnOptions | string)[]): {
-  args: string[];
-  options: SpawnOptions;
-} {
-  const last = values.at(-1);
-  const options = typeof last === 'string' || last === undefined
-    ? {}
-    : values.pop() as SpawnOptions;
-  return { args: values as string[], options };
-}
-
-function spawnEnvironment(
-  contextEnvironment: NodeJS.ProcessEnv,
-  overrides: NodeJS.ProcessEnv | undefined,
-  pythonPath: string,
-): NodeJS.ProcessEnv {
-  const env = { ...contextEnvironment, ...overrides };
-  if (process.platform === 'win32') {
-    for (const key of Object.keys(env)) {
-      if (key !== 'UV_PYTHON' && key.toLowerCase() === 'uv_python') delete env[key];
-    }
-  }
-  env['UV_PYTHON'] = pythonPath;
-  return env;
 }
 
 export class PythonContext {
-  /** Resolved uv executable metadata. */
-  readonly uv: ResolvedExecutable;
-  /** Resolved Python interpreter metadata. */
-  readonly python: ResolvedExecutable;
+  /** Resolved uv executable metadata and raw spawn helper. */
+  readonly uv: UvExecutable;
+  /** Python execution through uv; interpreter metadata remains private. */
+  readonly python: PythonExecutable;
 
-  constructor(
-    uv: ExecutableMetadata,
-    python: ExecutableMetadata,
-    cwd: string = process.cwd(),
-    env: NodeJS.ProcessEnv = process.env,
-  ) {
-    const shared = { cwd, env, pythonPath: python.path };
-    this.uv = new RuntimeExecutable(uv, {
-      ...shared,
-      executable: uv.path,
-    });
-    this.python = new RuntimeExecutable(python, {
-      ...shared,
-      executable: uv.path,
-      prefix: ['run', 'python'],
-    });
+  constructor(uv: UvExecutable, python: PythonExecutable) {
+    this.uv = uv;
+    this.python = python;
     Object.freeze(this);
   }
 }
 
-/** Resolve or provision a compatible uv and Python context. */
+/** Resolve or provision uv and return a context that delegates Python to uv. */
 export async function pyfig(options: PyfigOptions = {}): Promise<PythonContext> {
   const parsedOptions = pyfigOptionsSchema.parse(options);
-  setDebugLogging(parsedOptions.debug);
-  const {
-    uv: uvRequest,
-    python: pythonRequest,
-    requireEmbedding,
-    requireGil,
+  const log = createDebugLogger(parsedOptions.debug);
+  const env = mergeEnvironment(process.env, parsedOptions.env);
+  const cwd = path.resolve(parsedOptions.cwd);
+  log('Resolving runtime context.', {
     cwd,
-    env: suppliedEnvironment,
-  } = parsedOptions;
-  const env = mergeEnvironment(suppliedEnvironment);
-  const workingDirectory = path.resolve(cwd);
-  debugLog('Resolving runtime context.', {
-    cwd: workingDirectory,
-    python: pythonRequest ?? 'auto',
-    uv: uvRequest,
+    python: parsedOptions.python ?? 'uv default',
+    uv: parsedOptions.uv,
   });
-  const uv = await selectUv(uvRequest, workingDirectory, env);
-  debugLog('Resolved uv.', uv);
-  const python = await selectPython({
-    cwd: workingDirectory,
-    env,
-    pythonRequest,
-    requireEmbedding,
-    requireGil,
-    uvPath: uv.path,
-  });
-  debugLog('Resolved Python.', {
-    path: python.executable,
-    source: python.source,
-    version: python.version,
-  });
+  const uvMetadata = await selectUv(parsedOptions.uv, cwd, env, log);
+  log('Resolved uv.', uvMetadata);
 
-  return new PythonContext(uv, {
-    path: python.executable,
-    source: python.source,
-    version: python.version,
-  }, workingDirectory, env);
+  const defaults = { cwd, env, log };
+  return new PythonContext(
+    new ResolvedUv(uvMetadata, defaults),
+    new LazyPython({
+      ...defaults,
+      pythonRequest: parsedOptions.python,
+      uvPath: uvMetadata.path,
+      uvVersion: uvMetadata.version,
+    }),
+  );
 }
 
 interface Selection {
@@ -250,170 +212,149 @@ interface Selection {
   specifier: string | null;
 }
 
-interface PythonProbe {
-  architecture: string;
-  embedding: boolean;
-  executable: string;
-  gilDisabled: boolean;
-  implementation: string;
-  pointerBits: number;
-  version: string;
-}
-
-type PythonSource = Extract<ExecutableMetadata['source'], 'explicit' | 'managed' | 'path' | 'system'>;
-type PythonResolution = PythonProbe & { source: PythonSource };
-
-interface PythonSelectionOptions {
-  cwd: string;
-  env: NodeJS.ProcessEnv;
-  pythonRequest: string | undefined;
-  requireEmbedding: boolean;
-  requireGil: boolean;
-  uvPath: string;
-}
-
 async function selectUv(
   request: string,
   cwd: string,
   env: NodeJS.ProcessEnv,
-): Promise<ExecutableMetadata> {
-  const selection = await executableOrSpecifier('uv', request, cwd, env);
+  log: DebugLogger,
+): Promise<UvMetadata> {
+  const selection = await uvExecutableOrSpecifier(request, cwd, env);
   if (selection.executable) {
-    debugLog('Using requested uv executable.', { path: selection.executable });
+    log('Using requested uv executable.', { path: selection.executable });
     return { ...await probeUv(selection.executable, cwd, env), source: 'explicit' };
   }
   const specifier = selection.specifier;
   if (!specifier) throw new Error('uv selection did not contain a version specifier.');
-  debugLog('Resolving uv version constraint.', { specifier });
-  const resolved = await resolveUv(specifier, cwd, env);
+  log('Resolving uv version constraint.', { specifier });
+  const resolved = await resolveUv(specifier, cwd, env, log);
   return { ...await probeUv(resolved.path, cwd, env), source: resolved.source };
 }
 
-async function selectPython(options: PythonSelectionOptions): Promise<PythonResolution> {
-  if (options.pythonRequest !== undefined) {
-    const selection = await executableOrSpecifier(
-      'python',
-      options.pythonRequest,
-      options.cwd,
-      options.env,
-    );
-    if (selection.executable) {
-      debugLog('Using requested Python executable.', { path: selection.executable });
-      const explicit = await probePython(selection.executable, options.cwd, options.env);
-      validatePythonCapabilities(explicit, options);
-      return { ...explicit, source: 'explicit' };
-    }
-    if (!selection.specifier) throw new Error('Python selection did not contain a version specifier.');
-    return selectDiscoveredPython(selection.specifier, options);
-  }
-  return selectDiscoveredPython(null, options);
-}
-
-async function selectDiscoveredPython(
-  specifier: string | null,
-  options: PythonSelectionOptions,
+async function resolvePython(
+  defaults: PythonRuntimeDefaults,
+  signal?: AbortSignal,
 ): Promise<PythonResolution> {
-  const request = specifier ? [specifier] : [];
-  let systemFailure: unknown;
   try {
-    debugLog('Searching PATH for a compatible system Python.', { specifier: specifier ?? 'any' });
-    const direct = await findPathPython(specifier, options);
-    if (direct.python) return { ...direct.python, source: 'path' };
-
-    debugLog('No compatible PATH Python found; falling back to uv system discovery.', {
-      specifier: specifier ?? 'any',
+    return await resolvePythonWithUv(defaults, defaults.env, signal);
+  } catch (primaryError) {
+    if (!shouldUseAstralFallback(defaults, primaryError)) throw primaryError;
+    defaults.log('uv could not download Python from GitHub; retrying through Astral.', {
+      uvVersion: defaults.uvVersion,
     });
-    // `--system` excludes virtual environments; `--no-managed-python` also
-    // excludes uv's cache so this pass genuinely prefers host installations.
-    const systemPath = await findPython(
-      options.uvPath,
-      ['--system', '--no-managed-python', ...request],
-      {
-        ...options,
-        env: withoutPathDirectories(options.env, direct.brokenDirectories),
-      },
-    );
-    const system = await probePython(systemPath, options.cwd, options.env);
-    validatePythonVersion(system, specifier);
-    validatePythonCapabilities(system, options);
-    return { ...system, source: 'system' };
-  } catch (error) {
-    systemFailure = error;
-    debugLog('System Python search failed.', { error: errorMessage(error) });
-  }
-
-  try {
-    debugLog('Searching for a compatible uv-managed Python.', { specifier: specifier ?? 'any' });
-    const managedPath = await findPython(options.uvPath, ['--managed-python', ...request], options);
-    const managed = await probePython(managedPath, options.cwd, options.env);
-    validatePythonVersion(managed, specifier);
-    validatePythonCapabilities(managed, options);
-    return { ...managed, source: 'managed' };
-  } catch (error) {
-    throw new Error(
-      `No compatible Python was found. System: ${errorMessage(systemFailure)} Managed: ${errorMessage(error)}`,
-      { cause: error },
-    );
-  }
-}
-
-async function findPathPython(
-  specifier: string | null,
-  options: PythonSelectionOptions,
-): Promise<{ brokenDirectories: Set<string>; python: PythonProbe | null }> {
-  const candidates = await findExecutables(pythonExecutableNames(specifier), options.env);
-  const results = await Promise.all(candidates.map(async candidate => {
-    if (isWindowsPythonAlias(candidate, options.env)) {
-      debugLog('Skipping Windows Python app execution alias.', { path: candidate });
-      return { broken: true, candidate, python: null };
-    }
+    const fallbackEnvironment = mergeEnvironment(defaults.env, {
+      UV_PYTHON_INSTALL_MIRROR: ASTRAL_PYTHON_INSTALL_MIRROR,
+    });
     try {
-      const python = await probePython(candidate, options.cwd, options.env);
-      validatePythonVersion(python, specifier);
-      validatePythonCapabilities(python, options);
-      return { broken: false, candidate, python };
-    } catch (error) {
-      debugLog('Skipping incompatible PATH Python candidate.', {
-        error: errorMessage(error),
-        path: candidate,
-      });
-      return {
-        broken: isWindowsAliasFailure(error),
-        candidate,
-        python: null,
-      };
+      return await resolvePythonWithUv(defaults, fallbackEnvironment, signal);
+    } catch (fallbackError) {
+      throw new AggregateError(
+        [primaryError, fallbackError],
+        'uv could not resolve Python from its default source or the Astral fallback.',
+      );
     }
-  }));
-  const match = results.find(result => result.python !== null)?.python ?? null;
-  if (match) {
-    debugLog('Using compatible Python from PATH.', {
-      path: match.executable,
-      version: match.version,
-    });
   }
-  return {
-    brokenDirectories: new Set(results.filter(result => result.broken).map(result =>
-      path.dirname(result.candidate)
-    )),
-    python: match,
-  };
 }
 
-function pythonExecutableNames(specifier: string | null): string[] {
-  const names = ['python', 'python3'];
-  if (!specifier) return names;
-  const versions = specifier.match(/\d+(?:\.\d+)?/gu) ?? [];
-  for (const version of versions) {
-    if (version.includes('.')) names.push(`python${version}`);
+async function resolvePythonWithUv(
+  defaults: PythonRuntimeDefaults,
+  env: NodeJS.ProcessEnv,
+  signal?: AbortSignal,
+): Promise<PythonResolution> {
+  const failures: Error[] = [];
+  for (const attempt of PYTHON_FIND_ATTEMPTS) {
+    try {
+      const executable = await findPython(defaults, env, attempt.args, signal);
+      return await runPythonProbe(defaults, env, ['--python', executable], signal, [executable]);
+    } catch (error) {
+      const failure = error instanceof Error ? error : new Error(String(error));
+      failures.push(failure);
+      defaults.log('Python candidate selected by uv was unusable.', {
+        attempt: attempt.name,
+        error: failure.message,
+      });
+    }
   }
-  return [...new Set(names)];
+
+  try {
+    const runArguments = ['--managed-python'];
+    if (defaults.pythonRequest !== undefined) {
+      runArguments.push('--python', defaults.pythonRequest);
+    }
+    return await runPythonProbe(
+      defaults,
+      env,
+      runArguments,
+      signal,
+      pythonRequestRedactions(defaults.pythonRequest),
+    );
+  } catch (error) {
+    failures.push(error instanceof Error ? error : new Error(String(error)));
+    throw new AggregateError(failures, 'uv could not resolve a usable Python interpreter.');
+  }
+}
+
+async function findPython(
+  defaults: PythonRuntimeDefaults,
+  env: NodeJS.ProcessEnv,
+  findArguments: readonly string[],
+  signal?: AbortSignal,
+): Promise<string> {
+  const args = ['python', 'find', ...findArguments];
+  if (defaults.pythonRequest !== undefined) args.push('--', defaults.pythonRequest);
+  const output = await capture(defaults.uvPath, args, defaults.cwd, env, {
+    redact: pythonRequestRedactions(defaults.pythonRequest),
+    signal,
+  });
+  const executable = output.trim().split(/\r?\n/u).at(-1) ?? '';
+  if (!path.isAbsolute(executable)) {
+    throw new Error('uv did not report an absolute Python path.');
+  }
+  return path.normalize(executable);
+}
+
+async function runPythonProbe(
+  defaults: PythonRuntimeDefaults,
+  env: NodeJS.ProcessEnv,
+  runArguments: readonly string[],
+  signal: AbortSignal | undefined,
+  redact: readonly string[],
+): Promise<PythonResolution> {
+  const args = ['run', ...runArguments, '--', 'python', '-I', '-S', '-c', PYTHON_PROBE];
+  const output = await capture(defaults.uvPath, args, defaults.cwd, env, { redact, signal });
+  const executable = output.trim().split(/\r?\n/u).at(-1) ?? '';
+  if (!path.isAbsolute(executable)) {
+    throw new Error('Python selected by uv returned incomplete metadata.');
+  }
+  defaults.log('Resolved Python through uv.');
+  return { executable: path.normalize(executable) };
+}
+
+function shouldUseAstralFallback(
+  defaults: PythonRuntimeDefaults,
+  error: unknown,
+): boolean {
+  if (!maxSatisfying([defaults.uvVersion], OLD_UV_RANGE)) return false;
+  if (CUSTOM_PYTHON_SOURCE_ENVIRONMENT.some(name => environmentValue(defaults.env, name))) {
+    return false;
+  }
+  return githubPythonDownloadFailed(error);
+}
+
+function githubPythonDownloadFailed(error: unknown): boolean {
+  if (error instanceof CapturedProcessError) {
+    return GITHUB_PYTHON_RELEASE.test(`${error.stderr}\n${error.stdout}\n${error.message}`);
+  }
+  if (error instanceof AggregateError) {
+    return error.errors.some(githubPythonDownloadFailed);
+  }
+  return false;
 }
 
 async function probeUv(
   executable: string,
   cwd: string,
   env: NodeJS.ProcessEnv,
-): Promise<Omit<ExecutableMetadata, 'source'>> {
+): Promise<Omit<UvMetadata, 'source'>> {
   const output = await capture(executable, ['--version'], cwd, env);
   const version = validVersion(output.trim().match(/^uv\s+(\S+)/iu)?.[1] ?? '');
   if (!version) {
@@ -422,168 +363,40 @@ async function probeUv(
   return { path: path.normalize(executable), version };
 }
 
-async function findPython(
-  uvPath: string,
-  args: readonly string[],
-  options: Pick<PythonSelectionOptions, 'cwd' | 'env'>,
-): Promise<string> {
-  const output = await capture(uvPath, ['python', 'find', ...args], options.cwd, options.env);
-  const executable = output.trim().split(/\r?\n/u).at(-1) ?? '';
-  if (!path.isAbsolute(executable)) {
-    throw new Error(`uv did not report an absolute Python path: ${executable || '<empty>'}`);
-  }
-  return path.normalize(executable);
-}
-
-async function probePython(
-  executable: string,
-  cwd: string,
-  env: NodeJS.ProcessEnv,
-): Promise<PythonProbe> {
-  if (isWindowsPythonAlias(executable, env)) {
-    debugLog('Skipping Windows Python app execution alias.', { path: executable });
-    throw new Error(`${JSON.stringify(executable)} is a Windows Python app execution alias.`);
-  }
-  const output = await capture(executable, ['-I', '-S', '-c', PYTHON_PROBE], cwd, env);
-  const line = output.trim().split(/\r?\n/u).at(-1) ?? '';
-  let value: unknown;
-  try {
-    value = JSON.parse(line);
-  } catch (error) {
-    throw new Error(`${JSON.stringify(executable)} did not return valid Python metadata.`, {
-      cause: error,
-    });
-  }
-  if (!isPythonProbe(value)) {
-    throw new Error(`${JSON.stringify(executable)} returned incomplete Python metadata.`);
-  }
-  if (!path.isAbsolute(value.executable)) {
-    throw new Error(`${JSON.stringify(executable)} reported a non-absolute executable path.`);
-  }
-  return { ...value, executable: path.normalize(value.executable) };
-}
-
-function isWindowsPythonAlias(executable: string, env: NodeJS.ProcessEnv): boolean {
-  if (process.platform !== 'win32') return false;
-  const localAppData = Object.entries(env).find(([key]) =>
-    key.toLowerCase() === 'localappdata'
-  )?.[1];
-  if (!localAppData) return false;
-  const aliases = path.resolve(localAppData, 'Microsoft', 'WindowsApps');
-  const candidate = path.resolve(executable);
-  const relative = path.relative(aliases, candidate);
-  return relative.length > 0 && !relative.startsWith('..') && !path.isAbsolute(relative) &&
-    /^python(?:3(?:\.\d+)?)?\.exe$/iu.test(path.basename(candidate));
-}
-
-function isWindowsAliasFailure(error: unknown): boolean {
-  return process.platform === 'win32' &&
-    errorMessage(error).includes('Python was not found; run without arguments to install from the Microsoft Store');
-}
-
-function withoutPathDirectories(
-  env: NodeJS.ProcessEnv,
-  excluded: ReadonlySet<string>,
-): NodeJS.ProcessEnv {
-  if (excluded.size === 0) return env;
-  const normalized = new Set([...excluded].map(directory => path.resolve(directory).toLowerCase()));
-  const filtered = (Object.entries(env).find(([key]) => key.toLowerCase() === 'path')?.[1] ?? '')
-    .split(path.delimiter)
-    .filter(directory => !normalized.has(path.resolve(directory).toLowerCase()))
-    .join(path.delimiter);
-  debugLog('Removed broken Python alias directories from fallback PATH.', {
-    directories: [...excluded],
-  });
-  return { ...env, PATH: filtered };
-}
-
-function validatePythonVersion(python: PythonProbe, specifier: string | null): void {
-  if (!specifier) return;
-  const version = validVersion(python.version);
-  if (!version) throw new Error(`Python ${python.executable} reported invalid version ${python.version}.`);
-  if (filter([version], specifier).length !== 1) {
-    throw new Error(`Python ${version} does not satisfy ${specifier}.`);
-  }
-}
-
-function validatePythonCapabilities(
-  python: PythonProbe,
-  options: Pick<PythonSelectionOptions, 'requireEmbedding' | 'requireGil'>,
-): void {
-  if (options.requireEmbedding) {
-    if (python.implementation !== 'cpython') {
-      throw new Error(`Python embedding requires CPython, received ${python.implementation}.`);
-    }
-    if (!python.embedding) {
-      throw new Error(`Python ${python.executable} does not provide embedding headers and a library.`);
-    }
-    if (!pythonArchitectureMatchesRuntime(python)) {
-      throw new Error(`Python ${python.executable} does not match the JavaScript runtime architecture.`);
-    }
-  }
-  if (options.requireGil && python.gilDisabled) {
-    throw new Error(`Python ${python.executable} is free-threaded but requireGil is enabled.`);
-  }
-}
-
-function pythonArchitectureMatchesRuntime(python: PythonProbe): boolean {
-  if (python.pointerBits !== (process.arch === 'ia32' ? 32 : 64)) return false;
-  if (process.arch === 'x64') return python.architecture === 'x86_64' || python.architecture === 'amd64';
-  if (process.arch === 'arm64') return python.architecture === 'aarch64' || python.architecture === 'arm64';
-  if (process.arch === 'ia32') {
-    return python.architecture === 'x86' || python.architecture === 'i386' ||
-      python.architecture === 'i686';
-  }
-  return python.architecture === process.arch;
-}
-
-async function executableOrSpecifier(
-  name: 'python' | 'uv',
+async function uvExecutableOrSpecifier(
   value: string,
   cwd: string,
   env: NodeJS.ProcessEnv,
 ): Promise<Selection> {
-  assertNonempty(name, value);
+  assertNonempty('uv', value);
+  const pathLike = path.isAbsolute(value) || /[\\/]/u.test(value);
+  if (!pathLike && validRange(value)) return { executable: null, specifier: value };
   const executable = await findExecutable(value, cwd, env);
   if (executable) return { executable, specifier: null };
   if (validRange(value)) return { executable: null, specifier: value };
   throw new TypeError(
-    `${name} must resolve to an executable or be a valid PEP 440 specifier, received ${JSON.stringify(value)}.`,
+    `uv must resolve to an executable or be a valid PEP 440 specifier, received ${JSON.stringify(value)}.`,
   );
 }
 
-function isPythonProbe(value: unknown): value is PythonProbe {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const probe = value as Record<string, unknown>;
-  return typeof probe['architecture'] === 'string' &&
-    typeof probe['embedding'] === 'boolean' &&
-    typeof probe['executable'] === 'string' &&
-    typeof probe['gilDisabled'] === 'boolean' &&
-    typeof probe['implementation'] === 'string' &&
-    typeof probe['pointerBits'] === 'number' &&
-    typeof probe['version'] === 'string';
+function runtimeDefaultsForSpawn(
+  defaults: PythonRuntimeDefaults,
+  options: SpawnOptions,
+): PythonRuntimeDefaults {
+  const cwd = options.cwd === undefined
+      ? defaults.cwd
+      : typeof options.cwd === 'string'
+        ? path.resolve(options.cwd)
+        : fileURLToPath(options.cwd);
+  return {
+    ...defaults,
+    cwd,
+    env: mergeEnvironment(defaults.env, options.env),
+  };
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-/** Apply caller overrides without leaving case-variant duplicate keys on Windows. */
-function mergeEnvironment(
-  supplied: Readonly<Record<string, string | undefined>> | undefined,
-): NodeJS.ProcessEnv {
-  const environment: NodeJS.ProcessEnv = { ...process.env };
-  for (const [key, value] of Object.entries(supplied ?? {})) {
-    if (process.platform === 'win32') {
-      const existing = Object.keys(environment).find(candidate =>
-        candidate.toLowerCase() === key.toLowerCase()
-      );
-      if (existing && existing !== key) delete environment[existing];
-    }
-    if (value === undefined) delete environment[key];
-    else environment[key] = value;
-  }
-  return environment;
+function pythonRequestRedactions(request: string | undefined): string[] {
+  return request && (path.isAbsolute(request) || /[\\/]/u.test(request)) ? [request] : [];
 }
 
 function assertNonempty(name: string, value: string): void {

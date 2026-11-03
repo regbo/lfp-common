@@ -7,27 +7,24 @@ describe('CLI', () => {
     const result = await runCli(['resolve', '--help']);
 
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain('Resolve or provision compatible uv and Python executables.');
+    expect(result.stdout).toContain('Resolve uv and verify the requested Python through uv.');
     expect(result.stdout).toContain('--uv <value>');
     expect(result.stdout).toContain('uv executable or PEP 440 constraint.');
     expect(result.stdout).toContain('(default: ">=0.10,<1")');
-    expect(result.stdout).toContain('--require-embedding');
-    expect(result.stdout).toContain('--require-gil');
+    expect(result.stdout).toContain('--python <value>');
+    expect(result.stdout).toContain('Python request passed unchanged to uv when Python is first');
+    expect(result.stdout).toContain('spawned.');
+    expect(result.stdout).not.toContain('--require-embedding');
+    expect(result.stdout).not.toContain('--require-gil');
     expect(result.stdout).toContain('--cwd <value>');
   }, 30_000);
 
-  test('runs Python with forwarded arguments', async () => {
-    const result = await runCli(['python', '--python', '<3.11', '--', '--version']);
+  test('resolves uv and a Python request without exposing run commands', async () => {
+    const result = await runCli(['resolve', '--python', '>=3.10,<4']);
 
     expect(result.code).toBe(0);
-    expect(result.stdout).toMatch(/^Python 3\.10\./u);
-  }, 60_000);
-
-  test('runs uv with forwarded arguments', async () => {
-    const result = await runCli(['uv', '--version']);
-
-    expect(result.code).toBe(0);
-    expect(result.stdout).toMatch(/^uv \d+\.\d+/u);
+    expect(result.stdout).toMatch(/^uv \d+\.\d+/mu);
+    expect(result.stdout).toContain('Python ready');
   }, 60_000);
 
   test('writes diagnostics to stderr with --debug', async () => {
@@ -36,7 +33,7 @@ describe('CLI', () => {
     expect(result.code).toBe(0);
     expect(result.stderr).toContain('[pyfig:debug] Ensuring CLI dependencies are installed.');
     expect(result.stderr).toContain('[pyfig:debug] Resolving runtime context.');
-    expect(result.stderr).toContain('[pyfig:debug] Resolved Python.');
+    expect(result.stderr).toContain('[pyfig:debug] Resolved Python through uv.');
   }, 60_000);
 });
 
