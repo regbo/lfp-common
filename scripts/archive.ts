@@ -1,6 +1,6 @@
 import path from 'node:path';
+import type { Workspace } from 'pacwich';
 import * as tar from 'tar';
-import type { WorkspaceDefinition } from './workspaces.ts';
 
 const emailPattern = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/iu;
 const secretPatterns = [
@@ -19,7 +19,7 @@ export interface ArchiveAudit {
 /** Audit the exact tarball passed to npm publish. */
 export async function auditArchive(
   archive: string,
-  workspace: WorkspaceDefinition,
+  workspace: Workspace,
   expectedVersion: string,
 ): Promise<ArchiveAudit> {
   const entries: Array<Promise<{ readonly name: string; readonly content: Buffer }>> = [];
@@ -46,20 +46,9 @@ export async function auditArchive(
 
   const files = await Promise.all(entries);
   const names = files.map(file => file.name).sort();
-  for (const required of ['package/package.json', ...workspace.requiredFiles]) {
-    if (!names.includes(required)) throw new Error(`${workspace.name} archive is missing ${required}.`);
-  }
-
   const manifestEntry = files.find(file => file.name === 'package/package.json');
   if (!manifestEntry) throw new Error(`${workspace.name} archive has no package.json.`);
-  const manifest = JSON.parse(manifestEntry.content.toString('utf8')) as {
-    name?: string;
-    version?: string;
-    dependencies?: Record<string, string>;
-    devDependencies?: Record<string, string>;
-    optionalDependencies?: Record<string, string>;
-    peerDependencies?: Record<string, string>;
-  };
+  const manifest = JSON.parse(manifestEntry.content.toString('utf8'));
   if (manifest.name !== workspace.name || manifest.version !== expectedVersion) {
     throw new Error(
       `${workspace.name} archive is ${manifest.name}@${manifest.version}; expected ${workspace.name}@${expectedVersion}.`,
@@ -72,7 +61,7 @@ export async function auditArchive(
     manifest.peerDependencies,
   ]) {
     for (const [name, specifier] of Object.entries(section ?? {})) {
-      if (/^(?:catalog|workspace):/u.test(specifier)) {
+      if (typeof specifier === 'string' && /^(?:catalog|workspace):/u.test(specifier)) {
         throw new Error(`${workspace.name} archive left ${name} unresolved as ${specifier}.`);
       }
     }

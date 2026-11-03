@@ -21,6 +21,11 @@
       "type": "build"
     },
     {
+      "name": "pacwich",
+      "version": "catalog:",
+      "type": "build"
+    },
+    {
       "name": "projen",
       "version": "catalog:",
       "type": "build"

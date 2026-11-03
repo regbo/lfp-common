@@ -19,7 +19,7 @@
     "verify": "projen verify",
     "watch": "projen watch",
     "projen": "projen",
-    "prepack": "bun ../../scripts/prepack.ts optionkit"
+    "publish:release": "npm publish ../../dist/packages/optionkit-0.8.0.tgz --access public --tag latest --provenance"
   },
   "author": {
     "name": "optionkit contributors",

@@ -119,8 +119,12 @@
         {
           "execArgs": [
             "bun",
-            "scripts/publish-packages.ts",
-            "dist/packages"
+            "node_modules/pacwich/bin/cli.js",
+            "run",
+            "publish:release",
+            "--dep-order",
+            "--parallel=false",
+            "--output-style=plain"
           ]
         }
       ]
@@ -190,6 +194,14 @@
       "name": "typecheck:workspaces",
       "description": "Type-check Projen, shared scripts, and built workspaces.",
       "steps": [
+        {
+          "execArgs": [
+            "bun",
+            "node_modules/pacwich/bin/cli.js",
+            "verify",
+            "--strict"
+          ]
+        },
         {
           "execArgs": [
             "tsc",

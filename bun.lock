@@ -9,6 +9,7 @@
         "@types/node": "catalog:",
         "@types/semver": "catalog:",
         "constructs": "catalog:",
+        "pacwich": "catalog:",
         "projen": "catalog:",
         "semver": "catalog:",
         "tar": "catalog:",
@@ -120,6 +121,7 @@
     "fireargs": "^0.6.2",
     "fs-ext": "^2.1.1",
     "ohash": "^2.0.12",
+    "pacwich": "^0.7.3",
     "projen": "0.104.23",
     "proper-lockfile": "^4.1.2",
     "read-package-up": "^12.0.0",
@@ -211,6 +213,8 @@
     "optionkit": ["optionkit@workspace:packages/optionkit"],
 
     "package-manager-detector": ["package-manager-detector@1.9.0", "", {}, "sha512-zAMfbta9nPA8AKkA4WdmNAT8R8s6Dk0/xwPsqNnRidMFcLo1YkLuPDTgs2f64XdzS8vbLNnoJ+uUIkgbz7oRHA=="],
+
+    "pacwich": ["pacwich@0.7.3", "", { "bin": { "pacwich": "bin/cli.js" } }, "sha512-aZuBQzENoa0EhT+errw8ofDvuQ2u7SBvlyt3gaRgCpgEwa9c7CAFfKSflck3RpXVj6exAQ+D6UWzM7JEInr59g=="],
 
     "parse-json": ["parse-json@8.3.0", "", { "dependencies": { "@babel/code-frame": "^7.26.2", "index-to-position": "^1.1.0", "type-fest": "^4.39.1" } }, "sha512-ybiGyvspI+fAoRQbIPRddCcSTV9/LsJbf0e/S85VLowVGzRmokfneg2kwVW/KU5rOXrPSbF1qAKPMgNTqqROQQ=="],
 

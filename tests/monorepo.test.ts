@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { constants } from 'node:fs';
-import { access, readFile } from 'node:fs/promises';
+import { access } from 'node:fs/promises';
 import path from 'node:path';
 import {
   ROOT,
@@ -10,10 +10,6 @@ import {
 } from '../scripts/workspaces.ts';
 
 const internalPackages = new Set<string>(WORKSPACES.map(workspace => workspace.name));
-
-interface ProjenFileInventory {
-  readonly files: readonly string[];
-}
 
 test('keeps one version, lockfile, catalog, and workspace protocol', async () => {
   const root = await readManifest(ROOT);
@@ -47,9 +43,7 @@ test('keeps every Projen-generated file read-only', async () => {
   ];
 
   for (const directory of projectDirectories) {
-    const inventory = JSON.parse(
-      await readFile(path.join(directory, '.projen/files.json'), 'utf8'),
-    ) as ProjenFileInventory;
+    const inventory = await Bun.file(path.join(directory, '.projen/files.json')).json();
 
     for (const file of inventory.files) {
       await expect(access(path.join(directory, file), constants.W_OK)).rejects.toThrow();

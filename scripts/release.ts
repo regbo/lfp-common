@@ -35,7 +35,7 @@ const versionFiles = [
   '.projenrc.ts',
   'package.json',
   'bun.lock',
-  ...WORKSPACES.map(workspace => `${workspace.directory}/package.json`),
+  ...WORKSPACES.map(workspace => `${workspace.path}/package.json`),
 ] as const;
 const snapshots = new Map<string, Buffer>();
 for (const filename of versionFiles) {

@@ -61,6 +61,7 @@ const CATALOG = {
   'fireargs': '^0.6.2',
   'fs-ext': '^2.1.1',
   'ohash': '^2.0.12',
+  'pacwich': '^0.7.3',
   'proper-lockfile': '^4.1.2',
   'projen': PROJEN_VERSION,
   'read-package-up': '^12.0.0',
@@ -191,6 +192,7 @@ replaceBuildDependencies(root, [
   '@types/node@catalog:',
   '@types/semver@catalog:',
   'constructs@catalog:',
+  'pacwich@catalog:',
   'projen@catalog:',
   'semver@catalog:',
   'tar@catalog:',
@@ -301,7 +303,7 @@ function workspace(options: typescript.TypeScriptProjectOptions) {
     },
   });
   project.addScripts({
-    prepack: `bun ../../scripts/prepack.ts ${options.name}`,
+    'publish:release': `npm publish ../../dist/packages/${options.name}-${VERSION}.tgz --access public --tag latest --provenance`,
   });
   replaceBuildDependencies(project, [
     '@types/bun@catalog:',
@@ -561,6 +563,7 @@ pynect.addTask('format:python:check', {
 });
 
 const WORKSPACE_FILTER = './packages/*';
+const PACWICH = ['bun', 'node_modules/pacwich/bin/cli.js'] as const;
 
 root.compileTask.reset();
 root.compileTask.execArgs(['bun', 'run', '--filter', WORKSPACE_FILTER, 'compile']);
@@ -577,6 +580,7 @@ root.testTask.execArgs(['bun', 'run', '--filter', WORKSPACE_FILTER, 'test']);
 const workspaceTypecheck = root.addTask('typecheck:workspaces', {
   description: 'Type-check Projen, shared scripts, and built workspaces.',
 });
+workspaceTypecheck.execArgs([...PACWICH, 'verify', '--strict']);
 workspaceTypecheck.execArgs(['tsc', '--noEmit', '-p', 'tsconfig.projen.json']);
 workspaceTypecheck.execArgs(['tsc', '--noEmit', '-p', 'tsconfig.scripts.json']);
 workspaceTypecheck.execArgs(['bun', 'run', '--filter', WORKSPACE_FILTER, 'typecheck']);
@@ -613,7 +617,14 @@ root.addTask('pack:release', {
 });
 root.addTask('publish:release', {
   description: 'Publish the already-audited archives using npm trusted publishing.',
-  execArgs: ['bun', 'scripts/publish-packages.ts', 'dist/packages'],
+  execArgs: [
+    ...PACWICH,
+    'run',
+    'publish:release',
+    '--dep-order',
+    '--parallel=false',
+    '--output-style=plain',
+  ],
 });
 
 new TextFile(root, 'README.md', {
@@ -641,14 +652,13 @@ new TextFile(root, 'docs/llm/UTILITIES.md', {
     '',
     '- `scripts/process.ts`: shell-free child-process execution shared by release tooling.',
     '- `ReadonlyGeneratedFiles`: Projen mixin that makes every synthesized file read-only across the project tree.',
-    '- `scripts/workspaces.ts`: workspace inventory, locations, dependency-derived ordering, and manifest validation.',
+    '- `scripts/workspaces.ts`: Pacwich-backed workspace discovery and shared-version validation.',
     '- `scripts/archive.ts`: npm archive content, metadata, workspace-protocol, email, and secret audit.',
-    '- `scripts/pack-packages.ts`: packs every workspace in dependency order and audits the exact tarballs.',
+    '- `scripts/pack-packages.ts`: runs Bun pack for every Pacwich workspace and audits the exact tarballs.',
     '- `scripts/release-lib.ts`: pure SemVer, tag, GitHub remote, and identity helpers.',
     '- `scripts/release.ts`: local fixed-version release transaction.',
     '- `scripts/release-check.ts`: tag-workflow and registry preflight.',
-    '- `scripts/prepack.ts`: fail-closed package lifecycle gate.',
-    '- `scripts/publish-packages.ts`: publishes only the audited tarballs created by the pack step.',
+    '- Pacwich runs each generated `publish:release` package script in workspace dependency order.',
     '',
     'Project metadata, dependency versions, TypeScript configuration, tasks, and GitHub workflows belong in `.projenrc.ts`.',
   ],
@@ -662,9 +672,6 @@ const publish = new github.GithubWorkflow(githubComponent, 'Publish', {
   concurrencyOptions: {
     group: 'publish-${{ github.ref }}',
     cancelInProgress: false,
-  },
-  env: {
-    LFP_JS_SKIP_PREPACK: '1',
   },
 });
 publish.on({ push: { tags: ['v*.*.*'] } });

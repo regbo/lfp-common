@@ -21,7 +21,7 @@
     "verify": "projen verify",
     "watch": "projen watch",
     "projen": "projen",
-    "prepack": "bun ../../scripts/prepack.ts pyfig",
+    "publish:release": "npm publish ../../dist/packages/pyfig-0.8.0.tgz --access public --tag latest --provenance",
     "pyfig": "bun ./src/cli.ts"
   },
   "author": {

@@ -24,7 +24,7 @@
     "verify": "projen verify",
     "watch": "projen watch",
     "projen": "projen",
-    "prepack": "bun ../../scripts/prepack.ts pynect"
+    "publish:release": "npm publish ../../dist/packages/pynect-0.8.0.tgz --access public --tag latest --provenance"
   },
   "author": {
     "name": "Reggie Bowser and NodePyX contributors",

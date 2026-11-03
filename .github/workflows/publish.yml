@@ -8,8 +8,6 @@ on:
 concurrency:
   group: publish-${{ github.ref }}
   cancel-in-progress: false
-env:
-  LFP_JS_SKIP_PREPACK: "1"
 jobs:
   publish:
     name: Publish packages

@@ -4,9 +4,8 @@ import { auditArchive, type ArchiveAudit } from './archive.ts';
 import { runBun } from './process.ts';
 import {
   ROOT,
-  archiveName,
+  WORKSPACES,
   sharedVersion,
-  workspaceDependencyOrder,
   workspacePath,
 } from './workspaces.ts';
 
@@ -16,8 +15,8 @@ export async function packPackages(destination: string): Promise<readonly Archiv
   const version = await sharedVersion();
   const audits: ArchiveAudit[] = [];
 
-  for (const workspace of await workspaceDependencyOrder()) {
-    await runBun([
+  for (const workspace of WORKSPACES) {
+    const filename = await runBun([
       'pm',
       'pack',
       '--ignore-scripts',
@@ -25,7 +24,7 @@ export async function packPackages(destination: string): Promise<readonly Archiv
       output,
       '--quiet',
     ], { cwd: workspacePath(workspace) });
-    const archive = path.join(output, archiveName(workspace.name, version));
+    const archive = path.resolve(output, filename);
     const audit = await auditArchive(archive, workspace, version);
     audits.push(audit);
     console.log(`Audited ${audit.name}@${audit.version} (${audit.files.length} files).`);
