@@ -36,7 +36,9 @@ await serve.parseAsync(process.argv);
 
 For a package named `my-app`, this creates `MY_APP_PORT`, `MY_APP_DEBUG`, and
 `MY_APP_LOG_LEVEL`. It also assigns `-p`, `-d`, and `-l`; when option initials
-conflict, Optionkit leaves the ambiguous short flags out.
+conflict, Optionkit leaves the ambiguous short flags out. Boolean options receive
+matching `--no-*` flags, including optional booleans whose `undefined`, `true`,
+and `false` states are distinct.
 
 `createOptionKit()` finds the consuming package from the executable at
 `process.argv[1]`, falling back to `process.cwd()`, and walks upward to the nearest
@@ -95,8 +97,8 @@ const kit = await createOptionKit({
 ```
 
 Available Optionkit-level controls include `projectName`, `environmentPrefix`,
-`shortFlags`, `reservedShortFlags`, per-field metadata, `invocationDirectory`, and
-an explicit `cacheDirectory`. A parser registered through `f.option({ parse })`
+`shortFlags`, `booleanNegations`, `reservedShortFlags`, per-field metadata,
+`invocationDirectory`, and an explicit `cacheDirectory`. A parser registered through `f.option({ parse })`
 or the `fields` setting is forwarded unchanged and bypasses automatic structured
 decoding.
 

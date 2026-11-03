@@ -59,6 +59,41 @@ describe('optionkit', () => {
     expect(help).not.toContain('EXAMPLE_DEBUG');
   });
 
+  test('adds negated twins for defaulted and optional booleans', async () => {
+    const debugKey = 'NEGATIONS_DEBUG';
+    const previousDebug = process.env[debugKey];
+    process.env[debugKey] = 'true';
+    try {
+      const kit = await createOptionKit({
+        moduleUrl: import.meta.url,
+        projectName: 'negations',
+      });
+      let received: unknown;
+      const command = kit.f.command({ name: 'run' })
+        .input(kit.z.object({
+          cache: kit.z.boolean().default(true),
+          debug: kit.z.boolean().default(false),
+          verbose: kit.z.boolean().optional(),
+        }))
+        .output(kit.z.void())
+        .handler(input => {
+          received = input;
+          return undefined;
+        });
+      const help = command.helpInformation();
+
+      expect(help.match(/--no-cache/gu)).toHaveLength(1);
+      expect(help).toContain('--no-debug');
+      expect(help).toContain('--no-verbose');
+      await command.parseAsync(['--no-cache', '--no-debug', '--no-verbose'], {
+        from: 'user',
+      });
+      expect(received).toEqual({ cache: false, debug: false, verbose: false });
+    } finally {
+      restoreEnvironment(debugKey, previousDebug);
+    }
+  });
+
   test('derives the consuming package root from its module URL', async () => {
     const kit = await createOptionKit({
       moduleUrl: import.meta.url,

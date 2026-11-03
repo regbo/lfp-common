@@ -154,6 +154,19 @@ interface StructuredEnvironmentBinding {
   readonly short?: string;
 }
 
+interface BooleanNegation {
+  readonly name: string;
+}
+
+interface RuntimeOption {
+  readonly long?: string;
+}
+
+interface RuntimeCliCommand extends CliCommand {
+  readonly options?: readonly RuntimeOption[];
+  option?: (flags: string, description?: string) => RuntimeCliCommand;
+}
+
 interface RuntimeRoute extends CliRoute {
   readonly commands?: readonly RuntimeRoute[];
   name?: () => string;
@@ -176,6 +189,8 @@ export interface CreateOptionKitSettings {
   environmentPrefix?: string | false;
   /** Generate non-conflicting single-letter flags. Defaults to true. */
   shortFlags?: boolean;
+  /** Add `--no-*` twins for boolean options. Defaults to true. */
+  booleanNegations?: boolean;
   /** Letters that automatic short-flag generation must not use. */
   reservedShortFlags?: readonly string[];
   /** Per-field CLI metadata applied after generated values. */
@@ -544,7 +559,7 @@ function createAdapter(
           const commandInput = passThrough
             ? addPassThroughArgument(schema, adapter, zod, passThroughArguments)
             : schema;
-          const { adapted, bindings } = adaptInputSchema(
+          const { adapted, bindings, negations } = adaptInputSchema(
             commandInput,
             adapter,
             zod,
@@ -556,6 +571,7 @@ function createAdapter(
             output(output: ZodType) {
               const outputBuilder = inputBuilder.output(output);
               const attach = (route: CliCommand): CliCommand => {
+                addBooleanNegations(route, negations);
                 environmentBindings.set(route, bindings);
                 wrapStructuredEnvironment(route, () => bindings);
                 return route;
@@ -628,6 +644,7 @@ function adaptInputSchema(
 ): {
   readonly adapted: ZodObject<ZodShape>;
   readonly bindings: readonly StructuredEnvironmentBinding[];
+  readonly negations: readonly BooleanNegation[];
 } {
   const object = objectSchema(schema);
   const shape = object.shape as ZodShape;
@@ -658,10 +675,56 @@ function adaptInputSchema(
       short: configuration.short,
     }];
   });
+  const optionNames = new Set(Object.entries(configurations).map(([key, configuration]) => (
+    configuration.name ?? toCliKey(key)
+  )));
+  const negations = settings.booleanNegations === false
+    ? []
+    : Object.entries(configurations).flatMap(([key, configuration]) => {
+        const name = configuration.name ?? toCliKey(key);
+        if (
+          configuration.parse !== undefined ||
+          name.startsWith('no-') ||
+          optionNames.has(`no-${name}`) ||
+          !booleanValue(shape[key], zod)
+        ) return [];
+        return [{ name }];
+      });
   return {
     adapted: object.safeExtend(fields) as ZodObject<ZodShape>,
     bindings,
+    negations,
   };
+}
+
+function addBooleanNegations(
+  route: CliCommand,
+  negations: readonly BooleanNegation[],
+): void {
+  const command = route as RuntimeCliCommand;
+  if (typeof command.option !== 'function') return;
+  for (const negation of negations) {
+    const flag = `--no-${negation.name}`;
+    if (command.options?.some(option => option.long === flag)) continue;
+    command.option(flag, `Negate --${negation.name}.`);
+  }
+}
+
+function booleanValue(
+  schema: ZodType | undefined,
+  zod: ZodNamespace,
+  seen = new Set<ZodType>(),
+): boolean {
+  if (!schema || seen.has(schema)) return false;
+  seen.add(schema);
+  if (schema instanceof zod.ZodBoolean) return true;
+  if (schema instanceof zod.ZodPipe) {
+    return booleanValue(schema.in as ZodType, zod, seen);
+  }
+  const wrapper = schema as ZodType & { unwrap?: () => ZodType };
+  return typeof wrapper.unwrap === 'function'
+    ? booleanValue(wrapper.unwrap(), zod, seen)
+    : false;
 }
 
 function objectSchema(schema: ObjectSchema): ZodObject<ZodShape> {
