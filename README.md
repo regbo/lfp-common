@@ -1,14 +1,21 @@
 # optionkit
 
-`optionkit` turns a Zod configuration schema into CLI options. It adds
-environment-variable bindings, adds unambiguous short flags, and lazily loads
-the CLI stack without making Fireargs, Commander, or Zod runtime dependencies
-of this package.
+Optionkit turns a Zod configuration schema into CLI options with useful defaults:
+project-scoped environment variables, conflict-free short flags, structured
+environment parsing, and lazy CLI dependency loading.
+
+## Install
+
+```sh
+bun add optionkit
+```
+
+## Start with the defaults
 
 ```ts
 import { createOptionKit } from 'optionkit';
 
-const { f, z } = await createOptionKit({ moduleUrl: import.meta.url });
+const { f, z } = await createOptionKit();
 
 const appOptionsSchema = z.object({
   port: z.number().default(3000).describe('Port to listen on.'),
@@ -27,122 +34,94 @@ const serve = f.command({ name: 'serve', description: 'Start the server.' })
 await serve.parseAsync(process.argv);
 ```
 
-If the consuming package is named `my-app`, the fields above receive
-`MY_APP_PORT`, `MY_APP_DEBUG`, and `MY_APP_LOG_LEVEL`. `port`, `debug`, and
-`logLevel` also receive `-p`, `-d`, and `-l` because their initials do not
-conflict. When two options share an initial, neither gets that automatic short
-flag.
+For a package named `my-app`, this creates `MY_APP_PORT`, `MY_APP_DEBUG`, and
+`MY_APP_LOG_LEVEL`. It also assigns `-p`, `-d`, and `-l`; when option initials
+conflict, Optionkit leaves the ambiguous short flags out.
 
-Adaptation happens at each command's `.input(...)` boundary. Subcommands need no
-special handling: build each leaf from its own schema, then mount the leaves with
-`f.program(...).router({ serve, status })`. Environment and short-flag conflicts
-are calculated independently for each leaf.
+`createOptionKit()` finds the consuming package from the executable at
+`process.argv[1]`, falling back to `process.cwd()`, and walks upward to the nearest
+`package.json`. Pass `moduleUrl` or `packageRoot` only when a host needs to make
+that boundary explicit.
 
-## Lazy CLI dependencies
-
-optionkit first resolves Fireargs and Zod from the consuming CLI package. If
-they are unavailable, it detects the package manager from the invocation
-directory and installs the pinned Fireargs and Zod ranges from the consuming
-package root. `cacheDirectory` opts into an isolated install explicitly; there
-is no default versioned cache. Fireargs' package metadata supplies its remaining
-peer dependencies. Optionkit restores the consuming manifest and lockfile
-byte-for-byte after installation, and installer output stays silent so JSON
-output is not polluted.
-
-Only `@antfu/install-pkg` is a runtime dependency of optionkit. Fireargs,
-Zod, and `clean-stack` are development dependencies whose ranges are generated
-into the build from the catalog in `pnpm-workspace.yaml`. A matching root
-catalog keeps Bun compatible, and verification fails if the two catalogs
-diverge. `src/_generated/catalog.ts` is a one-to-one runtime mirror of the root
-catalog. The stack cleaner is installed separately and best-effort: a failure
-never prevents the CLI from starting, and `formatError` falls back to the
-original stack. Fireargs and Zod are also declared as optional peers, so a
-consumer's compatible installation is reused without making either package a
-required install.
-
-Use the returned `z` when the consuming package does not otherwise depend on
-Zod. It always comes from the same dependency location as the CLI adapter:
+Each `.input(schema)` is adapted independently, so subcommands need no special
+setup:
 
 ```ts
-const { f, z } = await createOptionKit({ moduleUrl: import.meta.url });
-const input = z.object({ verbose: z.boolean().default(false) });
+const program = f.program({ name: 'app' }).router({ serve, status });
+await program.parseAsync(process.argv);
 ```
 
-Use `environmentPrefix` or `projectName` to override automatic package-name
-translation. Per-field `env` and `short` values can be overridden or disabled:
+### Environment values
+
+Scalar values keep Fireargs' normal coercion. Array, tuple, object, and record
+environment values try JSON first:
+
+```text
+MY_APP_TAGS='["one","two"]'
+MY_APP_ENV='{"PORT":"3000"}'
+```
+
+Arrays also accept comma- or whitespace-delimited shell words with quotes and
+backslash escapes. Decoded arrays still use native variadic option handling, so
+repeated CLI flags work normally. If decoding does not apply, Zod receives the
+original value and remains the final validator.
+
+### Wrapper commands
+
+`passThroughArguments` adds the pass-through command settings and a typed trailing
+`args: string[]` input:
 
 ```ts
-await createOptionKit({
+const run = f.command({ name: 'run', passThroughArguments: true })
+  .input(appOptionsSchema)
+  .output(z.void())
+  .handler(async ({ args, ...config }) => runExecutable(config, args));
+```
+
+Use `{ description: '...' }` instead of `true` to change the generated positional
+help text.
+
+## Override only what differs
+
+```ts
+const kit = await createOptionKit({
   environmentPrefix: 'SERVICE',
   fields: {
     debug: { env: false, short: 'x' },
   },
   moduleUrl: import.meta.url,
+  reservedShortFlags: ['v'],
 });
 ```
 
-Array, tuple, object, and record options with generated environment bindings try
-JSON first because an environment variable supplies only one string. For example,
-`APP_TAGS='["one","two"]'` and `APP_ENV='{"PORT":"3000"}'` become their
-corresponding Zod input values. Arrays also accept comma- or whitespace-delimited
-shell words, including quotes and backslash escapes. If decoding does not apply,
-the original string reaches Zod as the final authority. Decoded array values are
-fed through Fireargs' native variadic option handling, so repeated flags and
-scalar coercion keep their normal behavior. Object and record flags accept their
-structured value as one token. A consumer-supplied Fireargs `parse` function is
-forwarded unchanged and takes precedence over this augmentation. Every other
-per-option Fireargs configuration field is forwarded as well; command and program
-configuration remains available through the returned `f` namespace.
+Available Optionkit-level controls include `projectName`, `environmentPrefix`,
+`shortFlags`, `reservedShortFlags`, per-field metadata, `invocationDirectory`, and
+an explicit `cacheDirectory`. A parser registered through `f.option({ parse })`
+or the `fields` setting is forwarded unchanged and bypasses automatic structured
+decoding.
 
-For wrapper commands, `passThroughArguments: true` supplies Fireargs' pass-through
-settings and adds a typed trailing `args: string[]` input in one place:
+The returned `f` keeps the underlying command, program, option, and argument
+configuration available. Refer to the [Fireargs package](https://www.npmjs.com/package/fireargs)
+for those builder options instead of learning a second configuration vocabulary.
 
-```ts
-const run = f.command({ name: 'run', passThroughArguments: true })
-  .input(z.object(options))
-  .output(z.void())
-  .handler(async ({ args, ...config }) => runExecutable(config, args));
-```
+## Dependency loading and errors
 
-Pass `{ description: '...' }` instead of `true` to override the generated
-positional help text. Explicit Fireargs command settings still override the
-shortcut defaults.
+Optionkit first reuses compatible Fireargs and Zod installations from the
+consuming package. If either is missing, it detects the caller's package manager
+and installs the catalog ranges from the consuming package root without changing
+the manifest or lockfile. `cacheDirectory` explicitly opts into an isolated
+installation; there is no default version cache.
 
-Fireargs programs currently show help when invoked without a subcommand. Optionkit
-does not override that dispatch: Commander only exposes a clean default-command
-switch while adding a command, whereas Fireargs owns that mounting step. A shim
-would either depend on Commander internals or duplicate Fireargs routing.
+`@antfu/install-pkg` is Optionkit's only hard runtime dependency. Fireargs, Zod,
+and `clean-stack` are optional peers and development dependencies. Their ranges
+live in the package catalog and are generated into `src/_generated/catalog.ts` as
+a one-to-one runtime mirror. `clean-stack` is best-effort: failure never blocks a
+CLI, and the returned `formatError(error)` falls back to the original stack.
 
-`resolvePackage` and `importPackageIfAvailable` expose the same resolve-first
-behavior for other optional integrations. They only suppress a genuinely
-missing package; initialization errors from an installed package still surface.
-
-## Pyfig migration
-
-Pyfig can keep `pyfigOptionsSchema` as its API source of truth. Its CLI only
-needs to replace the manual loader; Optionkit adapts every command input:
-
-```ts
-const { f, z } = await createOptionKit({
-  log,
-  moduleUrl: import.meta.url,
-});
-
-const createInput = (passthrough = false) => pyfigOptionsSchema.unwrap().extend({
-  ...(passthrough ? { args: f.argument().schema(passthroughArguments) } : {}),
-});
-```
-
-The command, router, output schemas, handlers, and passthrough behavior do not
-change. `PYFIG_*` names and conflict-free short flags are derived automatically.
-Pyfig needs only `optionkit` for its CLI integration; it does not need its own
-Fireargs peer metadata, Fireargs development dependency, or install helper.
-
-## Install
-
-```sh
-bun add optionkit
-```
+Use the returned `z` when the consumer does not otherwise depend on Zod; it is
+resolved from the same location as the CLI adapter. `resolvePackage` and
+`importPackageIfAvailable` expose the same resolve-first behavior for other
+optional integrations and only suppress a genuinely missing package.
 
 ## License
 
