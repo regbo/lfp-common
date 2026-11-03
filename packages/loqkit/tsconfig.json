@@ -28,7 +28,10 @@
     "stripInternal": false,
     "target": "ES2022",
     "types": [
-      "node"
+      "bun",
+      "fs-ext",
+      "node",
+      "proper-lockfile"
     ],
     "declarationMap": true,
     "sourceMap": true,

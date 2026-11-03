@@ -19,6 +19,7 @@
     "verify": "projen verify",
     "watch": "projen watch",
     "projen": "projen",
+    "pack:release": "bun pm pack --ignore-scripts --destination ../../dist/packages --quiet",
     "publish:release": "npm publish ../../dist/packages/optionkit-0.8.0.tgz --access public --tag latest --provenance"
   },
   "author": {

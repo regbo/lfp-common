@@ -8,11 +8,7 @@
     "noEmit": true,
     "rootDir": ".",
     "inlineSources": false,
-    "sourceMap": false,
-    "types": [
-      "bun",
-      "node"
-    ]
+    "sourceMap": false
   },
   "include": [
     "scripts/**/*.ts",

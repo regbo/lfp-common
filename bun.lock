@@ -12,7 +12,6 @@
         "pacwich": "catalog:",
         "projen": "catalog:",
         "semver": "catalog:",
-        "tar": "catalog:",
         "typescript": "catalog:",
       },
     },

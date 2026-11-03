@@ -4,11 +4,7 @@
   "compilerOptions": {
     "noEmit": true,
     "rootDir": "..",
-    "allowImportingTsExtensions": true,
-    "types": [
-      "bun",
-      "node"
-    ]
+    "allowImportingTsExtensions": true
   },
   "include": [
     "**/*.ts"

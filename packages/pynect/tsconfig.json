@@ -29,6 +29,7 @@
     "stripInternal": false,
     "target": "ES2022",
     "types": [
+      "bun",
       "node"
     ],
     "declarationMap": true,

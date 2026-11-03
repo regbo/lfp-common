@@ -36,11 +36,6 @@
       "type": "build"
     },
     {
-      "name": "tar",
-      "version": "catalog:",
-      "type": "build"
-    },
-    {
       "name": "typescript",
       "version": "catalog:",
       "type": "build"

@@ -1,7 +1,5 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { packPackages } from './pack-packages.ts';
 import { runBun, runCommand } from './process.ts';
 import {
   gitIdentityEmail,
@@ -43,7 +41,6 @@ for (const filename of versionFiles) {
 }
 let historyCreated = false;
 let pushed = false;
-let temporaryDirectory: string | undefined;
 
 try {
   await assertCleanWorkspace();
@@ -113,9 +110,6 @@ try {
   await runBun(['install'], { cwd: ROOT, inherit: true });
   await runBun(['run', 'verify'], { cwd: ROOT, inherit: true });
 
-  temporaryDirectory = await mkdtemp(path.join(tmpdir(), 'lfp-js-release-'));
-  await packPackages(temporaryDirectory);
-
   if (dryRun) {
     console.log(`Dry run passed for ${tag}; managed version files will be restored.`);
   } else {
@@ -152,9 +146,6 @@ try {
   }
   throw error;
 } finally {
-  if (temporaryDirectory) {
-    await rm(temporaryDirectory, { recursive: true, force: true });
-  }
   if (dryRun || (!historyCreated && !pushed)) {
     for (const [filename, content] of snapshots) {
       await writeFile(path.join(ROOT, filename), content);

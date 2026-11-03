@@ -9,7 +9,6 @@
     "build": "projen build",
     "compile": "projen compile",
     "default": "projen default",
-    "pack:release": "projen pack:release",
     "package": "projen package",
     "post-compile": "projen post-compile",
     "pre-compile": "projen pre-compile",
@@ -34,7 +33,6 @@
     "pacwich": "catalog:",
     "projen": "catalog:",
     "semver": "catalog:",
-    "tar": "catalog:",
     "typescript": "catalog:"
   },
   "license": "MIT",

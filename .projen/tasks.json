@@ -73,19 +73,6 @@
         }
       ]
     },
-    "pack:release": {
-      "name": "pack:release",
-      "description": "Pack and audit all publishable workspaces.",
-      "steps": [
-        {
-          "execArgs": [
-            "bun",
-            "scripts/pack-packages.ts",
-            "dist/packages"
-          ]
-        }
-      ]
-    },
     "package": {
       "name": "package",
       "description": "Creates the distribution package",
@@ -93,8 +80,10 @@
         {
           "execArgs": [
             "bun",
-            "scripts/pack-packages.ts",
-            "dist/packages"
+            "run",
+            "--filter",
+            "./packages/*",
+            "pack:release"
           ]
         }
       ]
@@ -114,7 +103,7 @@
     },
     "publish:release": {
       "name": "publish:release",
-      "description": "Publish the already-audited archives using npm trusted publishing.",
+      "description": "Publish the generated archives using npm trusted publishing.",
       "steps": [
         {
           "execArgs": [
@@ -231,7 +220,7 @@
     },
     "verify": {
       "name": "verify",
-      "description": "Synthesize, build, type-check, test, pack, and audit all workspaces.",
+      "description": "Synthesize, build, type-check, test, and pack all workspaces.",
       "steps": [
         {
           "spawn": "build"

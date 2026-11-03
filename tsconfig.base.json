@@ -13,7 +13,11 @@
     "noUncheckedIndexedAccess": true,
     "forceConsistentCasingInFileNames": true,
     "esModuleInterop": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "types": [
+      "bun",
+      "node"
+    ]
   },
   "include": [],
   "exclude": [

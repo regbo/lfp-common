@@ -28,7 +28,9 @@
     "stripInternal": false,
     "target": "ES2022",
     "types": [
-      "node"
+      "bun",
+      "node",
+      "which"
     ],
     "declarationMap": true,
     "sourceMap": true,

@@ -159,6 +159,7 @@ const baseTsconfig = new javascript.TypescriptConfig(root, {
     forceConsistentCasingInFileNames: true,
     esModuleInterop: true,
     skipLibCheck: true,
+    types: ['bun', 'node'],
   },
 });
 
@@ -181,7 +182,6 @@ new javascript.TypescriptConfig(root, {
     rootDir: '.',
     inlineSources: false,
     sourceMap: false,
-    types: ['bun', 'node'],
   },
   include: ['scripts/**/*.ts', 'tests/**/*.ts'],
   exclude: ['dist', 'node_modules', 'packages'],
@@ -195,7 +195,6 @@ replaceBuildDependencies(root, [
   'pacwich@catalog:',
   'projen@catalog:',
   'semver@catalog:',
-  'tar@catalog:',
   'typescript@catalog:',
 ]);
 
@@ -272,7 +271,6 @@ function workspace(options: typescript.TypeScriptProjectOptions) {
         moduleResolution: commonJs
           ? javascript.TypeScriptModuleResolution.NODE
           : javascript.TypeScriptModuleResolution.NODE_NEXT,
-        types: ['node'],
         verbatimModuleSyntax: !commonJs,
         ...options.tsconfig?.compilerOptions,
       },
@@ -287,7 +285,6 @@ function workspace(options: typescript.TypeScriptProjectOptions) {
         moduleResolution: commonJs
           ? javascript.TypeScriptModuleResolution.BUNDLER
           : undefined,
-        types: ['bun', 'node'],
         ...options.tsconfigDev?.compilerOptions,
       },
     },
@@ -303,6 +300,7 @@ function workspace(options: typescript.TypeScriptProjectOptions) {
     },
   });
   project.addScripts({
+    'pack:release': 'bun pm pack --ignore-scripts --destination ../../dist/packages --quiet',
     'publish:release': `npm publish ../../dist/packages/${options.name}-${VERSION}.tgz --access public --tag latest --provenance`,
   });
   replaceBuildDependencies(project, [
@@ -413,7 +411,6 @@ new javascript.TypescriptConfig(optionkit, {
     rootDir: '.',
     inlineSources: false,
     sourceMap: false,
-    types: ['bun', 'node'],
   },
   include: ['scripts/**/*.ts'],
   exclude: ['dist', 'node_modules'],
@@ -485,7 +482,6 @@ new javascript.TypescriptConfig(pyfig, {
     rootDir: '.',
     inlineSources: false,
     sourceMap: false,
-    types: ['bun', 'node'],
   },
   include: ['scripts/**/*.ts'],
   exclude: ['dist', 'node_modules'],
@@ -592,12 +588,12 @@ typecheck.spawn(root.compileTask);
 typecheck.spawn(workspaceTypecheck);
 
 root.packageTask.reset();
-root.packageTask.execArgs(['bun', 'scripts/pack-packages.ts', 'dist/packages']);
+root.packageTask.execArgs(['bun', 'run', '--filter', WORKSPACE_FILTER, 'pack:release']);
 
 root.postCompileTask.spawn(workspaceTypecheck);
 
 const verify = root.addTask('verify', {
-  description: 'Synthesize, build, type-check, test, pack, and audit all workspaces.',
+  description: 'Synthesize, build, type-check, test, and pack all workspaces.',
 });
 verify.spawn(root.buildTask);
 
@@ -611,12 +607,8 @@ root.addTask('release:check', {
   execArgs: ['bun', 'scripts/release-check.ts'],
   receiveArgs: true,
 });
-root.addTask('pack:release', {
-  description: 'Pack and audit all publishable workspaces.',
-  execArgs: ['bun', 'scripts/pack-packages.ts', 'dist/packages'],
-});
 root.addTask('publish:release', {
-  description: 'Publish the already-audited archives using npm trusted publishing.',
+  description: 'Publish the generated archives using npm trusted publishing.',
   execArgs: [
     ...PACWICH,
     'run',
@@ -653,11 +645,10 @@ new TextFile(root, 'docs/llm/UTILITIES.md', {
     '- `scripts/process.ts`: shell-free child-process execution shared by release tooling.',
     '- `ReadonlyGeneratedFiles`: Projen mixin that makes every synthesized file read-only across the project tree.',
     '- `scripts/workspaces.ts`: Pacwich-backed workspace discovery and shared-version validation.',
-    '- `scripts/archive.ts`: npm archive content, metadata, workspace-protocol, email, and secret audit.',
-    '- `scripts/pack-packages.ts`: runs Bun pack for every Pacwich workspace and audits the exact tarballs.',
     '- `scripts/release-lib.ts`: pure SemVer, tag, GitHub remote, and identity helpers.',
     '- `scripts/release.ts`: local fixed-version release transaction.',
     '- `scripts/release-check.ts`: tag-workflow and registry preflight.',
+    '- Bun runs each generated `pack:release` package script across the workspace.',
     '- Pacwich runs each generated `publish:release` package script in workspace dependency order.',
     '',
     'Project metadata, dependency versions, TypeScript configuration, tasks, and GitHub workflows belong in `.projenrc.ts`.',
@@ -705,11 +696,11 @@ publish.addJob('publish', {
       run: 'bun run release:check -- "${{ github.ref_name }}"',
     },
     {
-      name: 'Build and audit the tagged source',
+      name: 'Build the tagged source',
       run: 'bun run build',
     },
     {
-      name: 'Publish the audited archives',
+      name: 'Publish the generated archives',
       run: 'bun run publish:release',
     },
   ],
@@ -731,7 +722,7 @@ function replaceBuildDependencies(
 function gitOriginUrl(): string | undefined {
   try {
     return execFileSync('git', ['remote', 'get-url', 'origin'], {
-      cwd: import.meta.dirname,
+      cwd: new URL('.', import.meta.url),
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
       windowsHide: true,

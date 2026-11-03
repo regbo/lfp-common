@@ -160,7 +160,7 @@ bun run build
 ## Publishing
 
 From a clean, synchronized `main` branch, `bun run release` verifies locally,
-builds and audits the package, commits the next version, creates its Git tag,
+builds and packs the package, commits the next version, creates its Git tag,
 and pushes both atomically. The tag workflow publishes that exact package to
 npm through trusted publishing.
 

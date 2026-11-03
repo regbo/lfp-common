@@ -6,11 +6,7 @@
     "rootDir": "..",
     "allowImportingTsExtensions": true,
     "module": "ESNext",
-    "moduleResolution": "bundler",
-    "types": [
-      "bun",
-      "node"
-    ]
+    "moduleResolution": "bundler"
   },
   "include": [
     "**/*.ts"

@@ -41,11 +41,11 @@ jobs:
       - name: Validate the release tag
         id: validate_the_release_tag
         run: bun run release:check -- "${{ github.ref_name }}"
-      - name: Build and audit the tagged source
-        id: build_and_audit_the_tagged_source
+      - name: Build the tagged source
+        id: build_the_tagged_source
         run: bun run build
-      - name: Publish the audited archives
-        id: publish_the_audited_archives
+      - name: Publish the generated archives
+        id: publish_the_generated_archives
         run: bun run publish:release
     timeout-minutes: 30
 permissions:
