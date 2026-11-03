@@ -540,9 +540,6 @@ pynect.addFields({
     node: '^22.11.0 || >=24.10.0 <=26.x',
     bun: '>=1.2.0',
   },
-  os: ['linux', 'darwin', 'win32'],
-  cpu: ['x64', 'arm64'],
-  upstream: 'https://github.com/Brah-Timo/nodepyx',
 });
 pynect.compileTask.reset();
 pynect.compileTask.execArgs(['bun', 'scripts/build-typescript.js']);
