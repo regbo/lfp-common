@@ -48,7 +48,15 @@ export interface ArgumentConfiguration<Value = unknown> {
   parse?: (value: string) => Value;
 }
 
-export type CommandConfiguration = Record<string, unknown>;
+export interface PassThroughArgumentsConfiguration {
+  /** Help text for the generated trailing `args` positional. */
+  description?: string;
+}
+
+export interface CommandConfiguration extends Record<string, unknown> {
+  /** Add a typed trailing `args` array and the Fireargs pass-through switches. */
+  passThroughArguments?: boolean | PassThroughArgumentsConfiguration;
+}
 export type ProgramConfiguration = Record<string, unknown>;
 
 export interface CliParseOptions {
@@ -89,32 +97,44 @@ export interface FieldBuilder<Value = never> {
   schema<Schema extends ZodType>(schema: Schema): Schema;
 }
 
-interface HandlerBuilder<Input extends ObjectSchema, Output extends ZodType> {
+interface HandlerBuilder<Input, Output extends ZodType> {
   handler(
     handler: (
-      input: SchemaOutput<Input>,
+      input: Input,
       context: CommandContext,
     ) => SchemaInput<Output> | Promise<SchemaInput<Output>>,
   ): CliCommand;
 }
 
-interface OutputBuilder<Input extends ObjectSchema, Output extends ZodType>
+interface OutputBuilder<Input, Output extends ZodType>
   extends HandlerBuilder<Input, Output> {
   render(
     render: (
       output: SchemaOutput<Output>,
-      context: RenderContext<SchemaOutput<Input>>,
+      context: RenderContext<Input>,
     ) => string | void | Promise<string | void>,
   ): HandlerBuilder<Input, Output>;
 }
 
+interface CommandBuilder<PassThrough extends boolean> {
+  input<Input extends ObjectSchema>(schema: Input): {
+    output<Output extends ZodType>(schema: Output): OutputBuilder<
+      PassThrough extends true
+        ? SchemaOutput<Input> & { args: string[] }
+        : SchemaOutput<Input>,
+      Output
+    >;
+  };
+}
+
 export interface OptionKitAdapter {
   argument<Value = never>(configuration?: ArgumentConfiguration<Value>): FieldBuilder<Value>;
-  command(configuration?: CommandConfiguration): {
-    input<Input extends ObjectSchema>(schema: Input): {
-      output<Output extends ZodType>(schema: Output): OutputBuilder<Input, Output>;
-    };
-  };
+  command(
+    configuration: CommandConfiguration & {
+      passThroughArguments: true | PassThroughArgumentsConfiguration;
+    },
+  ): CommandBuilder<true>;
+  command(configuration?: CommandConfiguration): CommandBuilder<false>;
   option<Value = never>(configuration?: OptionConfiguration<Value>): FieldBuilder<Value>;
   program(configuration?: ProgramConfiguration): {
     router(routes: Readonly<Record<string, CliRoute>>): CliProgram;
@@ -127,6 +147,18 @@ type ResolvedOptionConfiguration = Omit<OptionConfiguration<never>, 'env' | 'sho
   parse?: InternalValueParser;
   short?: string;
 };
+
+interface StructuredEnvironmentBinding {
+  readonly env: string;
+  readonly name: string;
+  readonly short?: string;
+}
+
+interface RuntimeRoute extends CliRoute {
+  readonly commands?: readonly RuntimeRoute[];
+  name?: () => string;
+  aliases?: () => string[];
+}
 
 export type OptionKitLogger = (
   message: string,
@@ -489,24 +521,98 @@ function createAdapter(
   environmentPrefix: string | false,
   settings: CreateOptionKitSettings,
 ): OptionKitAdapter {
+  const environmentBindings = new WeakMap<CliRoute, readonly StructuredEnvironmentBinding[]>();
   return {
     ...adapter,
     command(configuration: CommandConfiguration = {}) {
-      const builder = adapter.command(configuration);
+      const { passThroughArguments, ...fireargsConfiguration } = configuration;
+      const passThrough = passThroughArguments === true ||
+        (typeof passThroughArguments === 'object' && passThroughArguments !== null);
+      const builder = adapter.command(passThrough
+        ? {
+            allowExcessArguments: true,
+            allowUnknownOption: true,
+            enablePositionalOptions: true,
+            jsonOption: false,
+            llmsOption: false,
+            passThroughOptions: true,
+            ...fireargsConfiguration,
+          }
+        : fireargsConfiguration);
       return {
         input<Input extends ObjectSchema>(schema: Input) {
-          const adapted = adaptInputSchema(
-            schema,
+          const commandInput = passThrough
+            ? addPassThroughArgument(schema, adapter, zod, passThroughArguments)
+            : schema;
+          const { adapted, bindings } = adaptInputSchema(
+            commandInput,
             adapter,
             zod,
             environmentPrefix,
             settings,
           );
-          return builder.input(adapted) as never;
+          const inputBuilder = builder.input(adapted);
+          return {
+            output(output: ZodType) {
+              const outputBuilder = inputBuilder.output(output);
+              const attach = (route: CliCommand): CliCommand => {
+                environmentBindings.set(route, bindings);
+                wrapStructuredEnvironment(route, () => bindings);
+                return route;
+              };
+              return {
+                handler(handler: never) {
+                  return attach(outputBuilder.handler(handler));
+                },
+                render(render: never) {
+                  const handlerBuilder = outputBuilder.render(render);
+                  return {
+                    handler(handler: never) {
+                      return attach(handlerBuilder.handler(handler));
+                    },
+                  };
+                },
+              };
+            },
+          };
+        },
+      };
+    },
+    program(configuration: ProgramConfiguration = {}) {
+      const builder = adapter.program(configuration);
+      return {
+        router(routes: Readonly<Record<string, CliRoute>>) {
+          const program = builder.router(routes as never);
+          wrapStructuredEnvironment(program, (argv, options) => {
+            const selected = selectedLeaf(program as unknown as RuntimeRoute, argv, options);
+            return selected ? environmentBindings.get(selected) ?? [] : [];
+          });
+          return program;
         },
       };
     },
   } as OptionKitAdapter;
+}
+
+function addPassThroughArgument(
+  schema: ObjectSchema,
+  adapter: CliAdapterModule['f'],
+  zod: ZodNamespace,
+  configuration: true | PassThroughArgumentsConfiguration,
+): ZodObject<ZodShape> {
+  const object = objectSchema(schema);
+  if ('args' in object.shape) {
+    throw new TypeError('passThroughArguments reserves the input field "args".');
+  }
+  const description = typeof configuration === 'object'
+    ? configuration.description
+    : undefined;
+  const args = adapter.argument().schema(
+    zod.array(zod.string()).default([]).describe(
+      description ?? 'Arguments passed to the executable.',
+    ),
+  );
+  return object.safeExtend({ args }) as ZodObject<ZodShape>;
 }
 
 type RegisteredFieldConfiguration =
@@ -519,7 +625,10 @@ function adaptInputSchema(
   zod: ZodNamespace,
   environmentPrefix: string | false,
   settings: CreateOptionKitSettings,
-): ZodObject<ZodShape> {
+): {
+  readonly adapted: ZodObject<ZodShape>;
+  readonly bindings: readonly StructuredEnvironmentBinding[];
+} {
   const object = objectSchema(schema);
   const shape = object.shape as ZodShape;
   const registered = Object.fromEntries(Object.entries(shape).flatMap(([key, field]) => {
@@ -537,11 +646,22 @@ function adaptInputSchema(
     if (registered[key]?.kind === 'argument') return [key, field];
     return [key, adapter.option(configurations[key]).schema(field)];
   })) as ZodShape;
-  return object.safeExtend(fields) as ZodObject<ZodShape>;
-}
-
-function objectShape(schema: ObjectSchema): ZodShape {
-  return objectSchema(schema).shape as ZodShape;
+  const bindings = Object.entries(configurations).flatMap(([key, configuration]) => {
+    if (
+      configuration.env === undefined ||
+      configuration.parse !== undefined ||
+      structuredValueKind(shape[key], zod) !== 'array'
+    ) return [];
+    return [{
+      env: configuration.env,
+      name: configuration.name ?? toCliKey(key),
+      short: configuration.short,
+    }];
+  });
+  return {
+    adapted: object.safeExtend(fields) as ZodObject<ZodShape>,
+    bindings,
+  };
 }
 
 function objectSchema(schema: ObjectSchema): ZodObject<ZodShape> {
@@ -567,6 +687,13 @@ function resolveEnvironmentPrefix(
   return `${translated}_`;
 }
 
+function toCliKey(value: string): string {
+  return value
+    .replace(/([a-z0-9])([A-Z])/gu, '$1-$2')
+    .replace(/([A-Z])([A-Z][a-z])/gu, '$1-$2')
+    .toLowerCase();
+}
+
 function optionConfigurations<Schema extends ObjectSchema>(
   shape: ZodShape,
   environmentPrefix: string | false,
@@ -590,7 +717,7 @@ function optionConfigurations<Schema extends ObjectSchema>(
     if (environmentPrefix !== false && override?.env !== false) {
       generated.env = override?.env ?? `${environmentPrefix}${toEnvironmentKey(key)}`;
       const kind = structuredValueKind(shape[key], zod);
-      if (kind && !override?.parse) generated.parse = structuredValueParser(kind);
+      if (kind === 'object' && !override?.parse) generated.parse = structuredValueParser(kind);
     }
     if (override?.short !== false && (override?.short ?? shorts[key])) {
       generated.short = typeof override?.short === 'string'
@@ -663,14 +790,109 @@ function structuredValueKind(
 }
 
 function structuredValueParser(kind: StructuredValueKind): InternalValueParser {
-  return ((value: string): unknown => {
-    try {
-      return JSON.parse(value) as unknown;
-    } catch {
-      // A non-JSON string may still be useful to an array schema or a union.
+  return ((value: string): unknown => decodeStructuredValue(value, kind)) as InternalValueParser;
+}
+
+function decodeStructuredValue(value: string, kind: StructuredValueKind): unknown {
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    // A non-JSON string may still be useful to an array schema or a union.
+  }
+  return kind === 'array' ? splitArrayValue(value) ?? value : value;
+}
+
+function wrapStructuredEnvironment(
+  route: CliRoute,
+  bindings: (
+    argv: readonly string[] | undefined,
+    options: CliParseOptions | undefined,
+  ) => readonly StructuredEnvironmentBinding[],
+): void {
+  const parse = route.parseAsync.bind(route);
+  route.parseAsync = async (argv, options) => {
+    const active = bindings(argv, options);
+    if (!active.length) return parse(argv, options);
+
+    const effectiveArgv = [...(argv ?? process.argv)];
+    const userOffset = argvOffset(options);
+    const userArguments = effectiveArgv.slice(userOffset);
+    const insertion = effectiveArgv.indexOf('--', userOffset);
+    const injected: string[] = [];
+    const previous = new Map<string, string>();
+
+    for (const binding of active) {
+      const value = process.env[binding.env];
+      if (value === undefined) continue;
+      previous.set(binding.env, value);
+      delete process.env[binding.env];
+      if (hasOption(userArguments, binding)) continue;
+      const decoded = decodeStructuredValue(value, 'array');
+      const values = Array.isArray(decoded) ? decoded : [decoded];
+      for (const item of values) injected.push(`--${binding.name}=${stringifyCliValue(item)}`);
     }
-    return kind === 'array' ? splitArrayValue(value) ?? value : value;
-  }) as InternalValueParser;
+
+    effectiveArgv.splice(insertion === -1 ? effectiveArgv.length : insertion, 0, ...injected);
+    try {
+      return await parse(effectiveArgv, options);
+    } finally {
+      for (const [name, value] of previous) process.env[name] = value;
+    }
+  };
+}
+
+function selectedLeaf(
+  program: RuntimeRoute,
+  argv: readonly string[] | undefined,
+  options: CliParseOptions | undefined,
+): CliRoute | undefined {
+  const args = (argv ?? process.argv).slice(argvOffset(options));
+  let current = program;
+  let offset = 0;
+  while (current.commands?.length) {
+    let selected: RuntimeRoute | undefined;
+    let selectedAt = -1;
+    for (let index = offset; index < args.length; index += 1) {
+      const token = args[index];
+      if (!token || token.startsWith('-')) continue;
+      selected = current.commands.find(command => (
+        command.name?.() === token || command.aliases?.().includes(token)
+      ));
+      if (selected) {
+        selectedAt = index;
+        break;
+      }
+    }
+    if (!selected) return undefined;
+    current = selected;
+    offset = selectedAt + 1;
+  }
+  return current;
+}
+
+function argvOffset(options: CliParseOptions | undefined): number {
+  if (options?.from === 'user') return 0;
+  if (options?.from === 'electron') return 1;
+  return 2;
+}
+
+function hasOption(
+  args: readonly string[],
+  binding: StructuredEnvironmentBinding,
+): boolean {
+  const long = `--${binding.name}`;
+  const short = binding.short ? `-${binding.short}` : undefined;
+  return args.some(argument => (
+    argument === long ||
+    argument.startsWith(`${long}=`) ||
+    (short !== undefined && (argument === short || argument.startsWith(`${short}=`)))
+  ));
+}
+
+function stringifyCliValue(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value === null || typeof value !== 'object') return String(value);
+  return JSON.stringify(value);
 }
 
 /** Split comma- or whitespace-delimited shell words without interpreting operators. */

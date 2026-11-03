@@ -72,16 +72,19 @@ describe('optionkit', () => {
   test('decodes structured environment values with JSON and shell fallbacks', async () => {
     const tagsKey = 'STRUCTURED_TEST_TAGS';
     const labelsKey = 'STRUCTURED_TEST_LABELS';
+    const countsKey = 'STRUCTURED_TEST_COUNTS';
     const settingsKey = 'STRUCTURED_TEST_SETTINGS';
     const sourceKey = 'STRUCTURED_TEST_SOURCE';
     const customKey = 'STRUCTURED_TEST_CUSTOM';
     const previousTags = process.env[tagsKey];
     const previousLabels = process.env[labelsKey];
+    const previousCounts = process.env[countsKey];
     const previousSettings = process.env[settingsKey];
     const previousSource = process.env[sourceKey];
     const previousCustom = process.env[customKey];
     process.env[tagsKey] = '["alpha","beta"]';
     process.env[labelsKey] = 'alpha, "beta gamma", delta\\,epsilon';
+    process.env[countsKey] = '[1,2]';
     process.env[settingsKey] = '{"PORT":"3000"}';
     process.env[sourceKey] = 'settings.json';
     process.env[customKey] = 'alpha,beta';
@@ -90,6 +93,7 @@ describe('optionkit', () => {
       const schema = z.object({
         tags: z.array(z.string()).optional(),
         labels: z.array(z.string()).optional(),
+        counts: z.array(z.number()).optional(),
         settings: z.record(z.string(), z.string()).optional(),
         source: z.union([z.record(z.string(), z.string()), z.string()]).optional(),
         custom: z.array(z.string()).optional(),
@@ -115,13 +119,24 @@ describe('optionkit', () => {
       expect(received).toEqual({
         tags: ['alpha', 'beta'],
         labels: ['alpha', 'beta gamma', 'delta,epsilon'],
+        counts: [1, 2],
         settings: { PORT: '3000' },
         source: 'settings.json',
         custom: ['ALPHA,BETA'],
       });
+
+      delete process.env[tagsKey];
+      delete process.env[labelsKey];
+      delete process.env[countsKey];
+      await command.parseAsync(
+        ['--tags', 'one', 'two', '--tags', 'three'],
+        { from: 'user' },
+      );
+      expect(received).toHaveProperty('tags', ['one', 'two', 'three']);
     } finally {
       restoreEnvironment(tagsKey, previousTags);
       restoreEnvironment(labelsKey, previousLabels);
+      restoreEnvironment(countsKey, previousCounts);
       restoreEnvironment(settingsKey, previousSettings);
       restoreEnvironment(sourceKey, previousSource);
       restoreEnvironment(customKey, previousCustom);
@@ -146,17 +161,60 @@ describe('optionkit', () => {
         received = value;
         return undefined;
       });
+    let inspected: unknown;
     const inspect = kit.f.command({ description: 'Inspect configuration.' })
-      .input(kit.z.object({ verbose: kit.z.boolean().default(false) }))
+      .input(kit.z.object({
+        verbose: kit.z.boolean().default(false),
+        tags: kit.z.array(kit.z.string()).optional(),
+      }))
       .output(kit.z.void())
-      .handler(() => undefined);
+      .handler(value => {
+        inspected = value;
+        return undefined;
+      });
     const program = kit.f.program({ name: 'example' }).router({ run, inspect });
 
     await program.parseAsync(['run', 'demo', '--values', 'one;two'], { from: 'user' });
 
     expect(received).toEqual({ target: 'demo', values: ['one', 'two'] });
+    process.env.SUBCOMMANDS_TAGS = 'alpha,"beta gamma"';
+    try {
+      await program.parseAsync(['inspect'], { from: 'user' });
+      expect(inspected).toEqual({ verbose: false, tags: ['alpha', 'beta gamma'] });
+    } finally {
+      delete process.env.SUBCOMMANDS_TAGS;
+    }
     expect(program.helpInformation()).toContain('run');
     expect(program.helpInformation()).toContain('inspect');
+  });
+
+  test('adds typed pass-through arguments from one command setting', async () => {
+    const kit = await createOptionKit({
+      moduleUrl: import.meta.url,
+      projectName: 'passthrough',
+    });
+    let received: unknown;
+    const command = kit.f.command({
+      name: 'run',
+      passThroughArguments: true,
+    })
+      .input(kit.z.object({ debug: kit.z.boolean().default(false) }))
+      .output(kit.z.void())
+      .handler(input => {
+        const args: string[] = input.args;
+        received = { ...input, args };
+        return undefined;
+      });
+
+    await command.parseAsync(['--debug', '--', '--version', '-c', 'print(1)'], {
+      from: 'user',
+    });
+
+    expect(received).toEqual({
+      args: ['--version', '-c', 'print(1)'],
+      debug: true,
+    });
+    expect(command.helpInformation()).toContain('[args...]');
   });
 });
 

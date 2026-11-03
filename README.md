@@ -86,12 +86,27 @@ JSON first because an environment variable supplies only one string. For example
 `APP_TAGS='["one","two"]'` and `APP_ENV='{"PORT":"3000"}'` become their
 corresponding Zod input values. Arrays also accept comma- or whitespace-delimited
 shell words, including quotes and backslash escapes. If decoding does not apply,
-the original string reaches Zod as the final authority. Fireargs continues to
-handle scalar coercion. The same structured syntax works when passed as a flag.
-A consumer-supplied Fireargs `parse` function is forwarded unchanged and takes
-precedence over this augmentation. Every other per-option Fireargs configuration
-field is forwarded as well; command and program configuration remains available
-through the returned `f` namespace.
+the original string reaches Zod as the final authority. Decoded array values are
+fed through Fireargs' native variadic option handling, so repeated flags and
+scalar coercion keep their normal behavior. Object and record flags accept their
+structured value as one token. A consumer-supplied Fireargs `parse` function is
+forwarded unchanged and takes precedence over this augmentation. Every other
+per-option Fireargs configuration field is forwarded as well; command and program
+configuration remains available through the returned `f` namespace.
+
+For wrapper commands, `passThroughArguments: true` supplies Fireargs' pass-through
+settings and adds a typed trailing `args: string[]` input in one place:
+
+```ts
+const run = f.command({ name: 'run', passThroughArguments: true })
+  .input(z.object(options))
+  .output(z.void())
+  .handler(async ({ args, ...config }) => runExecutable(config, args));
+```
+
+Pass `{ description: '...' }` instead of `true` to override the generated
+positional help text. Explicit Fireargs command settings still override the
+shortcut defaults.
 
 Fireargs programs currently show help when invoked without a subcommand. Optionkit
 does not override that dispatch: Commander only exposes a clean default-command
