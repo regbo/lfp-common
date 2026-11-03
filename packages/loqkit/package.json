@@ -19,7 +19,7 @@
     "watch": "projen watch",
     "projen": "projen",
     "pack:release": "bun pm pack --ignore-scripts --destination ../../dist/packages --quiet",
-    "publish:release": "npm publish ../../dist/packages/loqkit-0.8.0.tgz --access public --tag latest --provenance"
+    "publish:release": "npm publish ../../dist/packages/loqkit-0.8.1.tgz --access public --tag latest --provenance"
   },
   "author": {
     "name": "Reggie Brooks",
@@ -61,7 +61,7 @@
     "provenance": true,
     "registry": "https://registry.npmjs.org"
   },
-  "version": "0.8.0",
+  "version": "0.8.1",
   "bugs": {
     "url": "https://github.com/regbo/lfp-js/issues"
   },
