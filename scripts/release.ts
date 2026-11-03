@@ -2,7 +2,7 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { Command, InvalidArgumentError } from 'commander';
+import { createOptionKit } from 'optionkit';
 import {
   assertAutoCommitCompatible,
   isPrivateGitHubEmail,
@@ -31,21 +31,36 @@ interface ReleaseTransaction {
 const root = path.resolve(import.meta.dir, '..');
 const manifestPath = path.join(root, 'package.json');
 
-const program = new Command()
-  .name('bun run release')
-  .description('Verify, commit, tag, and push the next Pyfig release from GitHub SemVer tags.')
-  .argument('[increment]', 'SemVer increment: major, minor, or patch', parseIncrement, 'patch')
-  .option('--commit', 'verify, commit, and push compatible worktree changes before releasing')
-  .option('--dry-run', 'verify the next release without committing, tagging, or pushing')
-  .showHelpAfterError()
-  .parse();
-
-const increment = program.processedArgs[0] as ReleaseIncrement;
-const { commit, dryRun } = program.opts<{ commit: boolean; dryRun: boolean }>();
-if (commit && dryRun) program.error('--commit cannot be combined with --dry-run');
+const { f, z } = await createOptionKit({
+  environmentPrefix: false,
+  moduleUrl: import.meta.url,
+  shortFlags: false,
+});
+const releaseCommand = f.command({
+  description: 'Verify, commit, tag, and push the next Pyfig release from GitHub SemVer tags.',
+  jsonOption: false,
+  llmsOption: false,
+  name: 'bun run release',
+  showHelpAfterError: true,
+})
+  .input(z.object({
+    increment: f.argument().schema(
+      z.enum(RELEASE_INCREMENTS).default('patch')
+        .describe('SemVer increment: major, minor, or patch.'),
+    ),
+    commit: z.boolean().default(false)
+      .describe('Verify, commit, and push compatible worktree changes before releasing.'),
+    dryRun: z.boolean().default(false)
+      .describe('Verify the next release without committing, tagging, or pushing.'),
+  }))
+  .output(z.void())
+  .handler(async ({ commit, dryRun, increment }) => {
+    if (commit && dryRun) throw new Error('--commit cannot be combined with --dry-run');
+    await release(increment, dryRun, commit);
+  });
 
 try {
-  await release(increment, dryRun, commit);
+  await releaseCommand.parseAsync(process.argv);
 } catch (error) {
   const detail = error instanceof Error ? error.message : String(error);
   console.error(`Release failed: ${detail}`);
@@ -190,11 +205,6 @@ function rollbackLocalRelease(transaction: ReleaseTransaction): void {
   runGit(['reset', '--mixed', transaction.originalHead]);
   runGit(['read-tree', transaction.originalIndex]);
   console.warn('Rolled back local release commits and restored the original worktree and index.');
-}
-
-function parseIncrement(value: string): ReleaseIncrement {
-  if (RELEASE_INCREMENTS.includes(value as ReleaseIncrement)) return value as ReleaseIncrement;
-  throw new InvalidArgumentError('expected major, minor, or patch');
 }
 
 function assertCleanWorkspace(): void {

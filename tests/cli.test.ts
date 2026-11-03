@@ -8,12 +8,12 @@ describe('CLI', () => {
 
     expect(result.code).toBe(0);
     expect(result.stdout).toContain('Resolve uv and the requested Python through uv.');
-    expect(result.stdout).toContain('--uv <value>');
+    expect(result.stdout).toContain('-u, --uv <value>');
     expect(result.stdout).toContain('uv executable or PEP 440 constraint.');
     expect(result.stdout).toContain('(default: ">=0.10,<1", env: PYFIG_UV)');
     expect(result.stdout).toContain('--python <value>');
-    expect(result.stdout).toContain('Python request passed unchanged to uv when Python is first');
-    expect(result.stdout).toContain('resolved.');
+    expect(result.stdout).toContain('Python request passed unchanged to uv when Python is');
+    expect(result.stdout).toContain('first resolved.');
     expect(result.stdout).not.toContain('--require-embedding');
     expect(result.stdout).not.toContain('--require-gil');
     expect(result.stdout).toContain('--cwd <value>');

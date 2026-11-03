@@ -64,29 +64,20 @@
     "bun": ">=1.2.0"
   },
   "dependencies": {
-    "@antfu/install-pkg": "^2.1.0",
     "@renovatebot/pep440": "^5.0.1",
     "fflate": "^0.8.3",
     "loqkit": ">=0.0.5 <0.1.0",
+    "optionkit": "^0.0.3",
     "tar": "^7.5.22",
     "undici": "^8.12.3",
     "which": "^6.0.1",
     "zod": "^4.6.7"
-  },
-  "peerDependencies": {
-    "fireargs": "^0.6.2"
-  },
-  "peerDependenciesMeta": {
-    "fireargs": {
-      "optional": true
-    }
   },
   "devDependencies": {
     "@types/bun": "^1.4.4",
     "@types/node": "^26.6.6",
     "@types/semver": "^7.8.0",
     "@types/which": "^3.0.4",
-    "fireargs": "^0.6.2",
     "semver": "^7.8.5",
     "typescript": "^7.0.2"
   }
