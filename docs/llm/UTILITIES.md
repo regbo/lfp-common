@@ -1,7 +1,8 @@
 # Utility catalog
 
 - `scripts/process.ts`: shell-free child-process execution shared by release tooling.
-- `scripts/workspaces.ts`: canonical package order, locations, and manifest validation.
+- `ReadonlyGeneratedFiles`: Projen mixin that makes every synthesized file read-only across the project tree.
+- `scripts/workspaces.ts`: workspace inventory, locations, dependency-derived ordering, and manifest validation.
 - `scripts/archive.ts`: npm archive content, metadata, workspace-protocol, email, and secret audit.
 - `scripts/pack-packages.ts`: packs every workspace in dependency order and audits the exact tarballs.
 - `scripts/release-lib.ts`: pure SemVer, tag, GitHub remote, and identity helpers.

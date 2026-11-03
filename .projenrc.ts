@@ -1,11 +1,37 @@
 import { execFileSync } from 'node:child_process';
+import type { IConstruct, IMixin } from 'constructs';
 import {
+  Component,
   DependencyType,
+  Project,
   TextFile,
   github,
   javascript,
   typescript,
 } from 'projen';
+
+/** Enforce `.projenrc.ts` as the only writable source for synthesized files. */
+class ReadonlyGeneratedFiles implements IMixin {
+  supports(construct: IConstruct): construct is Project {
+    return construct instanceof Project;
+  }
+
+  applyTo(construct: IConstruct): void {
+    if (!this.supports(construct)) {
+      throw new TypeError('ReadonlyGeneratedFiles only supports Projen projects.');
+    }
+
+    new ReadonlyGeneratedFilesPolicy(construct);
+    for (const subproject of construct.subprojects) subproject.with(this);
+  }
+}
+
+/** Apply after other components have declared their generated files. */
+class ReadonlyGeneratedFilesPolicy extends Component {
+  override preSynthesize(): void {
+    for (const file of this.project.files) file.readonly = true;
+  }
+}
 
 const VERSION = '0.8.0';
 const BUN_VERSION = '1.4.4';
@@ -645,7 +671,8 @@ new TextFile(root, 'docs/llm/UTILITIES.md', {
     '# Utility catalog',
     '',
     '- `scripts/process.ts`: shell-free child-process execution shared by release tooling.',
-    '- `scripts/workspaces.ts`: canonical package order, locations, and manifest validation.',
+    '- `ReadonlyGeneratedFiles`: Projen mixin that makes every synthesized file read-only across the project tree.',
+    '- `scripts/workspaces.ts`: workspace inventory, locations, dependency-derived ordering, and manifest validation.',
     '- `scripts/archive.ts`: npm archive content, metadata, workspace-protocol, email, and secret audit.',
     '- `scripts/pack-packages.ts`: packs every workspace in dependency order and audits the exact tarballs.',
     '- `scripts/release-lib.ts`: pure SemVer, tag, GitHub remote, and identity helpers.',
@@ -770,4 +797,5 @@ function configureTypecheck(
   packageVerify.spawn(project.testTask);
 }
 
+root.with(new ReadonlyGeneratedFiles());
 root.synth();
