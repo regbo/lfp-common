@@ -42,7 +42,7 @@ export async function auditArchive(
         `Archive manifest is ${manifest.name}@${manifest.version}; expected ${expectedName}@${expectedVersion}`,
       );
     }
-    if (manifest.bin?.['pynect'] !== 'dist/js/cli.js') {
+    if (manifest.bin?.['pynect'] !== 'dist/js/cli.mjs') {
       throw new Error('Archive does not expose the pynect binary');
     }
 
@@ -54,7 +54,7 @@ export async function auditArchive(
       'LICENSE',
       'README.md',
       'SECURITY.md',
-      'dist/js/cli.js',
+      'dist/js/cli.mjs',
       'dist/js/index.d.ts',
       'dist/js/index.js',
       'dist/py/pynect_codegen.py',

@@ -2,8 +2,8 @@
 
 - `src/js/config.ts`: the single normalizer for public `CreateVenvOptions`; resolves
   paths, validates timeouts and raw uv arguments, and constructs Pyfig options.
-- `src/js/cli.ts`: the Commander-backed `pynect` command tree. All CLI dependencies
-  ship with the npm package; commands must not install packages into consuming projects.
+- `src/js/cli.mts`: the Optionkit-backed `pynect` command tree. Keep CLI schema
+  adaptation and lazy Fireargs loading centralized in Optionkit.
 - `src/js/codegen.ts`: the Zod codegen contract, Node-side configuration loader,
   editor setup, and private JSON request client for the Python inspection engine.
 - `src/js/protocol.ts`: typed message kinds, RPC operations, and wire-value tags used

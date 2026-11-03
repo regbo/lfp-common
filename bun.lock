@@ -6,9 +6,9 @@
       "name": "pynect",
       "dependencies": {
         "@msgpack/msgpack": "^3.1.2",
-        "commander": "^14.0.3",
         "loqkit": "^0.0.5",
-        "pyfig": "0.7.6",
+        "optionkit": "^0.0.3",
+        "pyfig": "0.7.8",
         "smol-toml": "^1.4.2",
         "zod": "^4.6.7",
       },
@@ -44,8 +44,6 @@
 
     "chownr": ["chownr@3.0.0", "", {}, "sha512-+IxzY9BZOQd/XuYPRmrvEVjF/nqj5kgT4kEq7VofrDoM1MxoRjEWkrCC3EtLi59TVawxTAn+orJwFQcrqEN1+g=="],
 
-    "commander": ["commander@14.0.3", "", {}, "sha512-H+y0Jo/T1RZ9qPP4Eh1pkcQcLRglraJaSLoyOtHxu6AapkjWVCy2Sit1QQ4x3Dng8qDlSsZEet7g5Pq06MvTgw=="],
-
     "fflate": ["fflate@0.8.3", "", {}, "sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA=="],
 
     "find-up-simple": ["find-up-simple@1.0.1", "", {}, "sha512-afd4O7zpqHeRyg4PfDQsXmlDe2PfdHtJt6Akt8jOWaApLOZk5JXs6VMR29lz03pRe9mpykrRCYIYxaJYcfpncQ=="],
@@ -76,6 +74,8 @@
 
     "ohash": ["ohash@2.0.12", "", {}, "sha512-65S/5gk9YSsaRjcyf7Nfa6h/d3E8/1gslpXfI4W7Dxn/oap8IKRuNT5VXkLQ1YFKIEg4apRY4Pj6aiwFzrDdmw=="],
 
+    "optionkit": ["optionkit@0.0.3", "", { "dependencies": { "@antfu/install-pkg": "^2.1.0" }, "peerDependencies": { "fireargs": "catalog:", "zod": "catalog:" }, "optionalPeers": ["fireargs", "zod"] }, "sha512-H7DxDnsqVe6XLa6CfVSYcR7tITiprOQmu8eSVrMopYiR0zJY5c+GTAvNNIgDajFXdTZ6WBTMS+PLPP4300zEVw=="],
+
     "package-manager-detector": ["package-manager-detector@1.9.0", "", {}, "sha512-zAMfbta9nPA8AKkA4WdmNAT8R8s6Dk0/xwPsqNnRidMFcLo1YkLuPDTgs2f64XdzS8vbLNnoJ+uUIkgbz7oRHA=="],
 
     "parse-json": ["parse-json@8.3.0", "", { "dependencies": { "@babel/code-frame": "^7.26.2", "index-to-position": "^1.1.0", "type-fest": "^4.39.1" } }, "sha512-ybiGyvspI+fAoRQbIPRddCcSTV9/LsJbf0e/S85VLowVGzRmokfneg2kwVW/KU5rOXrPSbF1qAKPMgNTqqROQQ=="],
@@ -84,7 +84,7 @@
 
     "proper-lockfile": ["proper-lockfile@4.1.2", "", { "dependencies": { "graceful-fs": "^4.2.4", "retry": "^0.12.0", "signal-exit": "^3.0.2" } }, "sha512-TjNPblN4BwAWMXU8s9AEz4JmQxnD1NNL7bNOY/AKUzyamc379FWASUhc/K1pL2noVb+XmZKLL68cjzLsiOAMaA=="],
 
-    "pyfig": ["pyfig@0.7.6", "", { "dependencies": { "@antfu/install-pkg": "^2.1.0", "@renovatebot/pep440": "^5.0.1", "fflate": "^0.8.3", "loqkit": ">=0.0.5 <0.1.0", "tar": "^7.5.22", "undici": "^8.12.3", "which": "^6.0.1", "zod": "^4.6.7" }, "bin": { "pyfig": "dist/cli.js" } }, "sha512-mZ6cHVAWcQXW8h5ss3joac8s8TmT1c7AHcM2pUOIb9+5BCgYpd4fallEM0Tlvp9PI1SsZaPJSOAlJ/DmVFinHg=="],
+    "pyfig": ["pyfig@0.7.8", "", { "dependencies": { "@renovatebot/pep440": "^5.0.1", "fflate": "^0.8.3", "loqkit": ">=0.0.5 <0.1.0", "optionkit": "^0.0.3", "tar": "^7.5.22", "undici": "^8.12.3", "which": "^6.0.1", "zod": "^4.6.7" }, "bin": { "pyfig": "dist/cli.js" } }, "sha512-GPDrUsHJ2fV3DmA59AGdAVapxq15nDLqz10TmyhMlpMf7+PhAi/0Xm+p3x9U39l8dQ1sse/8hwmXqpAVO5qRXw=="],
 
     "read-package-up": ["read-package-up@12.0.0", "", { "dependencies": { "find-up-simple": "^1.0.1", "read-pkg": "^10.0.0", "type-fest": "^5.2.0" } }, "sha512-Q5hMVBYur/eQNWDdbF4/Wqqr9Bjvtrw2kjGxxBbKLbx8bVCL8gcArjTy8zDUuLGQicftpMuU0riQNcAsbtOVsw=="],
 

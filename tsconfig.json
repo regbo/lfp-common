@@ -19,7 +19,7 @@
     "types": ["node"]
   },
   "include": [
-    "src/js/cli.ts",
+    "src/js/cli.mts",
     "src/js/codegen.ts",
     "src/js/config.ts",
     "src/js/errors.ts",
