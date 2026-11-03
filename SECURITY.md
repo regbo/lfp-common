@@ -12,14 +12,14 @@ HTTPS, and verifies the manifest's SHA-256 checksum before extraction. The
 staged executable is probed before publication. Shell profiles and the caller's
 `PATH` are never modified. Compatible cached UV executables are used without
 network access. Release metadata is cached for 24 hours, with valid stale
-metadata retained as a network fallback. Cache publication and metadata refresh use Loqkit's
-in-memory, worker, native-flock-when-available, and portable file-lock
-coordination.
+metadata retained as a network fallback. Cache publication and metadata refresh
+use Loqkit's in-memory, worker, native-flock-when-available, and portable
+file-lock coordination.
 
 Configured Astral or installer mirror URLs are exclusive: Pyfig does not fall
 back to public hosts when a custom source applies. Python interpreter paths are
-not part of the public context and are redacted from Pyfig-generated resolution
-errors and diagnostics.
+populated only after `python.resolve()` or `python.spawn()` and are redacted
+from Pyfig-generated resolution errors and diagnostics.
 
 The UV request, Python request, working directory, and environment are trusted
 caller input. Python discovery and downloads follow UV's own configuration and

@@ -38,7 +38,10 @@ const PYTHON_FIND_ATTEMPTS = [
   { args: ['--managed-python', '--no-python-downloads'], name: 'installed managed' },
   { args: ['--no-managed-python', '--no-python-downloads'], name: 'system' },
 ] as const;
-const PYTHON_PROBE = 'import sys; print(sys.executable)';
+const PYTHON_PROBE = [
+  'import json, platform, sys',
+  'print(json.dumps({"path": sys.executable, "version": platform.python_version()}))',
+].join('; ');
 
 export const pyfigOptionsSchema = z.object({
   uv: z.string()
@@ -50,7 +53,7 @@ export const pyfigOptionsSchema = z.object({
     .min(1, 'python must not be empty.')
     .refine(value => value.trim().length > 0, 'python must not be empty.')
     .optional()
-    .describe('Python request passed unchanged to uv when Python is first spawned.'),
+    .describe('Python request passed unchanged to uv when Python is first resolved.'),
   debug: z.boolean()
     .default(false)
     .describe('Write resolution, download, and provisioning diagnostics to stderr.'),
@@ -86,6 +89,14 @@ export interface UvExecutable {
 }
 
 export interface PythonExecutable {
+  /** Whether the context-default Python has resolved successfully. */
+  readonly resolved: boolean;
+  /** Absolute Python executable path after successful resolution. */
+  readonly path: string | undefined;
+  /** Python runtime version after successful resolution. */
+  readonly version: string | undefined;
+  /** Resolve the context-default Python and populate its metadata. */
+  resolve(): Promise<void>;
   /** Resolve Python privately, then execute it through uv run. */
   spawn(...args: string[]): Promise<ChildProcess>;
   spawn(...args: [...string[], SpawnOptions]): Promise<ChildProcess>;
@@ -104,7 +115,8 @@ interface UvMetadata {
 }
 
 interface PythonResolution {
-  readonly executable: string;
+  readonly path: string;
+  readonly version: string;
 }
 
 interface PythonRuntimeDefaults extends RuntimeDefaults {
@@ -137,13 +149,34 @@ class ResolvedUv implements UvExecutable {
 class LazyPython implements PythonExecutable {
   readonly #defaults: PythonRuntimeDefaults;
   readonly #resolve: () => Promise<PythonResolution>;
+  #resolution: PythonResolution | undefined;
 
   constructor(defaults: PythonRuntimeDefaults) {
     this.#defaults = defaults;
     // Loqkit shares in-flight work and successful results, while rejected
     // resolutions remain retryable after transient network or policy failures.
-    this.#resolve = memoize(() => resolvePython(defaults));
+    this.#resolve = memoize(async () => {
+      const resolution = await resolvePython(defaults);
+      this.#resolution = resolution;
+      return resolution;
+    });
     Object.freeze(this);
+  }
+
+  get resolved(): boolean {
+    return this.#resolution !== undefined;
+  }
+
+  get path(): string | undefined {
+    return this.#resolution?.path;
+  }
+
+  get version(): string | undefined {
+    return this.#resolution?.version;
+  }
+
+  async resolve(): Promise<void> {
+    await this.#resolve();
   }
 
   async spawn(...values: SpawnArgument[]): Promise<ChildProcess> {
@@ -156,7 +189,7 @@ class LazyPython implements PythonExecutable {
     const resolved = await resolution;
     const childOptions: SpawnOptions = {
       ...options,
-      env: mergeEnvironment(options.env ?? {}, { UV_PYTHON: resolved.executable }),
+      env: mergeEnvironment(options.env ?? {}, { UV_PYTHON: resolved.path }),
     };
     return spawnCommand(
       this.#defaults.uvPath,
@@ -171,7 +204,7 @@ class LazyPython implements PythonExecutable {
 export class PythonContext {
   /** Resolved uv executable metadata and raw spawn helper. */
   readonly uv: UvExecutable;
-  /** Python execution through uv; interpreter metadata remains private. */
+  /** Lazy Python metadata and execution through uv. */
   readonly python: PythonExecutable;
 
   constructor(uv: UvExecutable, python: PythonExecutable) {
@@ -321,12 +354,23 @@ async function runPythonProbe(
 ): Promise<PythonResolution> {
   const args = ['run', ...runArguments, '--', 'python', '-I', '-S', '-c', PYTHON_PROBE];
   const output = await capture(defaults.uvPath, args, defaults.cwd, env, { redact, signal });
-  const executable = output.trim().split(/\r?\n/u).at(-1) ?? '';
-  if (!path.isAbsolute(executable)) {
+  const line = output.trim().split(/\r?\n/u).at(-1) ?? '';
+  let metadata: unknown;
+  try {
+    metadata = JSON.parse(line) as unknown;
+  } catch {
+    throw new Error('Python selected by uv returned malformed metadata.');
+  }
+  if (!metadata || typeof metadata !== 'object') {
+    throw new Error('Python selected by uv returned incomplete metadata.');
+  }
+  const candidate = metadata as { path?: unknown; version?: unknown };
+  const version = typeof candidate.version === 'string' ? validVersion(candidate.version) : null;
+  if (typeof candidate.path !== 'string' || !path.isAbsolute(candidate.path) || !version) {
     throw new Error('Python selected by uv returned incomplete metadata.');
   }
   defaults.log('Resolved Python through uv.');
-  return { executable: path.normalize(executable) };
+  return { path: path.normalize(candidate.path), version };
 }
 
 function shouldUseAstralFallback(

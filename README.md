@@ -22,6 +22,10 @@ const context = await pyfig({
 });
 
 console.log(context.uv.path, context.uv.version, context.uv.source);
+console.log(context.python.resolved); // false
+await context.python.resolve();
+console.log(context.python.path, context.python.version);
+console.log(context.python.resolved); // true
 
 const child = await context.python.spawn('-c', 'print("hello")');
 await once(child, 'close');
@@ -32,10 +36,12 @@ The context has two immutable fields:
 | Field | Public values |
 | --- | --- |
 | `uv` | `path`, `version`, `source`, and async `spawn()` |
-| `python` | Async `spawn()` only. Interpreter metadata remains private. |
+| `python` | `resolved`, `path`, `version`, async `resolve()`, and async `spawn()` |
 
 `pyfig()` resolves uv immediately. Python remains unresolved until the first
-`python.spawn()`. Awaiting `spawn()` resolves Python before returning its Node
+call to `python.resolve()` or `python.spawn()`. Both share one memoized
+resolution. Before that, `path` and `version` are `undefined`, and `resolved` is
+`false`. Awaiting `spawn()` resolves Python before returning its Node
 `ChildProcess`; the user command itself runs exactly once through `uv run`.
 
 Both spawn helpers accept string arguments followed by an optional Node
@@ -56,12 +62,13 @@ interpreter path. Omit it to let UV use the current project, Python pin, or its
 normal default.
 
 UV considers applicable environments and installed interpreters before a
-managed download. Pyfig does not search hard-coded Python locations or expose
-the selected interpreter path. Every user command executes through `uv run`,
-so UV remains responsible for project locking, lockfile policy, and environment
-synchronization. Use UV's documented environment variables, including
-`UV_NO_PROJECT`, `UV_NO_SYNC`, `UV_FROZEN`, `UV_OFFLINE`, and `UV_PROJECT`, to
-change that behavior without adding a second Pyfig policy layer.
+managed download. Pyfig does not search hard-coded Python locations. It exposes
+the UV-selected interpreter only after explicit resolution. Every user command
+executes through `uv run`, so UV remains responsible for project locking,
+lockfile policy, and environment synchronization. Use UV's documented
+environment variables, including `UV_NO_PROJECT`, `UV_NO_SYNC`, `UV_FROZEN`,
+`UV_OFFLINE`, and `UV_PROJECT`, to change that behavior without adding a second
+Pyfig policy layer.
 
 For UV before 0.11, Python downloads normally originate from GitHub. If that
 attempt specifically fails at the canonical python-build-standalone GitHub
@@ -70,12 +77,13 @@ override `UV_PYTHON_INSTALL_MIRROR`, `UV_PYTHON_DOWNLOADS_JSON_URL`, or
 `UV_ASTRAL_MIRROR_URL`. UV 0.11 and later owns its native mirror order and
 fallback behavior.
 
-Concurrent Python spawns share one in-flight resolution through Loqkit. A
-successful resolution remains cached for that context. Failures do not: a later
-spawn retries, allowing recovery after a VPN, proxy, DNS, or registry outage.
-Calls with a custom `cwd` or `env` resolve against those overrides instead of
-reusing the context resolution. An `AbortSignal` can stop one caller from
-waiting without cancelling resolution shared by another caller.
+Concurrent `resolve()` calls and Python spawns share one in-flight resolution
+through Loqkit. A successful resolution remains cached for that context and
+sets `resolved` to `true`. Failures do not: a later call retries, allowing
+recovery after a VPN, proxy, DNS, or registry outage. Calls with a custom `cwd`
+or `env` resolve against those overrides instead of reusing the context
+resolution. An `AbortSignal` can stop one caller from waiting without
+cancelling resolution shared by another caller.
 
 ## UV resolution
 
@@ -98,7 +106,7 @@ const context = await pyfig({ uv: '/opt/bin/uv' });
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `uv` | `>=0.10,<1` | UV executable or PEP 440 version constraint. |
-| `python` | UV default | Python request passed unchanged to UV on first spawn. |
+| `python` | UV default | Python request passed unchanged to UV on first resolution. |
 | `cwd` | `process.cwd()` | Directory used for UV project and configuration discovery. |
 | `env` | `process.env` | Environment used during resolution and child processes. |
 | `debug` | `false` | Write resolution diagnostics to standard error. |
@@ -123,8 +131,7 @@ published.
 
 ## CLI
 
-The optional CLI resolves uv, verifies Python, and prints UV metadata without
-printing Python interpreter metadata:
+The optional CLI resolves uv and Python before printing their metadata:
 
 ```sh
 pyfig resolve --python ">=3.11,<4"

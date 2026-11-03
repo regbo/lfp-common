@@ -7,24 +7,36 @@ describe('CLI', () => {
     const result = await runCli(['resolve', '--help']);
 
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain('Resolve uv and verify the requested Python through uv.');
+    expect(result.stdout).toContain('Resolve uv and the requested Python through uv.');
     expect(result.stdout).toContain('--uv <value>');
     expect(result.stdout).toContain('uv executable or PEP 440 constraint.');
     expect(result.stdout).toContain('(default: ">=0.10,<1")');
     expect(result.stdout).toContain('--python <value>');
     expect(result.stdout).toContain('Python request passed unchanged to uv when Python is first');
-    expect(result.stdout).toContain('spawned.');
+    expect(result.stdout).toContain('resolved.');
     expect(result.stdout).not.toContain('--require-embedding');
     expect(result.stdout).not.toContain('--require-gil');
     expect(result.stdout).toContain('--cwd <value>');
   }, 30_000);
 
-  test('resolves uv and a Python request without exposing run commands', async () => {
+  test('resolves uv and Python metadata before rendering', async () => {
     const result = await runCli(['resolve', '--python', '>=3.10,<4']);
 
     expect(result.code).toBe(0);
     expect(result.stdout).toMatch(/^uv \d+\.\d+/mu);
-    expect(result.stdout).toContain('Python ready');
+    expect(result.stdout).toMatch(/^Python \d+\.\d+\.\d+: .+/mu);
+  }, 60_000);
+
+  test('reports resolved Python state in structured output', async () => {
+    const result = await runCli(['resolve', '--json', '--python', '>=3.10,<4']);
+    const output = JSON.parse(result.stdout) as {
+      python: { path: string; resolved: boolean; version: string };
+    };
+
+    expect(result.code).toBe(0);
+    expect(path.isAbsolute(output.python.path)).toBe(true);
+    expect(output.python.resolved).toBe(true);
+    expect(output.python.version).toMatch(/^\d+\.\d+\.\d+/u);
   }, 60_000);
 
   test('writes diagnostics to stderr with --debug', async () => {

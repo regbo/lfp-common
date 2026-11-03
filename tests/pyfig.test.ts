@@ -16,7 +16,7 @@ import {
 } from '../src/process.ts';
 
 describe('pyfig', () => {
-  test('returns uv metadata and only a Python spawn helper', async () => {
+  test('returns uv metadata and a lazy Python handle', async () => {
     const context = await pyfig({
       uv: '>=0.10,<1',
       python: '>=3.10,<4',
@@ -32,14 +32,35 @@ describe('pyfig', () => {
     expect(path.isAbsolute(context.uv.path)).toBe(true);
     expect(context.uv.version).toMatch(/^\d+\.\d+/u);
     expect(['cache', 'download', 'path']).toContain(context.uv.source);
-    expect('path' in context.python).toBe(false);
-    expect('version' in context.python).toBe(false);
+    expect(context.python.resolved).toBe(false);
+    expect(context.python.path).toBeUndefined();
+    expect(context.python.version).toBeUndefined();
+    expect(typeof context.python.resolve).toBe('function');
     expect('source' in context.python).toBe(false);
     expect(typeof context.uv.spawn).toBe('function');
     expect(typeof context.python.spawn).toBe('function');
   }, 60_000);
 
-  test('executes Python through uv without exposing interpreter metadata', async () => {
+  test('memoizes Python metadata behind the resolve method', async () => {
+    const context = await pyfig({ python: '>=3.10,<4' });
+
+    expect(context.python.resolved).toBe(false);
+    expect(context.python.path).toBeUndefined();
+    expect(context.python.version).toBeUndefined();
+    await Promise.all([
+      context.python.resolve(),
+      context.python.resolve(),
+    ]);
+
+    expect(path.isAbsolute(context.python.path ?? '')).toBe(true);
+    expect(context.python.version).toMatch(/^\d+\.\d+\.\d+/u);
+    expect(context.python.resolved).toBe(true);
+    const pythonPath = context.python.path;
+    await context.python.resolve();
+    expect(context.python.path).toBe(pythonPath);
+  }, 120_000);
+
+  test('executes Python through the memoized uv resolution', async () => {
     const context = await pyfig({ python: '>=3.10,<4' });
     const child = await context.python.spawn(
       '-c',
@@ -52,8 +73,9 @@ describe('pyfig', () => {
     expect(output.code).toBe(0);
     expect(output.stdout.trim().split(/\r?\n/u)).toEqual(['1', 'forwarded']);
     expect(child.spawnargs).not.toContain('--python');
-    expect('path' in context.python).toBe(false);
-    expect('version' in context.python).toBe(false);
+    expect(context.python.resolved).toBe(true);
+    expect(path.isAbsolute(context.python.path ?? '')).toBe(true);
+    expect(context.python.version).toMatch(/^\d+\.\d+\.\d+/u);
     expect('source' in context.python).toBe(false);
   }, 120_000);
 
@@ -78,26 +100,30 @@ describe('pyfig', () => {
 
     expect(firstOutput.stdout.trim()).toBe('first');
     expect(secondOutput.stdout.trim()).toBe('second');
+    expect(context.python.resolved).toBe(true);
   }, 120_000);
 
-  test('defers invalid Python requests until Python is spawned', async () => {
+  test('defers invalid Python requests until Python is resolved', async () => {
     const context = await pyfig({ python: 'definitely-not-a-python-request' });
 
     let firstError: unknown;
     let secondError: unknown;
     try {
-      await context.python.spawn('--version', { stdio: 'ignore' });
+      await context.python.resolve();
     } catch (error) {
       firstError = error;
     }
     try {
-      await context.python.spawn('--version', { stdio: 'ignore' });
+      await context.python.resolve();
     } catch (error) {
       secondError = error;
     }
     expect(firstError).toBeInstanceOf(Error);
     expect(secondError).toBeInstanceOf(Error);
     expect(secondError).not.toBe(firstError);
+    expect(context.python.resolved).toBe(false);
+    expect(context.python.path).toBeUndefined();
+    expect(context.python.version).toBeUndefined();
   }, 120_000);
 
   test('rejects an already-aborted Python spawn before starting resolution', async () => {
@@ -109,6 +135,9 @@ describe('pyfig', () => {
       signal: controller.signal,
       stdio: 'ignore',
     })).rejects.toThrow('cancelled');
+    expect(context.python.resolved).toBe(false);
+    expect(context.python.path).toBeUndefined();
+    expect(context.python.version).toBeUndefined();
   }, 60_000);
 
   test('rejects malformed uv selections', async () => {
@@ -146,7 +175,7 @@ describe('pyfig', () => {
     });
     const shape = pyfigOptionsSchema.unwrap().shape;
     expect(shape.uv.description).toContain('PEP 440');
-    expect(shape.python.description).toContain('first spawned');
+    expect(shape.python.description).toContain('first resolved');
     expect(Object.isFrozen(parsed)).toBe(true);
     expect(pyfigOptionsSchema.parse({ env: '{"PYFIG_TEST":"yes"}' }).env).toEqual({
       PYFIG_TEST: 'yes',

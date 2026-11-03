@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 import path from 'node:path';
-import { once } from 'node:events';
 import { pathToFileURL } from 'node:url';
 import { installPackage } from '@antfu/install-pkg';
 import { z } from 'zod';
@@ -32,35 +31,48 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         .describe('How uv was selected or obtained.'),
       version: z.string().describe('Resolved uv version.'),
     }).readonly(),
+    python: z.object({
+      path: z.string().describe('Absolute path to the resolved Python executable.'),
+      resolved: z.boolean().describe('Whether Python resolved successfully.'),
+      version: z.string().describe('Resolved Python version.'),
+    }).readonly(),
   });
   const resolve = f
     .command({
       name: 'resolve',
-      description: 'Resolve uv and verify the requested Python through uv.',
+      description: 'Resolve uv and the requested Python through uv.',
     })
     .input(z.object({ ...shape }))
     .output(output)
     .render(result => [
       `uv ${result.uv.version} (${result.uv.source}): ${result.uv.path}`,
-      'Python ready',
+      `Python ${result.python.version}: ${result.python.path}`,
     ].join('\n'))
     .handler(async options => {
       const context = await pyfig(options);
-      const child = await context.python.spawn('--version', { stdio: 'ignore' });
-      const [code] = await once(child, 'close') as [number | null, NodeJS.Signals | null];
-      if (code !== 0) throw new Error(`Resolved Python exited with status ${code ?? 'unknown'}.`);
+      await context.python.resolve();
+      const pythonPath = context.python.path;
+      const pythonVersion = context.python.version;
+      if (!context.python.resolved || !pythonPath || !pythonVersion) {
+        throw new Error('Python metadata was unavailable after successful resolution.');
+      }
       return {
         uv: {
           path: context.uv.path,
           source: context.uv.source,
           version: context.uv.version,
         },
+        python: {
+          path: pythonPath,
+          resolved: context.python.resolved,
+          version: pythonVersion,
+        },
       };
     });
 
   const program = f.program({
     name: 'pyfig',
-    description: 'Resolve uv and run its selected Python.',
+    description: 'Resolve uv and its selected Python.',
   }).router({ resolve });
 
   await program.parseAsync(argv);
