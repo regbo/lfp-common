@@ -63,7 +63,9 @@ export class RpcClient {
       this.#resolveHello = resolve;
       this.#rejectHello = reject;
     });
-    socket.on('data', data => this.#receive(data));
+    socket.on('data', data => this.#receive(
+      typeof data === 'string' ? Buffer.from(data) : data,
+    ));
     socket.once('error', error => this.#fail(error));
     socket.once('close', () => this.#fail(new VenvClosedError('Python worker disconnected.')));
   }

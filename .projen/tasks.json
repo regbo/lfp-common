@@ -1,0 +1,231 @@
+{
+  "manifestVersion": 3,
+  "env": {
+    "PATH": "$(bun --eval \"console.log(process.env.PATH)\")"
+  },
+  "tasks": {
+    "build": {
+      "name": "build",
+      "description": "Full release build",
+      "steps": [
+        {
+          "spawn": "default"
+        },
+        {
+          "spawn": "pre-compile"
+        },
+        {
+          "spawn": "compile"
+        },
+        {
+          "spawn": "post-compile"
+        },
+        {
+          "spawn": "test"
+        },
+        {
+          "spawn": "package"
+        }
+      ]
+    },
+    "compile": {
+      "name": "compile",
+      "description": "Only compile",
+      "steps": [
+        {
+          "execArgs": [
+            "bun",
+            "run",
+            "--filter",
+            "./packages/*",
+            "compile"
+          ]
+        }
+      ]
+    },
+    "default": {
+      "name": "default",
+      "description": "Synthesize project files",
+      "steps": [
+        {
+          "execArgs": [
+            "node",
+            ".projenrc.ts"
+          ]
+        }
+      ]
+    },
+    "install": {
+      "name": "install",
+      "description": "Install project dependencies and update lockfile (non-frozen)",
+      "steps": [
+        {
+          "exec": "bun install"
+        }
+      ]
+    },
+    "install:ci": {
+      "name": "install:ci",
+      "description": "Install project dependencies using frozen lockfile",
+      "steps": [
+        {
+          "exec": "bun install --frozen-lockfile"
+        }
+      ]
+    },
+    "pack:release": {
+      "name": "pack:release",
+      "description": "Pack and audit all publishable workspaces.",
+      "steps": [
+        {
+          "execArgs": [
+            "bun",
+            "scripts/pack-packages.ts",
+            "dist/packages"
+          ]
+        }
+      ]
+    },
+    "package": {
+      "name": "package",
+      "description": "Creates the distribution package",
+      "steps": [
+        {
+          "execArgs": [
+            "bun",
+            "scripts/pack-packages.ts",
+            "dist/packages"
+          ]
+        }
+      ]
+    },
+    "post-compile": {
+      "name": "post-compile",
+      "description": "Runs after successful compilation",
+      "steps": [
+        {
+          "spawn": "typecheck:workspaces"
+        }
+      ]
+    },
+    "pre-compile": {
+      "name": "pre-compile",
+      "description": "Prepare the project for compilation"
+    },
+    "publish:release": {
+      "name": "publish:release",
+      "description": "Publish the already-audited archives using npm trusted publishing.",
+      "steps": [
+        {
+          "execArgs": [
+            "bun",
+            "scripts/publish-packages.ts",
+            "dist/packages"
+          ]
+        }
+      ]
+    },
+    "release": {
+      "name": "release",
+      "description": "Verify, version, tag, and atomically push the shared release.",
+      "steps": [
+        {
+          "execArgs": [
+            "bun",
+            "scripts/release.ts"
+          ],
+          "receiveArgs": true
+        }
+      ]
+    },
+    "release:check": {
+      "name": "release:check",
+      "description": "Validate a release tag and registry availability.",
+      "steps": [
+        {
+          "execArgs": [
+            "bun",
+            "scripts/release-check.ts"
+          ],
+          "receiveArgs": true
+        }
+      ]
+    },
+    "test": {
+      "name": "test",
+      "description": "Run tests",
+      "steps": [
+        {
+          "execArgs": [
+            "bun",
+            "test",
+            "tests/monorepo.test.ts",
+            "tests/release-lib.test.ts"
+          ]
+        },
+        {
+          "execArgs": [
+            "bun",
+            "run",
+            "--filter",
+            "./packages/*",
+            "test"
+          ]
+        }
+      ]
+    },
+    "typecheck": {
+      "name": "typecheck",
+      "description": "Build workspace dependencies, then type-check the monorepo.",
+      "steps": [
+        {
+          "spawn": "compile"
+        },
+        {
+          "spawn": "typecheck:workspaces"
+        }
+      ]
+    },
+    "typecheck:workspaces": {
+      "name": "typecheck:workspaces",
+      "description": "Type-check Projen, shared scripts, and built workspaces.",
+      "steps": [
+        {
+          "execArgs": [
+            "tsc",
+            "--noEmit",
+            "-p",
+            "tsconfig.projen.json"
+          ]
+        },
+        {
+          "execArgs": [
+            "tsc",
+            "--noEmit",
+            "-p",
+            "tsconfig.scripts.json"
+          ]
+        },
+        {
+          "execArgs": [
+            "bun",
+            "run",
+            "--filter",
+            "./packages/*",
+            "typecheck"
+          ]
+        }
+      ]
+    },
+    "verify": {
+      "name": "verify",
+      "description": "Synthesize, build, type-check, test, pack, and audit all workspaces.",
+      "steps": [
+        {
+          "spawn": "build"
+        }
+      ]
+    }
+  },
+  "//": "~~ Generated by projen. To modify, edit .projenrc.ts and run \"bunx projen\"."
+}

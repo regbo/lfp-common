@@ -3,6 +3,9 @@ import os from 'node:os';
 import path from 'node:path';
 
 const root = path.resolve(import.meta.dirname, '..');
+const monorepo = JSON.parse(
+  await readFile(path.resolve(root, '..', '..', 'package.json'), 'utf8'),
+) as { packageManager: string };
 const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'optionkit-packed-'));
 const consumer = path.join(temporaryRoot, 'consumer');
 
@@ -24,7 +27,7 @@ try {
     name: 'packed-consumer',
     private: true,
     type: 'module',
-    packageManager: 'bun@1.4.4',
+    packageManager: monorepo.packageManager,
   }, null, 2)}\n`, 'utf8');
   run(['bun', 'add', archive], consumer);
   const installedManifest = await readFile(path.join(

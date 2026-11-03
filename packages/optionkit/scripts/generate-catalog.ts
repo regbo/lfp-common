@@ -2,21 +2,20 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const root = path.resolve(import.meta.dirname, '..');
+const monorepoRoot = path.resolve(root, '..', '..');
 const manifest = JSON.parse(
   await readFile(path.join(root, 'package.json'), 'utf8'),
 ) as {
-  catalog?: Record<string, string>;
   devDependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
 };
-const workspace = Bun.YAML.parse(
-  await readFile(path.join(root, 'pnpm-workspace.yaml'), 'utf8'),
-) as { catalog?: Record<string, string> };
-
-if (!manifest.catalog) throw new Error('package.json must define a catalog.');
-if (JSON.stringify(manifest.catalog) !== JSON.stringify(workspace.catalog)) {
-  throw new Error('The Bun and pnpm catalogs must match exactly.');
-}
+const monorepo = JSON.parse(
+  await readFile(path.join(monorepoRoot, 'package.json'), 'utf8'),
+) as {
+  workspaces?: { catalog?: Record<string, string> };
+};
+const catalog = monorepo.workspaces?.catalog;
+if (!catalog) throw new Error('The monorepo package.json must define a workspace catalog.');
 
 const cliPackages = ['clean-stack', 'fireargs', 'zod'] as const;
 for (const name of cliPackages) {
@@ -30,7 +29,11 @@ for (const name of cliPackages) {
 }
 
 const generatedDirectory = path.join(root, 'src', '_generated');
-const output = `// Generated from package.json by scripts/generate-catalog.ts.\n` +
-  `export const catalog = ${JSON.stringify(manifest.catalog, null, 2)} as const;\n`;
+const generated = Object.fromEntries(cliPackages.map(name => [name, catalog[name]]));
+if (Object.values(generated).some(value => value === undefined)) {
+  throw new Error('The monorepo catalog is missing an Optionkit CLI dependency.');
+}
+const output = `// Generated from the monorepo catalog by scripts/generate-catalog.ts.\n` +
+  `export const catalog = ${JSON.stringify(generated, null, 2)} as const;\n`;
 await mkdir(generatedDirectory, { recursive: true });
 await writeFile(path.join(generatedDirectory, 'catalog.ts'), output, 'utf8');

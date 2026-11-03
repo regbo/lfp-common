@@ -1,4 +1,4 @@
-// Generated from package.json by scripts/generate-catalog.ts.
+// Generated from the monorepo catalog by scripts/generate-catalog.ts.
 export const catalog = {
   "clean-stack": "^7.0.0",
   "fireargs": "^0.6.2",
