@@ -43,6 +43,14 @@
     "url": "https://github.com/regbo/optionkit/issues"
   },
   "homepage": "https://github.com/regbo/optionkit#readme",
+  "workspaces": [
+    "."
+  ],
+  "catalog": {
+    "clean-stack": "^7.0.0",
+    "fireargs": "^0.6.2",
+    "zod": "^4.6.7"
+  },
   "sideEffects": false,
   "engines": {
     "node": ">=18"
@@ -51,8 +59,8 @@
     "@antfu/install-pkg": "^2.1.0"
   },
   "peerDependencies": {
-    "fireargs": "^0.6.2",
-    "zod": "^4.6.7"
+    "fireargs": "catalog:",
+    "zod": "catalog:"
   },
   "peerDependenciesMeta": {
     "fireargs": {
@@ -65,10 +73,10 @@
   "devDependencies": {
     "@types/bun": "^1.4.4",
     "@types/node": "^26.6.6",
-    "clean-stack": "^7.0.0",
-    "fireargs": "^0.6.2",
+    "clean-stack": "catalog:",
+    "fireargs": "catalog:",
     "typescript": "^7.0.2",
-    "zod": "^4.6.7"
+    "zod": "catalog:"
   },
   "packageManager": "bun@1.4.4",
   "publishConfig": {

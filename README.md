@@ -47,12 +47,13 @@ unchanged, and installer output stays silent so JSON output is not polluted.
 
 Only `@antfu/install-pkg` is a runtime dependency of optionkit. Fireargs,
 Zod, and `clean-stack` are development dependencies whose ranges are generated
-into the build from `package.json`; the Fireargs range is also exported as
-`FIREARGS_VERSION`. The stack cleaner is installed separately and best-effort:
-a failure never prevents the CLI from starting, and `formatError` falls back to
-the original stack. Fireargs and Zod are also declared as optional peers, so a
-consumer's compatible installation is reused without making either package a
-required install.
+into the build from the catalog in `pnpm-workspace.yaml`. A matching root
+catalog keeps Bun compatible, and verification fails if the two catalogs
+diverge. The Fireargs range is also exported as `FIREARGS_VERSION`. The stack
+cleaner is installed separately and best-effort: a failure never prevents the
+CLI from starting, and `formatError` falls back to the original stack. Fireargs
+and Zod are also declared as optional peers, so a consumer's compatible
+installation is reused without making either package a required install.
 
 For a CLI that does not otherwise use Zod, pass a schema factory to guarantee
 that the schema uses the same cached Zod instance as Fireargs:

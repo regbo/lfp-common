@@ -28,6 +28,15 @@ try {
     packageManager: 'bun@1.4.4',
   }, null, 2)}\n`, 'utf8');
   run(['bun', 'add', archive], consumer);
+  const installedManifest = await readFile(path.join(
+    consumer,
+    'node_modules',
+    'optionkit',
+    'package.json',
+  ), 'utf8');
+  if (installedManifest.includes('catalog:')) {
+    throw new Error('The packed manifest still contains unresolved catalog references.');
+  }
   await writeFile(path.join(consumer, 'cli.mjs'), `
 import { createOptionKit } from 'optionkit';
 
