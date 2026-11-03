@@ -1,5 +1,5 @@
 {
-  "name": "konfkit",
+  "name": "optionkit",
   "version": "0.0.1",
   "description": "Resolve typed Node.js configuration from defaults, environment variables, and CLI flags.",
   "type": "module",
@@ -28,12 +28,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/regbo/konfkit.git"
+    "url": "git+https://github.com/regbo/optionkit.git"
   },
   "bugs": {
-    "url": "https://github.com/regbo/konfkit/issues"
+    "url": "https://github.com/regbo/optionkit/issues"
   },
-  "homepage": "https://github.com/regbo/konfkit#readme",
+  "homepage": "https://github.com/regbo/optionkit#readme",
   "engines": {
     "node": ">=18"
   },

@@ -1,10 +1,10 @@
-# konfkit
+# optionkit
 
-`konfkit` resolves typed Node.js configuration from defaults, environment
+`optionkit` resolves typed Node.js configuration from defaults, environment
 variables, and long CLI flags.
 
 ```js
-import { loadConfig } from "konfkit";
+import { loadConfig } from "optionkit";
 
 const config = loadConfig({
   defaults: {
@@ -34,7 +34,7 @@ kebab-case CLI flags (`--log-level`). Boolean flags accept `--debug` and
 ## Install
 
 ```sh
-bun add konfkit
+bun add optionkit
 ```
 
 ## License
