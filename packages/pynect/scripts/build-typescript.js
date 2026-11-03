@@ -19,8 +19,9 @@ if (result.error) throw result.error;
 if (result.status !== 0) {
   process.exitCode = result.status ?? 1;
 } else {
-  fs.cpSync(path.join(root, 'src', 'py'), path.join(output, 'py'), {
-    filter: source => !source.endsWith('__pycache__') && !source.endsWith('.pyc'),
-    recursive: true,
-  });
+  const pythonOutput = path.join(output, 'py');
+  fs.mkdirSync(pythonOutput, { recursive: true });
+  for (const script of ['pynect_codegen.py', 'pynect_worker.py']) {
+    fs.copyFileSync(path.join(root, 'scripts', script), path.join(pythonOutput, script));
+  }
 }

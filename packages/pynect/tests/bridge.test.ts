@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { createVenv, kwargs, type PythonObject } from '../src/js';
+import { createVenv, kwargs, type PythonObject } from '../src';
 
 describe('Python Venv bridge', () => {
   test('bridges calls, objects, callbacks, kwargs, async functions, and iteration', async () => {

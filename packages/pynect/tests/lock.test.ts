@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { withLock } from '../src/js/utils/lock';
+import { withLock } from '../src/utils/lock';
 
 describe('withLock', () => {
   test('checks before and after waiting and skips stale work', async () => {

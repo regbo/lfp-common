@@ -474,7 +474,7 @@ pyfig.addScripts({ pyfig: 'bun ./src/cli.ts' });
 const pynect = workspace({
   name: 'pynect',
   description: 'Lazy uv-backed Python environments with object proxies for Node.js and Bun.',
-  srcdir: 'src/js',
+  srcdir: 'src',
   libdir: 'dist/js',
   authorName: 'Reggie Bowser and NodePyX contributors',
   tsconfig: {
@@ -521,17 +521,17 @@ pynect.compileTask.execArgs(['bun', 'scripts/build-typescript.js']);
 configureTestsAndTypecheck(pynect, [
   ['tsc', '--noEmit', '-p', 'tsconfig.json'],
   ['tsc', '--noEmit', '-p', 'tests/tsconfig.json'],
-  ['uv', 'run', '--locked', 'ruff', 'check', 'src/py'],
-  ['uv', 'run', '--locked', 'ruff', 'format', '--check', 'src/py'],
+  ['uv', 'run', '--locked', 'ruff', 'check', 'scripts'],
+  ['uv', 'run', '--locked', 'ruff', 'format', '--check', 'scripts'],
 ]);
 pynect.addTask('check:python', {
-  execArgs: ['uv', 'run', '--locked', 'ruff', 'check', 'src/py'],
+  execArgs: ['uv', 'run', '--locked', 'ruff', 'check', 'scripts'],
 });
 pynect.addTask('format:python', {
-  execArgs: ['uv', 'run', '--locked', 'ruff', 'format', 'src/py'],
+  execArgs: ['uv', 'run', '--locked', 'ruff', 'format', 'scripts'],
 });
 pynect.addTask('format:python:check', {
-  execArgs: ['uv', 'run', '--locked', 'ruff', 'format', '--check', 'src/py'],
+  execArgs: ['uv', 'run', '--locked', 'ruff', 'format', '--check', 'scripts'],
 });
 
 const WORKSPACE_FILTER = './packages/*';
@@ -648,7 +648,7 @@ publish.addJob('publish', {
   environment: 'npm',
   timeoutMinutes: 30,
   permissions: {
-    contents: github.workflows.JobPermission.READ,
+    contents: github.workflows.JobPermission.WRITE,
     idToken: github.workflows.JobPermission.WRITE,
   },
   steps: [
@@ -682,6 +682,11 @@ publish.addJob('publish', {
     {
       name: 'Publish the generated archives',
       run: 'bun run publish:release',
+    },
+    {
+      name: 'Create GitHub release',
+      env: { GH_TOKEN: '${{ github.token }}' },
+      run: 'gh release create "${{ github.ref_name }}" dist/packages/*.tgz --verify-tag --generate-notes --title "${{ github.ref_name }}"',
     },
   ],
 });

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { generateBindings, setupDevelopment } from '../src/js/codegen';
+import { generateBindings, setupDevelopment } from '../src/codegen';
 
 const temporaryDirectories: string[] = [];
 

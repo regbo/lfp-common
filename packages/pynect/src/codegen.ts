@@ -4,6 +4,7 @@ import { parse as parseToml } from 'smol-toml';
 import { pyfig } from 'pyfig';
 import { z } from 'zod';
 import { resolvePythonPath } from './utils/pyfig';
+import { resolvePythonScript } from './utils/python-script';
 
 const moduleConfigSchema = z.union([z.array(z.string()), z.record(z.string(), z.string())]);
 
@@ -143,7 +144,7 @@ function deriveClassName(modules: Record<string, string>): string {
 async function runPython(request: PythonRequest): Promise<string> {
   const environment = await pyfig({ cwd: request.root });
   const pythonPath = await resolvePythonPath(environment);
-  const script = path.resolve(__dirname, '..', 'py', 'pynect_codegen.py');
+  const script = resolvePythonScript(__dirname, 'pynect_codegen.py');
   const child = await environment.uv.spawn(
     'run', '--no-project', '--python', pythonPath, script, JSON.stringify(request),
     {

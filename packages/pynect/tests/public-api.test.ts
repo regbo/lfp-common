@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { createVenv, createVenvOptionsSchema, PythonVenv, kwargs } from '../src/js';
+import { createVenv, createVenvOptionsSchema, PythonVenv, kwargs } from '../src';
 
 describe('public API', () => {
   test('validates Venv options through the public schema', () => {
@@ -20,7 +20,7 @@ describe('public API', () => {
   });
 
   test('does not retain legacy embedded-runtime exports', async () => {
-    const pynect = await import('../src/js');
+    const pynect = await import('../src');
     for (const name of ['createPythonBridge', 'init', 'shutdown', 'getRuntime']) {
       expect(name in pynect).toBe(false);
     }

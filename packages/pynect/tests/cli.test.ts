@@ -44,7 +44,7 @@ function runCli(
   env: NodeJS.ProcessEnv = {},
 ): Promise<{ code: number | null; stderr: string; stdout: string }> {
   return new Promise((resolve, reject) => {
-    const cli = path.join(import.meta.dir, '..', 'src', 'js', 'cli.mts');
+    const cli = path.join(import.meta.dir, '..', 'src', 'cli.mts');
     const child = spawn(process.execPath, [cli, ...args], {
       env: { ...process.env, ...env },
       stdio: ['ignore', 'pipe', 'pipe'],

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { createVenv } from '../src/js';
+import { createVenv } from '../src';
 
 interface GeneratedMathModule {
   sqrt(value: number): Promise<number>;

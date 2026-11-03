@@ -31,6 +31,6 @@ jspm_packages/
 !/tests/
 !/tsconfig.json
 !/tests/tsconfig.json
-!/src/js/
+!/src/
 /dist/js
 /dist/

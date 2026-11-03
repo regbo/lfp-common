@@ -1,6 +1,5 @@
 import { randomBytes } from 'node:crypto';
 import type { ChildProcess } from 'node:child_process';
-import path from 'node:path';
 import { memoize } from 'loqkit';
 import { pyfig, type PythonContext } from 'pyfig';
 import {
@@ -15,6 +14,7 @@ import { RpcClient } from './rpc-client';
 import { LocalIpcServer } from './transport/local-ipc';
 import { withLock } from './utils/lock';
 import { resolvePythonPath } from './utils/pyfig';
+import { resolvePythonScript } from './utils/python-script';
 
 const WORKER_REQUIREMENT = 'msgpack>=1.1,<2';
 
@@ -214,7 +214,7 @@ function buildUvArguments(
 }
 
 function resolveWorkerPath(): string {
-  return path.resolve(__dirname, '..', 'py', 'pynect_worker.py');
+  return resolvePythonScript(__dirname, 'pynect_worker.py');
 }
 
 function childFailure(child: ChildProcess): Promise<never> {

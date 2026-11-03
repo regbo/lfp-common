@@ -2,7 +2,7 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "rootDir": "src/js",
+    "rootDir": "src",
     "outDir": "dist/js",
     "alwaysStrict": true,
     "declaration": true,
@@ -38,8 +38,8 @@
     "verbatimModuleSyntax": false
   },
   "include": [
-    "src/js/**/*.ts",
-    "src/js/**/*.mts"
+    "src/**/*.ts",
+    "src/**/*.mts"
   ],
   "exclude": [
     "node_modules",
