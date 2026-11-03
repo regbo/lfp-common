@@ -19,7 +19,7 @@ jobs:
     if: github.repository == 'regbo/loqkit'
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       id-token: write
     steps:
       - uses: actions/checkout@v6
@@ -39,5 +39,19 @@ jobs:
       - name: Pack and audit the publication archive
         id: pack
         run: bun scripts/pack-for-publish.ts
+      - name: Create or update the GitHub Release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ARCHIVE: ${{ steps.pack.outputs.tarball }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$RELEASE_ARCHIVE" --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$GITHUB_REF_NAME" "$RELEASE_ARCHIVE" \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes
+          fi
       - name: Publish the audited archive
         run: npm publish "${{ steps.pack.outputs.tarball }}" --access public --tag latest
