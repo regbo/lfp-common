@@ -166,5 +166,7 @@ npm through trusted publishing.
 
 Use `bun run release -- --commit` to first verify, commit, and push compatible
 worktree changes. It refuses merge conflicts, in-progress Git operations,
-divergence from `origin/main`, and pre-existing `package.json` or `bun.lock`
-changes before creating the release commit and tag.
+and divergence from `origin/main`. The preparation and release commits are
+pushed together atomically with the release tag. If any pre-push step fails,
+local commits and tags are removed while the original worktree and staging
+state are restored.

@@ -52,17 +52,11 @@ export function parseGitStatus(output: string): GitStatusEntry[] {
 /** Reject files that should never be included in an automatic release-preparation commit. */
 export function assertAutoCommitCompatible(output: string): GitStatusEntry[] {
   const entries = parseGitStatus(output);
-  const conflicts = entries.filter(entry => /[ADU]/u.test(entry.status));
+  const conflicts = entries.filter(entry =>
+    ['AA', 'AU', 'DD', 'DU', 'UA', 'UD', 'UU'].includes(entry.status)
+  );
   if (conflicts.length > 0) {
     throw new Error(`Cannot auto-commit unresolved merge conflicts: ${formatPaths(conflicts)}.`);
-  }
-  const releaseMetadata = entries.filter(entry =>
-    entry.path === 'package.json' || entry.path === 'bun.lock'
-  );
-  if (releaseMetadata.length > 0) {
-    throw new Error(
-      `Cannot auto-commit release metadata; commit or restore it manually: ${formatPaths(releaseMetadata)}.`,
-    );
   }
   return entries;
 }

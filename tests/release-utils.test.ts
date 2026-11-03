@@ -37,9 +37,9 @@ describe('release utilities', () => {
     ]);
   });
 
-  test('rejects conflicts and existing release metadata changes', () => {
+  test('rejects conflicts while allowing ordinary metadata edits', () => {
     expect(() => assertAutoCommitCompatible('UU src/cli.ts')).toThrow('merge conflicts');
-    expect(() => assertAutoCommitCompatible(' M package.json')).toThrow('release metadata');
-    expect(() => assertAutoCommitCompatible(' M bun.lock')).toThrow('release metadata');
+    expect(assertAutoCommitCompatible(' M package.json\n M bun.lock')).toHaveLength(2);
+    expect(assertAutoCommitCompatible(' D old.ts\nA  new.ts')).toHaveLength(2);
   });
 });
