@@ -36,6 +36,7 @@ class ReadonlyGeneratedFilesPolicy extends Component {
 const VERSION = '0.8.0';
 const BUN_VERSION = '1.4.4';
 const PROJEN_VERSION = '0.104.23';
+const SETUP_UV_ACTION = 'astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2';
 const BOOTSTRAP_GITHUB_REPOSITORY = 'regbo/lfp-js';
 const GITHUB_REPOSITORY = githubRepositoryFromRemote(gitOriginUrl())
   ?? BOOTSTRAP_GITHUB_REPOSITORY;
@@ -106,6 +107,11 @@ const root = new javascript.NodeProject({
           'node-version': '24',
           'package-manager-cache': false,
         },
+      },
+      {
+        name: 'Setup uv',
+        uses: SETUP_UV_ACTION,
+        with: { version: 'latest-known' },
       },
     ],
   },
@@ -656,6 +662,11 @@ publish.addJob('publish', {
       },
     },
     ...root.renderWorkflowSetup(),
+    {
+      name: 'Setup uv',
+      uses: SETUP_UV_ACTION,
+      with: { version: 'latest-known' },
+    },
     {
       name: 'Install a trusted-publishing npm version',
       run: 'npm install --global npm@11.20.0',
