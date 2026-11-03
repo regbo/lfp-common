@@ -1,0 +1,19 @@
+{
+  "name": "pynect-example-app",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate": "pynect codegen generate --root ../python",
+    "benchmark": "bun src/benchmark.ts",
+    "start": "bun src/index.ts",
+    "start:node": "node --experimental-strip-types src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "pynect": "../.."
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "typescript": "^5.9.3"
+  }
+}

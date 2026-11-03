@@ -1,0 +1,10 @@
+src/py/__pycache__/
+*.py[cod]
+build/
+node_modules/
+.pynect/
+.tmp-generated/
+!dist/
+!dist/**
+dist/*.whl
+dist/*.tar.gz

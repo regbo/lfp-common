@@ -1,0 +1,20 @@
+[project]
+name = "pynect-python"
+version = "0.0.0"
+description = "Python runtime and development environment for Pynect"
+requires-python = ">=3.10"
+dependencies = [
+  "msgpack>=1.1,<2",
+]
+
+[dependency-groups]
+dev = [
+  "ruff>=0.17,<1",
+]
+
+[tool.uv]
+# Pynect copies its Python sources into the npm distribution rather than building a wheel.
+package = false
+
+[tool.ruff]
+target-version = "py310"

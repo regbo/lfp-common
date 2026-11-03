@@ -1,0 +1,43 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "lib": ["ES2022", "ESNext.Disposable"],
+    "rootDir": "./src/js",
+    "outDir": "./dist/js",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "strict": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["node"]
+  },
+  "include": [
+    "src/js/cli.mts",
+    "src/js/codegen.ts",
+    "src/js/config.ts",
+    "src/js/errors.ts",
+    "src/js/index.ts",
+    "src/js/protocol.ts",
+    "src/js/python-object.ts",
+    "src/js/python-venv.ts",
+    "src/js/rpc-client.ts",
+    "src/js/transport/**/*.ts",
+    "src/js/utils/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build",
+    "src/js/nextjs",
+    "tests",
+    "examples",
+    "benchmarks"
+  ]
+}

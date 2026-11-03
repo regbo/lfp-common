@@ -1,0 +1,23 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "declaration": false,
+    "declarationMap": false,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "rootDir": ".",
+    "sourceMap": false,
+    "types": ["bun", "node"]
+  },
+  "include": [
+    "scripts/archive.ts",
+    "scripts/pack-for-publish.ts",
+    "scripts/prepack.ts",
+    "scripts/process.ts",
+    "scripts/release-lib.ts",
+    "scripts/release.ts",
+    "tests/**/*.ts"
+  ]
+}

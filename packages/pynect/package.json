@@ -1,0 +1,94 @@
+{
+  "name": "pynect",
+  "version": "0.2.19",
+  "packageManager": "bun@1.4.4",
+  "description": "Lazy uv-backed Python environments with object proxies for Node.js and Bun.",
+  "main": "dist/js/index.js",
+  "types": "dist/js/index.d.ts",
+  "bin": {
+    "pynect": "dist/js/cli.mjs"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/js/index.d.ts",
+      "import": "./dist/js/index.js",
+      "require": "./dist/js/index.js"
+    },
+    "./types": {
+      "types": "./dist/js/types/index.d.ts",
+      "import": "./dist/js/types/index.js",
+      "require": "./dist/js/types/index.js"
+    }
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "SECURITY.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "bun run build:ts",
+    "build:ts": "bun scripts/build-typescript.js",
+    "check:python": "uv run --locked ruff check src/py",
+    "format:python": "uv run --locked ruff format src/py",
+    "format:python:check": "uv run --locked ruff format --check src/py",
+    "release": "bun scripts/release.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck:release": "tsc --noEmit -p tsconfig.release.json",
+    "verify": "bun run typecheck && bun run typecheck:release && bun run check:python && bun run format:python:check && bun test && bun run build",
+    "prepack": "bun scripts/prepack.ts"
+  },
+  "keywords": [
+    "python",
+    "nodejs",
+    "bun",
+    "typescript",
+    "pydantic",
+    "uv",
+    "ipc",
+    "named-pipe"
+  ],
+  "author": "Reggie Bowser and NodePyX contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/regbo/pynect.git"
+  },
+  "bugs": {
+    "url": "https://github.com/regbo/pynect/issues"
+  },
+  "homepage": "https://github.com/regbo/pynect#readme",
+  "upstream": "https://github.com/Brah-Timo/nodepyx",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org"
+  },
+  "dependencies": {
+    "@msgpack/msgpack": "^3.1.2",
+    "loqkit": "^0.0.5",
+    "optionkit": "^0.0.7",
+    "pyfig": "0.7.10",
+    "smol-toml": "^1.4.2",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.1",
+    "@types/node": "^24.10.0",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": "^22.11.0 || >=24.10.0 <=26.x",
+    "bun": ">=1.2.0"
+  },
+  "os": [
+    "linux",
+    "darwin",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ]
+}
