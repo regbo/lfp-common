@@ -1,6 +1,6 @@
 {
   "name": "pyfig",
-  "version": "0.7.8",
+  "version": "0.7.9",
   "description": "Bootstrap uv and delegate Python execution to it.",
   "type": "module",
   "main": "./dist/cjs/index.js",
