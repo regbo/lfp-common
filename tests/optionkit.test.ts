@@ -69,6 +69,21 @@ describe('optionkit', () => {
     expect(kit.environmentPrefix).toBe('OPTIONKIT_');
   });
 
+  test('finds the consuming root without an explicit locator', async () => {
+    const originalArgv = [...process.argv];
+    try {
+      process.argv[1] = path.join(import.meta.dir, 'nested', 'cli.ts');
+      const argvKit = await createOptionKit({ projectName: 'argv-fallback' });
+      expect(argvKit.packageRoot).toBe(path.resolve(import.meta.dir, '..'));
+
+      process.argv.length = 1;
+      const cwdKit = await createOptionKit({ projectName: 'cwd-fallback' });
+      expect(cwdKit.packageRoot).toBe(process.cwd());
+    } finally {
+      process.argv.splice(0, process.argv.length, ...originalArgv);
+    }
+  });
+
   test('decodes structured environment values with JSON and shell fallbacks', async () => {
     const tagsKey = 'STRUCTURED_TEST_TAGS';
     const labelsKey = 'STRUCTURED_TEST_LABELS';
