@@ -11,24 +11,13 @@ import {
 /** Run the Pynect command-line interface. */
 export async function main(argv: string[] = process.argv): Promise<void> {
   const { f, z } = await createOptionKit();
-  const generateInput = codegenOptionsSchema.extend({
-    noProject: f.option({
-      conflicts: 'project',
-      env: false,
-      name: 'no-project',
-      short: false,
-    }).schema(z.boolean().default(false).describe('Run uv without project discovery.')),
-  });
   const generate = f.command({
     description: 'Generate TypeScript bindings from Python modules.',
   })
-    .input(generateInput)
+    .input(codegenOptionsSchema)
     .output(z.string())
     .render(output => output)
-    .handler(({ noProject, ...options }) => generateBindings({
-      ...options,
-      project: noProject ? false : options.project,
-    }));
+    .handler(options => generateBindings(options));
 
   const setupDev = f.command({
     description: 'Configure editor integration for code generation.',

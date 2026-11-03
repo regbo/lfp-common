@@ -7,7 +7,7 @@
       "dependencies": {
         "@msgpack/msgpack": "^3.1.2",
         "loqkit": "^0.0.5",
-        "optionkit": "^0.0.6",
+        "optionkit": "^0.0.7",
         "pyfig": "0.7.10",
         "smol-toml": "^1.4.2",
         "zod": "^4.6.7",
@@ -74,7 +74,7 @@
 
     "ohash": ["ohash@2.0.12", "", {}, "sha512-65S/5gk9YSsaRjcyf7Nfa6h/d3E8/1gslpXfI4W7Dxn/oap8IKRuNT5VXkLQ1YFKIEg4apRY4Pj6aiwFzrDdmw=="],
 
-    "optionkit": ["optionkit@0.0.6", "", { "dependencies": { "@antfu/install-pkg": "^2.1.0" }, "peerDependencies": { "fireargs": "catalog:", "zod": "catalog:" }, "optionalPeers": ["fireargs", "zod"] }, "sha512-CThB3eAkggDzxJGi867jP8NNnUlMbb5I9SM9QSQKjjdGAk6f5OZ2exfop1ZXAsFKI/6tc0TubIrADOKOwLV0+g=="],
+    "optionkit": ["optionkit@0.0.7", "", { "dependencies": { "@antfu/install-pkg": "^2.1.0" }, "peerDependencies": { "fireargs": "catalog:", "zod": "catalog:" }, "optionalPeers": ["fireargs", "zod"] }, "sha512-6jengY/3ddeX8ZMezMCI5ehURZLBrgfewYRWaVO21HZgBp7CCRuBSoZPyB6bJGcQRUjQfYMYfo8DPgV5+mWz6Q=="],
 
     "package-manager-detector": ["package-manager-detector@1.9.0", "", {}, "sha512-zAMfbta9nPA8AKkA4WdmNAT8R8s6Dk0/xwPsqNnRidMFcLo1YkLuPDTgs2f64XdzS8vbLNnoJ+uUIkgbz7oRHA=="],
 
@@ -133,5 +133,7 @@
     "zod": ["zod@4.6.7", "", {}, "sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg=="],
 
     "parse-json/type-fest": ["type-fest@4.41.0", "", {}, "sha512-TeTSQ6H5YHvpqVwBRcnLDCBnDOHWYu7IvGbHT6N8AOymcr9PJGjc1GTtiWZTYg0NCgYwvnYWEkVChQAr9bjfwA=="],
+
+    "pyfig/optionkit": ["optionkit@0.0.6", "", { "dependencies": { "@antfu/install-pkg": "^2.1.0" }, "peerDependencies": { "fireargs": "catalog:", "zod": "catalog:" }, "optionalPeers": ["fireargs", "zod"] }, "sha512-CThB3eAkggDzxJGi867jP8NNnUlMbb5I9SM9QSQKjjdGAk6f5OZ2exfop1ZXAsFKI/6tc0TubIrADOKOwLV0+g=="],
   }
 }
