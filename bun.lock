@@ -7,8 +7,8 @@
       "dependencies": {
         "@msgpack/msgpack": "^3.1.2",
         "loqkit": "^0.0.5",
-        "optionkit": "^0.0.3",
-        "pyfig": "0.7.8",
+        "optionkit": "^0.0.6",
+        "pyfig": "0.7.10",
         "smol-toml": "^1.4.2",
         "zod": "^4.6.7",
       },
@@ -74,7 +74,7 @@
 
     "ohash": ["ohash@2.0.12", "", {}, "sha512-65S/5gk9YSsaRjcyf7Nfa6h/d3E8/1gslpXfI4W7Dxn/oap8IKRuNT5VXkLQ1YFKIEg4apRY4Pj6aiwFzrDdmw=="],
 
-    "optionkit": ["optionkit@0.0.3", "", { "dependencies": { "@antfu/install-pkg": "^2.1.0" }, "peerDependencies": { "fireargs": "catalog:", "zod": "catalog:" }, "optionalPeers": ["fireargs", "zod"] }, "sha512-H7DxDnsqVe6XLa6CfVSYcR7tITiprOQmu8eSVrMopYiR0zJY5c+GTAvNNIgDajFXdTZ6WBTMS+PLPP4300zEVw=="],
+    "optionkit": ["optionkit@0.0.6", "", { "dependencies": { "@antfu/install-pkg": "^2.1.0" }, "peerDependencies": { "fireargs": "catalog:", "zod": "catalog:" }, "optionalPeers": ["fireargs", "zod"] }, "sha512-CThB3eAkggDzxJGi867jP8NNnUlMbb5I9SM9QSQKjjdGAk6f5OZ2exfop1ZXAsFKI/6tc0TubIrADOKOwLV0+g=="],
 
     "package-manager-detector": ["package-manager-detector@1.9.0", "", {}, "sha512-zAMfbta9nPA8AKkA4WdmNAT8R8s6Dk0/xwPsqNnRidMFcLo1YkLuPDTgs2f64XdzS8vbLNnoJ+uUIkgbz7oRHA=="],
 
@@ -84,7 +84,7 @@
 
     "proper-lockfile": ["proper-lockfile@4.1.2", "", { "dependencies": { "graceful-fs": "^4.2.4", "retry": "^0.12.0", "signal-exit": "^3.0.2" } }, "sha512-TjNPblN4BwAWMXU8s9AEz4JmQxnD1NNL7bNOY/AKUzyamc379FWASUhc/K1pL2noVb+XmZKLL68cjzLsiOAMaA=="],
 
-    "pyfig": ["pyfig@0.7.8", "", { "dependencies": { "@renovatebot/pep440": "^5.0.1", "fflate": "^0.8.3", "loqkit": ">=0.0.5 <0.1.0", "optionkit": "^0.0.3", "tar": "^7.5.22", "undici": "^8.12.3", "which": "^6.0.1", "zod": "^4.6.7" }, "bin": { "pyfig": "dist/cli.js" } }, "sha512-GPDrUsHJ2fV3DmA59AGdAVapxq15nDLqz10TmyhMlpMf7+PhAi/0Xm+p3x9U39l8dQ1sse/8hwmXqpAVO5qRXw=="],
+    "pyfig": ["pyfig@0.7.10", "", { "dependencies": { "@renovatebot/pep440": "^5.0.1", "fflate": "^0.8.3", "loqkit": ">=0.0.5 <0.1.0", "optionkit": "^0.0.6", "tar": "^7.5.22", "undici": "^8.12.3", "which": "^6.0.1", "zod": "^4.6.7" }, "bin": { "pyfig": "dist/cli.js" } }, "sha512-RwW1BDrtJPl1x/h0brBcQLPMwszch8iZGI7+TrA75GpzAx8zwAxx1WNR3weOSWVA/Vq58w84SFSKn0hcGvQ8nA=="],
 
     "read-package-up": ["read-package-up@12.0.0", "", { "dependencies": { "find-up-simple": "^1.0.1", "read-pkg": "^10.0.0", "type-fest": "^5.2.0" } }, "sha512-Q5hMVBYur/eQNWDdbF4/Wqqr9Bjvtrw2kjGxxBbKLbx8bVCL8gcArjTy8zDUuLGQicftpMuU0riQNcAsbtOVsw=="],
 

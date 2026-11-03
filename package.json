@@ -68,8 +68,8 @@
   "dependencies": {
     "@msgpack/msgpack": "^3.1.2",
     "loqkit": "^0.0.5",
-    "optionkit": "^0.0.3",
-    "pyfig": "0.7.8",
+    "optionkit": "^0.0.6",
+    "pyfig": "0.7.10",
     "smol-toml": "^1.4.2",
     "zod": "^4.6.7"
   },
