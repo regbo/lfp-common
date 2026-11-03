@@ -33,7 +33,10 @@ const versionFiles = [
   '.projenrc.ts',
   'package.json',
   'bun.lock',
-  ...WORKSPACES.map(workspace => `${workspace.path}/package.json`),
+  ...WORKSPACES.flatMap(workspace => [
+    `${workspace.path}/package.json`,
+    `${workspace.path}/src/_generated/metadata.ts`,
+  ]),
 ] as const;
 const snapshots = new Map<string, { readonly content: Buffer; readonly mode: number }>();
 for (const filename of versionFiles) {

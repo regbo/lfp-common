@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { catalog } from '../src/_generated/catalog.ts';
 
-test('keeps install-pkg as the only runtime dependency', async () => {
+test('keeps runtime dependencies centralized in the workspace catalog', async () => {
   const root = path.resolve(import.meta.dir, '..');
   const monorepoRoot = path.resolve(root, '..', '..');
   const manifest = JSON.parse(
@@ -18,7 +18,10 @@ test('keeps install-pkg as the only runtime dependency', async () => {
     await readFile(path.join(monorepoRoot, 'package.json'), 'utf8'),
   ) as { workspaces?: { catalog?: Record<string, string> } };
 
-  expect(manifest.dependencies).toEqual({ '@antfu/install-pkg': 'catalog:' });
+  expect(manifest.dependencies).toEqual({
+    '@antfu/install-pkg': 'catalog:',
+    semver: 'catalog:',
+  });
   expect(manifest.devDependencies).not.toHaveProperty('commander');
   expect(manifest.peerDependenciesMeta).toEqual({
     fireargs: { optional: true },
@@ -31,5 +34,6 @@ test('keeps install-pkg as the only runtime dependency', async () => {
   expect(manifest.peerDependencies?.zod).toBe('catalog:');
   expect(monorepo.workspaces?.catalog?.['clean-stack']).toBe(catalog['clean-stack']);
   expect(monorepo.workspaces?.catalog?.fireargs).toBe(catalog.fireargs);
+  expect(monorepo.workspaces?.catalog?.semver).toBeDefined();
   expect(monorepo.workspaces?.catalog?.zod).toBe(catalog.zod);
 });
