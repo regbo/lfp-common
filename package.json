@@ -1,0 +1,43 @@
+{
+  "name": "cfgkit",
+  "version": "0.0.1",
+  "description": "Resolve typed Node.js configuration from defaults, environment variables, and CLI flags.",
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js",
+      "default": "./index.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.d.ts"
+  ],
+  "scripts": {
+    "test": "bun test"
+  },
+  "keywords": [
+    "args",
+    "cli",
+    "config",
+    "environment"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/regbo/cfgkit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/regbo/cfgkit/issues"
+  },
+  "homepage": "https://github.com/regbo/cfgkit#readme",
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
