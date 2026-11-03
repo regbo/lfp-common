@@ -13,6 +13,8 @@ type CleanStack = typeof import('clean-stack').default;
 type CliAdapterModule = typeof import('fireargs');
 type ZodNamespace = typeof import('zod').z;
 type ZodShape = Record<string, ZodType>;
+type StructuredValueKind = 'array' | 'object';
+type InternalValueParser = (value: string) => never;
 type ObjectSchema = ZodObject<ZodShape> | ZodReadonly<ZodObject<ZodShape>>;
 type ShapeOf<Schema> = Schema extends ZodReadonly<infer Inner>
   ? Inner extends ObjectSchema
@@ -21,8 +23,9 @@ type ShapeOf<Schema> = Schema extends ZodReadonly<infer Inner>
   : Schema extends ZodObject<infer Shape>
     ? Shape
     : never;
+type InputOf<Field> = Field extends ZodType ? import('zod').input<Field> : unknown;
 
-export interface OptionConfiguration {
+export interface OptionConfiguration<Value = unknown> {
   /** Long flag without dashes. Defaults to the kebab-case field key. */
   name?: string;
   /** Override the generated environment variable, or disable it for this field. */
@@ -35,10 +38,14 @@ export interface OptionConfiguration {
   preset?: unknown;
   helpGroup?: string;
   defaultDescription?: string;
+  /** Fireargs parser for one CLI or environment string; disables automatic decoding. */
+  parse?: (value: string) => Value;
 }
 
-type ResolvedOptionConfiguration = Omit<OptionConfiguration, 'env' | 'short'> & {
+type ResolvedOptionConfiguration = Omit<OptionConfiguration<never>, 'env' | 'short'> & {
   env?: string;
+  /** Internal compatibility parser for structured values carried by one env string. */
+  parse?: InternalValueParser;
   short?: string;
 };
 
@@ -61,7 +68,9 @@ export interface CreateOptionKitSettings<Schema extends ObjectSchema> {
   /** Letters that automatic short-flag generation must not use. */
   reservedShortFlags?: readonly string[];
   /** Per-field CLI metadata applied after generated values. */
-  fields?: Partial<Record<keyof ShapeOf<Schema>, OptionConfiguration>>;
+  fields?: Partial<{
+    [Key in keyof ShapeOf<Schema>]: OptionConfiguration<InputOf<ShapeOf<Schema>[Key]>>;
+  }>;
   /** Working directory used to detect the caller's package manager. */
   invocationDirectory?: string;
   /** Parent directory for optionkit's versioned dependency cache. */
@@ -115,7 +124,7 @@ export async function createOptionKit<const Schema extends ObjectSchema>(
     settings.environmentPrefix,
     settings.projectName ?? packageInfo.name,
   );
-  const configurations = optionConfigurations(shape, environmentPrefix, settings);
+  const configurations = optionConfigurations(shape, environmentPrefix, loaded.z, settings);
   const options = Object.fromEntries(Object.entries(shape).map(([key, field]) => [
     key,
     loaded.f.option(configurations[key]).schema(field),
@@ -243,7 +252,7 @@ async function installAndImport(
   const cached = await importDependencies(cacheRoot);
   if (cached) return { ...cached, cleanStack, source: 'cache' };
 
-  log?.('Installing optional CLI dependencies.', {
+  log?.('Installing required CLI dependencies.', {
     cacheDirectory: cacheRoot,
     packages: REQUIRED_CLI_DEPENDENCY_SPECIFIERS,
     packageManager,
@@ -265,7 +274,7 @@ async function installAndImport(
   if (!installed) {
     throw new Error(`CLI dependencies were installed but could not be resolved from ${cacheRoot}.`);
   }
-  log?.('Optional CLI dependencies are ready.', { cacheDirectory: cacheRoot });
+  log?.('Required CLI dependencies are ready.', { cacheDirectory: cacheRoot });
   return { ...installed, cleanStack, source: 'cache' };
 }
 
@@ -277,6 +286,13 @@ async function importDependencies(
     importPackageIfAvailable<typeof import('zod')>('zod', root),
   ]);
   if (!adapter || !zod) return undefined;
+  const requiredBuilders = ['argument', 'command', 'option', 'program'] as const;
+  if (!adapter.f || requiredBuilders.some(name => typeof adapter.f[name] !== 'function')) {
+    throw new TypeError('The resolved CLI adapter does not expose its required builder functions.');
+  }
+  if (!zod.z || typeof zod.z.object !== 'function') {
+    throw new TypeError('The resolved Zod package does not expose z.object().');
+  }
   return { f: adapter.f, z: zod.z };
 }
 
@@ -406,6 +422,7 @@ function resolveEnvironmentPrefix(
 function optionConfigurations<Schema extends ObjectSchema>(
   shape: ZodShape,
   environmentPrefix: string | false,
+  zod: ZodNamespace,
   settings: CreateOptionKitSettings<Schema>,
 ): Record<string, ResolvedOptionConfiguration> {
   const keys = Object.keys(shape);
@@ -417,6 +434,8 @@ function optionConfigurations<Schema extends ObjectSchema>(
     const generated: ResolvedOptionConfiguration = {};
     if (environmentPrefix !== false && override?.env !== false) {
       generated.env = override?.env ?? `${environmentPrefix}${toEnvironmentKey(key)}`;
+      const kind = structuredValueKind(shape[key], zod);
+      if (kind && !override?.parse) generated.parse = structuredValueParser(kind);
     }
     if (override?.short !== false && (override?.short ?? shorts[key])) {
       generated.short = typeof override?.short === 'string'
@@ -424,11 +443,93 @@ function optionConfigurations<Schema extends ObjectSchema>(
         : shorts[key];
     }
     if (override) {
-      const { env: _env, short: _short, ...rest } = override;
+      const { env: _env, short: _short, parse, ...rest } = override;
       Object.assign(generated, rest);
+      if (parse) generated.parse = parse as InternalValueParser;
     }
     return [key, generated];
   }));
+}
+
+/**
+ * Fireargs handles structured argv values, but an environment variable reaches
+ * Commander as one string. Detect only unambiguous JSON containers so scalar
+ * coercion and Fireargs' native parsing remain untouched.
+ */
+function structuredValueKind(
+  schema: ZodType | undefined,
+  zod: ZodNamespace,
+  seen = new Set<ZodType>(),
+): StructuredValueKind | undefined {
+  if (!schema || seen.has(schema)) return undefined;
+  seen.add(schema);
+
+  if (schema instanceof zod.ZodArray || schema instanceof zod.ZodTuple) return 'array';
+  if (schema instanceof zod.ZodObject || schema instanceof zod.ZodRecord) return 'object';
+  if (schema instanceof zod.ZodUnion) {
+    const kinds = schema.options.map(option => (
+      structuredValueKind(option as ZodType, zod, new Set(seen))
+    )).filter((kind): kind is StructuredValueKind => kind !== undefined);
+    const unique = new Set(kinds);
+    return unique.size === 1 ? kinds[0] : undefined;
+  }
+  if (schema instanceof zod.ZodPipe) {
+    return structuredValueKind(schema.in as ZodType, zod, seen);
+  }
+
+  const wrapper = schema as ZodType & { unwrap?: () => ZodType };
+  return typeof wrapper.unwrap === 'function'
+    ? structuredValueKind(wrapper.unwrap(), zod, seen)
+    : undefined;
+}
+
+function structuredValueParser(kind: StructuredValueKind): InternalValueParser {
+  return ((value: string): unknown => {
+    try {
+      return JSON.parse(value) as unknown;
+    } catch {
+      // A non-JSON string may still be useful to an array schema or a union.
+    }
+    return kind === 'array' ? splitArrayValue(value) ?? value : value;
+  }) as InternalValueParser;
+}
+
+/** Split comma- or whitespace-delimited shell words without interpreting operators. */
+function splitArrayValue(value: string): string[] | undefined {
+  const result: string[] = [];
+  let token = '';
+  let quote: '"' | "'" | undefined;
+  let escaped = false;
+  let started = false;
+
+  for (const character of value) {
+    if (escaped) {
+      token += character;
+      escaped = false;
+      started = true;
+    } else if (character === '\\') {
+      escaped = true;
+      started = true;
+    } else if (quote) {
+      if (character === quote) quote = undefined;
+      else token += character;
+      started = true;
+    } else if (character === '"' || character === "'") {
+      quote = character;
+      started = true;
+    } else if (character === ',' || /\s/u.test(character)) {
+      if (started) result.push(token);
+      token = '';
+      started = false;
+    } else {
+      token += character;
+      started = true;
+    }
+  }
+
+  if (quote || escaped) return undefined;
+  if (started) result.push(token);
+  return result;
 }
 
 function generatedShortFlags<Schema extends ObjectSchema>(

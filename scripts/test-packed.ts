@@ -45,13 +45,21 @@ const { f, options, z } = await createOptionKit(
     uv: z.string().default('>=0.10,<1').describe('uv request.'),
     python: z.string().optional().describe('Python request.'),
     debug: z.boolean().default(false).describe('Write diagnostics.'),
+    tags: z.array(z.string()).optional().describe('Tags as a JSON array.'),
+    labels: z.array(z.string()).optional().describe('Labels as shell words.'),
+    settings: z.record(z.string(), z.string()).optional().describe('Settings as a JSON object.'),
   }),
   { moduleUrl: import.meta.url },
 );
 const command = f.command({ name: 'resolve', description: 'Resolve runtimes.' })
   .input(z.object(options))
-  .output(z.void())
-  .handler(() => undefined);
+  .output(z.object({
+    tags: z.array(z.string()).optional(),
+    labels: z.array(z.string()).optional(),
+    settings: z.record(z.string(), z.string()).optional(),
+  }))
+  .render(output => JSON.stringify(output))
+  .handler(input => input);
 await command.parseAsync(process.argv);
 `.trimStart(), 'utf8');
 
@@ -66,6 +74,22 @@ await command.parseAsync(process.argv);
   assertIncludes(help, 'env: PACKED_CONSUMER_UV');
   assertIncludes(help, '-p, --python <value>');
   assertIncludes(help, '-d, --debug');
+
+  const structured = run(['bun', 'run', 'cli.mjs'], consumer, {
+    ...process.env,
+    OPTIONKIT_CACHE_DIR: cache,
+    PACKED_CONSUMER_TAGS: '["one","two"]',
+    PACKED_CONSUMER_LABELS: 'one, "two words", three\\,four',
+    PACKED_CONSUMER_SETTINGS: '{"PORT":"3000"}',
+  });
+  const parsed = JSON.parse(structured.stdout) as unknown;
+  if (JSON.stringify(parsed) !== JSON.stringify({
+    tags: ['one', 'two'],
+    labels: ['one', 'two words', 'three,four'],
+    settings: { PORT: '3000' },
+  })) {
+    throw new Error(`Packed structured environment parsing returned: ${structured.stdout}`);
+  }
 
   const manifestAfter = await readFile(path.join(consumer, 'package.json'));
   const lockAfter = await readFile(path.join(consumer, 'bun.lock'));

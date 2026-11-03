@@ -68,4 +68,67 @@ describe('optionkit', () => {
     expect(kit.packageRoot).toBe(path.resolve(import.meta.dir, '..'));
     expect(kit.environmentPrefix).toBe('OPTIONKIT_');
   });
+
+  test('decodes structured environment values with JSON and shell fallbacks', async () => {
+    const tagsKey = 'STRUCTURED_TEST_TAGS';
+    const labelsKey = 'STRUCTURED_TEST_LABELS';
+    const settingsKey = 'STRUCTURED_TEST_SETTINGS';
+    const sourceKey = 'STRUCTURED_TEST_SOURCE';
+    const customKey = 'STRUCTURED_TEST_CUSTOM';
+    const previousTags = process.env[tagsKey];
+    const previousLabels = process.env[labelsKey];
+    const previousSettings = process.env[settingsKey];
+    const previousSource = process.env[sourceKey];
+    const previousCustom = process.env[customKey];
+    process.env[tagsKey] = '["alpha","beta"]';
+    process.env[labelsKey] = 'alpha, "beta gamma", delta\\,epsilon';
+    process.env[settingsKey] = '{"PORT":"3000"}';
+    process.env[sourceKey] = 'settings.json';
+    process.env[customKey] = 'alpha,beta';
+
+    try {
+      const kit = await createOptionKit(z.object({
+        tags: z.array(z.string()).optional(),
+        labels: z.array(z.string()).optional(),
+        settings: z.record(z.string(), z.string()).optional(),
+        source: z.union([z.record(z.string(), z.string()), z.string()]).optional(),
+        custom: z.array(z.string()).optional(),
+      }), {
+        moduleUrl: import.meta.url,
+        projectName: 'structured-test',
+        fields: {
+          custom: { parse: value => [value.toUpperCase()] },
+        },
+      });
+      let received: unknown;
+      const command = kit.f.command({ name: 'structured' })
+        .input(z.object(kit.options))
+        .output(z.void())
+        .handler(input => {
+          received = input;
+          return undefined;
+        });
+
+      await command.parseAsync([], { from: 'user' });
+
+      expect(received).toEqual({
+        tags: ['alpha', 'beta'],
+        labels: ['alpha', 'beta gamma', 'delta,epsilon'],
+        settings: { PORT: '3000' },
+        source: 'settings.json',
+        custom: ['ALPHA,BETA'],
+      });
+    } finally {
+      restoreEnvironment(tagsKey, previousTags);
+      restoreEnvironment(labelsKey, previousLabels);
+      restoreEnvironment(settingsKey, previousSettings);
+      restoreEnvironment(sourceKey, previousSource);
+      restoreEnvironment(customKey, previousCustom);
+    }
+  });
 });
+
+function restoreEnvironment(key: string, value: string | undefined): void {
+  if (value === undefined) delete process.env[key];
+  else process.env[key] = value;
+}
