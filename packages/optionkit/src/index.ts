@@ -7,6 +7,7 @@ export {
   type CliRoute,
   type CommandConfiguration,
   type CreateOptionKitSettings,
+  type ErrorFormatterPackage,
   type FieldBuilder,
   type OptionConfiguration,
   type OptionKit,

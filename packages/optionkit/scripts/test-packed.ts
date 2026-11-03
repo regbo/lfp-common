@@ -45,11 +45,13 @@ try {
 import { createOptionKit } from 'optionkit';
 import { PACKAGE_NAME, PACKAGE_VERSION } from 'optionkit/metadata';
 
+const CLI_VERSION = '4.5.6';
+
 if (PACKAGE_NAME !== 'optionkit' || PACKAGE_VERSION !== ${JSON.stringify(installedPackage.version)}) {
   throw new Error('The public metadata export does not match the packed package.');
 }
 
-const { f, z } = await createOptionKit({ moduleUrl: import.meta.url, version: 'auto' });
+const { f, z } = await createOptionKit({ moduleUrl: import.meta.url, version: CLI_VERSION });
 const input = z.object({
   uv: z.string().default('>=0.10,<1').describe('uv request.'),
   python: z.string().optional().describe('Python request.'),
@@ -81,8 +83,8 @@ await command.parseAsync(process.argv);
   assertIncludes(help, '-v, --version');
 
   const version = run(['bun', 'run', 'cli.mjs', '--version'], consumer);
-  if (version.stdout.trim() !== '2.3.4') {
-    throw new Error(`Automatic version output was: ${version.stdout}`);
+  if (version.stdout.trim() !== '4.5.6') {
+    throw new Error(`Explicit version output was: ${version.stdout}`);
   }
 
   const structured = run(['bun', 'run', 'cli.mjs'], consumer, {

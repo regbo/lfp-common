@@ -16,8 +16,9 @@ import type {
 import { catalog } from './_generated/catalog.js';
 import { importPackageIfAvailable, resolvePackage } from './resolve.js';
 
-type CleanStack = typeof import('clean-stack').default;
 type CliAdapterModule = typeof import('fireargs');
+type ErrorFormatterModule = Readonly<Record<string, unknown>>;
+type StackFormatter = (stack: string, options?: { pretty?: boolean }) => unknown;
 type ZodNamespace = typeof import('zod').z;
 type ZodShape = Record<string, ZodType>;
 type StructuredValueKind = 'array' | 'object';
@@ -165,6 +166,7 @@ interface RuntimeOption {
 
 interface VersionedRuntimeRoute extends CliRoute {
   readonly options?: readonly RuntimeOption[];
+  readonly parent: unknown | null;
   version(value: string, flags?: string, description?: string): unknown;
 }
 
@@ -185,6 +187,13 @@ export type OptionKitLogger = (
   details?: Readonly<Record<string, unknown>>,
 ) => void;
 
+export interface ErrorFormatterPackage {
+  /** Package name imported at runtime. */
+  name: string;
+  /** Package specifier passed to install-pkg. Defaults to `name`. */
+  specifier?: string;
+}
+
 export interface CreateOptionKitSettings {
   /** Module URL for the consuming CLI; used to find its nearest package.json. */
   moduleUrl?: string | URL;
@@ -192,8 +201,8 @@ export interface CreateOptionKitSettings {
   packageRoot?: string;
   /** Override the consuming package name used to derive the environment prefix. */
   projectName?: string;
-  /** Add `-v, --version` from an explicit SemVer or the consuming package in auto mode. */
-  version?: string | 'auto' | false;
+  /** Add `-v, --version` from an explicit SemVer supplied by the CLI package. */
+  version?: string | false;
   /** Override the generated prefix, or disable environment bindings. */
   environmentPrefix?: string | false;
   /** Generate non-conflicting single-letter flags. Defaults to true. */
@@ -210,6 +219,8 @@ export interface CreateOptionKitSettings {
   cacheDirectory?: string;
   /** Optional diagnostics sink. optionkit never writes install progress itself. */
   log?: OptionKitLogger;
+  /** Best-effort stack formatter package. Defaults to the catalog's clean-stack. */
+  errorFormatter?: string | ErrorFormatterPackage | false;
   /** Format rejected handlers and renderers at the parse boundary. Defaults to true. */
   formatErrors?: boolean;
 }
@@ -225,7 +236,7 @@ export interface OptionKit {
   packageRoot: string;
   /** Where the CLI dependencies were resolved or installed. */
   dependencySource: 'cache' | 'package-root' | 'project';
-  /** Render an error with clean-stack when the optional dependency is available. */
+  /** Render an error with the optional formatter when it is available. */
   formatError: (error: unknown) => string;
 }
 
@@ -233,9 +244,12 @@ const REQUIRED_CLI_DEPENDENCY_SPECIFIERS = [
   `fireargs@${catalog.fireargs}`,
   `zod@${catalog.zod}`,
 ];
-const CLEAN_STACK_SPECIFIER = `clean-stack@${catalog['clean-stack']}`;
+const DEFAULT_ERROR_FORMATTER = {
+  name: 'clean-stack',
+  specifier: `clean-stack@${catalog['clean-stack']}`,
+} as const satisfies ErrorFormatterPackage;
 const installPromises = new Map<string, Promise<LoadedDependencies>>();
-const cleanStackPromises = new Map<string, Promise<CleanStack | undefined>>();
+const formatterPromises = new Map<string, Promise<StackFormatter | undefined>>();
 
 /**
  * Load the CLI adapter on demand. Every command input is transparently augmented
@@ -245,13 +259,13 @@ export async function createOptionKit(
   settings: CreateOptionKitSettings = {},
 ): Promise<OptionKit> {
   const packageInfo = await consumingPackage(settings);
-  const version = resolvePackageVersion(settings.version, packageInfo.version);
+  const version = resolvePackageVersion(settings.version);
   const loaded = await loadDependencies(packageInfo.root, settings);
   const environmentPrefix = resolveEnvironmentPrefix(
     settings.environmentPrefix,
     settings.projectName ?? packageInfo.name,
   );
-  const errorFormatter = (error: unknown) => formatError(error, loaded.cleanStack);
+  const errorFormatter = (error: unknown) => formatError(error, loaded.errorFormatter);
 
   return {
     f: createAdapter(
@@ -273,11 +287,10 @@ export async function createOptionKit(
 interface PackageInfo {
   name: string;
   root: string;
-  version?: unknown;
 }
 
 interface LoadedDependencies {
-  cleanStack?: CleanStack;
+  errorFormatter?: StackFormatter;
   f: CliAdapterModule['f'];
   z: ZodNamespace;
   source: 'cache' | 'package-root' | 'project';
@@ -291,25 +304,21 @@ async function consumingPackage(
     : await findPackageRoot(await discoveryStart(settings.moduleUrl));
   const manifest = JSON.parse(
     await readFile(path.join(root, 'package.json'), 'utf8'),
-  ) as { name?: unknown; version?: unknown };
+  ) as { name?: unknown };
   const name = settings.projectName ?? manifest.name;
   if (typeof name !== 'string' || name.trim() === '') {
     throw new TypeError('The consuming package must have a name or set projectName.');
   }
-  return { name, root, version: manifest.version };
+  return { name, root };
 }
 
 function resolvePackageVersion(
   configured: CreateOptionKitSettings['version'],
-  discovered: unknown,
 ): string | undefined {
   if (configured === undefined || configured === false) return undefined;
-  const candidate = configured === 'auto' ? discovered : configured;
-  if (candidate === undefined && configured === 'auto') return undefined;
-  const version = typeof candidate === 'string' ? validSemver(candidate) : null;
+  const version = validSemver(configured);
   if (!version) {
-    const source = configured === 'auto' ? 'The consuming package version' : 'version';
-    throw new TypeError(`${source} must be valid SemVer; received ${JSON.stringify(candidate)}.`);
+    throw new TypeError(`version must be valid SemVer; received ${JSON.stringify(configured)}.`);
   }
   return version;
 }
@@ -362,14 +371,15 @@ async function loadDependencies(
   const installRoot = path.resolve(settings.cacheDirectory ?? packageRoot);
   const installSource = settings.cacheDirectory ? 'cache' : 'package-root';
   if (settings.cacheDirectory) await ensureCachePackage(installRoot);
+  const errorFormatter = await loadErrorFormatter(
+    packageRoot,
+    installRoot,
+    packageManager,
+    settings.errorFormatter,
+    settings.log,
+  );
   if (project) {
-    const projectCleanStack = await importCleanStack(packageRoot, settings.log);
-    const cleanStack = projectCleanStack ?? await cachedCleanStack(
-      installRoot,
-      packageManager,
-      settings.log,
-    );
-    return { ...project, cleanStack, source: 'project' };
+    return { ...project, errorFormatter, source: 'project' };
   }
 
   let installation = installPromises.get(installRoot);
@@ -383,7 +393,7 @@ async function loadDependencies(
     installPromises.set(installRoot, installation);
   }
   try {
-    return await installation;
+    return { ...await installation, errorFormatter };
   } catch (error) {
     installPromises.delete(installRoot);
     throw error;
@@ -396,9 +406,8 @@ async function installAndImport(
   source: 'cache' | 'package-root',
   log: OptionKitLogger | undefined,
 ): Promise<LoadedDependencies> {
-  const cleanStack = await cachedCleanStack(installRoot, packageManager, log);
   const existing = await importDependencies(installRoot);
-  if (existing) return { ...existing, cleanStack, source };
+  if (existing) return { ...existing, source };
 
   log?.('Installing required CLI dependencies.', {
     installDirectory: installRoot,
@@ -409,7 +418,7 @@ async function installAndImport(
     await installWithoutSaving(REQUIRED_CLI_DEPENDENCY_SPECIFIERS, installRoot, packageManager);
   } catch (error) {
     log?.('Could not install required CLI dependencies.', {
-      error: formatError(error, cleanStack),
+      error: formatError(error),
     });
     throw error;
   }
@@ -421,7 +430,7 @@ async function installAndImport(
     );
   }
   log?.('Required CLI dependencies are ready.', { installDirectory: installRoot });
-  return { ...installed, cleanStack, source };
+  return { ...installed, source };
 }
 
 async function importDependencies(
@@ -442,63 +451,106 @@ async function importDependencies(
   return { f: adapter.f, z: zod.z };
 }
 
-async function cachedCleanStack(
-  cacheRoot: string,
+async function loadErrorFormatter(
+  packageRoot: string,
+  installRoot: string,
   packageManager: string,
+  configured: CreateOptionKitSettings['errorFormatter'],
   log: OptionKitLogger | undefined,
-): Promise<CleanStack | undefined> {
-  let installation = cleanStackPromises.get(cacheRoot);
+): Promise<StackFormatter | undefined> {
+  const formatter = resolveErrorFormatter(configured);
+  if (!formatter) return undefined;
+  const projectFormatter = await importErrorFormatter(formatter.name, packageRoot, log);
+  if (projectFormatter) return projectFormatter;
+
+  const cacheKey = JSON.stringify([installRoot, formatter.name, formatter.specifier]);
+  let installation = formatterPromises.get(cacheKey);
   if (!installation) {
-    installation = installCleanStack(cacheRoot, packageManager, log);
-    cleanStackPromises.set(cacheRoot, installation);
+    installation = installErrorFormatter(formatter, installRoot, packageManager, log);
+    formatterPromises.set(cacheKey, installation);
   }
   return installation;
 }
 
-async function installCleanStack(
+function resolveErrorFormatter(
+  configured: CreateOptionKitSettings['errorFormatter'],
+): Required<ErrorFormatterPackage> | undefined {
+  if (configured === false) return undefined;
+  if (configured === undefined) return { ...DEFAULT_ERROR_FORMATTER };
+  if (typeof configured === 'string') {
+    return { name: configured, specifier: configured };
+  }
+  return {
+    name: configured.name,
+    specifier: configured.specifier ?? configured.name,
+  };
+}
+
+async function installErrorFormatter(
+  formatter: Required<ErrorFormatterPackage>,
   installRoot: string,
   packageManager: string,
   log: OptionKitLogger | undefined,
-): Promise<CleanStack | undefined> {
-  const existing = await importCleanStack(installRoot, log);
+): Promise<StackFormatter | undefined> {
+  const existing = await importErrorFormatter(formatter.name, installRoot, log);
   if (existing) return existing;
 
-  log?.('Installing optional stack cleaner.', {
+  log?.('Installing optional error formatter.', {
     installDirectory: installRoot,
-    package: CLEAN_STACK_SPECIFIER,
+    package: formatter.specifier,
     packageManager,
   });
   try {
-    await installWithoutSaving(CLEAN_STACK_SPECIFIER, installRoot, packageManager);
-    const installed = await importCleanStack(installRoot, log);
-    if (installed) log?.('Optional stack cleaner is ready.', { installDirectory: installRoot });
+    await installWithoutSaving(formatter.specifier, installRoot, packageManager);
+    const installed = await importErrorFormatter(formatter.name, installRoot, log);
+    if (installed) {
+      log?.('Optional error formatter is ready.', {
+        installDirectory: installRoot,
+        package: formatter.name,
+      });
+    }
     return installed;
   } catch (error) {
-    log?.('Optional stack cleaner is unavailable.', { error: formatError(error) });
+    log?.('Optional error formatter is unavailable.', {
+      error: formatError(error),
+      package: formatter.name,
+    });
     return undefined;
   }
 }
 
-async function importCleanStack(
+async function importErrorFormatter(
+  packageName: string,
   root: string,
   log: OptionKitLogger | undefined,
-): Promise<CleanStack | undefined> {
+): Promise<StackFormatter | undefined> {
   try {
-    return (await importPackageIfAvailable<typeof import('clean-stack')>('clean-stack', root))
-      ?.default;
+    const module = await importPackageIfAvailable<ErrorFormatterModule>(packageName, root);
+    if (!module) return undefined;
+    const formatter = [module.default, module.formatError, module.format]
+      .find(candidate => typeof candidate === 'function');
+    if (typeof formatter === 'function') return formatter as StackFormatter;
+    log?.('Optional error formatter has no supported function export.', {
+      package: packageName,
+    });
+    return undefined;
   } catch (error) {
-    log?.('Optional stack cleaner could not be loaded.', { error: formatError(error) });
+    log?.('Optional error formatter could not be loaded.', {
+      error: formatError(error),
+      package: packageName,
+    });
     return undefined;
   }
 }
 
-function formatError(error: unknown, cleanStack?: CleanStack): string {
+function formatError(error: unknown, formatter?: StackFormatter): string {
   const stack = error instanceof Error
     ? error.stack ?? `${error.name}: ${error.message}`
     : String(error);
-  if (!cleanStack) return stack;
+  if (!formatter) return stack;
   try {
-    return cleanStack(stack, { pretty: true });
+    const rendered = formatter(stack, { pretty: true });
+    return typeof rendered === 'string' ? rendered : stack;
   } catch {
     return stack;
   }
@@ -623,12 +675,12 @@ function createAdapter(
               const outputBuilder = inputBuilder.output(output);
               const attach = (route: CliCommand): CliCommand => {
                 addBooleanNegations(route, negations);
-                addVersionOption(route, version);
                 environmentBindings.set(route, bindings);
                 wrapParseBoundary(
                   route,
                   () => bindings,
                   settings.formatErrors === false ? undefined : errorFormatter,
+                  version,
                 );
                 return route;
               };
@@ -655,7 +707,6 @@ function createAdapter(
       return {
         router(routes: Readonly<Record<string, CliRoute>>) {
           const program = builder.router(routes as never);
-          addVersionOption(program, version);
           wrapParseBoundary(
             program,
             (argv, options) => {
@@ -663,6 +714,7 @@ function createAdapter(
               return selected ? environmentBindings.get(selected) ?? [] : [];
             },
             settings.formatErrors === false ? undefined : errorFormatter,
+            version,
           );
           return program;
         },
@@ -945,9 +997,12 @@ function wrapParseBoundary(
     options: CliParseOptions | undefined,
   ) => readonly StructuredEnvironmentBinding[],
   errorFormatter: ((error: unknown) => string) | undefined,
+  version: string | undefined,
 ): void {
   const parse = route.parseAsync.bind(route);
   route.parseAsync = async (argv, options) => {
+    const runtime = route as VersionedRuntimeRoute;
+    if (runtime.parent === null) addVersionOption(route, version);
     const active = bindings(argv, options);
     try {
       if (!active.length) return await parse(argv, options);

@@ -4,6 +4,7 @@ import { realpathSync } from 'node:fs';
 import { once } from 'node:events';
 import { pathToFileURL } from 'node:url';
 import { createOptionKit } from 'optionkit';
+import { PACKAGE_VERSION } from './_generated/metadata.js';
 import { createDebugLogger } from './logging.js';
 import { pyfig, pyfigOptionsSchema, type PyfigOptions } from './pyfig.js';
 
@@ -15,7 +16,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const { f, z } = await createOptionKit({
     log,
     moduleUrl: import.meta.url,
-    version: 'auto',
+    version: PACKAGE_VERSION,
   });
   const createInput = () => pyfigOptionsSchema.unwrap();
   const output = z.object({

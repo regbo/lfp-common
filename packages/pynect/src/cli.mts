@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { createOptionKit } from 'optionkit';
+import { PACKAGE_VERSION } from './_generated/metadata.js';
 import {
   codegenOptionsSchema,
   generateBindings,
@@ -10,7 +11,7 @@ import {
 
 /** Run the Pynect command-line interface. */
 export async function main(argv: string[] = process.argv): Promise<void> {
-  const { f, z } = await createOptionKit({ version: 'auto' });
+  const { f, z } = await createOptionKit({ version: PACKAGE_VERSION });
   const generate = f.command({
     description: 'Generate TypeScript bindings from Python modules.',
   })

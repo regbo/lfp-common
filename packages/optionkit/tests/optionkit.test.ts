@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 import {
   PACKAGE_NAME,
@@ -115,22 +116,32 @@ describe('optionkit', () => {
     expect(kit.environmentPrefix).toBe('OPTIONKIT_');
   });
 
-  test('adds validated explicit and automatic package versions without overriding routes', async () => {
-    const automatic = await createOptionKit({
+  test('adds validated package versions without overriding routes', async () => {
+    let versionOutput = '';
+    const versioned = await createOptionKit({
       formatErrors: false,
       moduleUrl: import.meta.url,
-      version: 'auto',
+      version: PACKAGE_VERSION,
     });
-    const autoCommand = automatic.f.command({ name: 'example' })
-      .input(automatic.z.object({ verbose: automatic.z.boolean().default(false) }))
-      .output(automatic.z.void())
+    const versionedCommand = versioned.f.command({
+      name: 'example',
+      exitOverride: true,
+      configureOutput: {
+        writeOut: (value: string) => { versionOutput += value; },
+      },
+    })
+      .input(versioned.z.object({ verbose: versioned.z.boolean().default(false) }))
+      .output(versioned.z.void())
       .handler(() => undefined);
 
     expect(PACKAGE_NAME).toBe('optionkit');
-    expect((autoCommand as typeof autoCommand & { version(): string }).version())
+    await expect(versionedCommand.parseAsync(['--version'], { from: 'user' }))
+      .rejects.toHaveProperty('code', 'commander.version');
+    expect(versionOutput).toBe(`${PACKAGE_VERSION}\n`);
+    expect((versionedCommand as typeof versionedCommand & { version(): string }).version())
       .toBe(PACKAGE_VERSION);
-    expect(autoCommand.helpInformation()).toContain('-v, --version');
-    expect(autoCommand.helpInformation()).not.toContain('-v, --verbose');
+    expect(versionedCommand.helpInformation()).toContain('-v, --version');
+    expect(versionedCommand.helpInformation()).not.toContain('-v, --verbose');
 
     const explicit = await createOptionKit({
       moduleUrl: import.meta.url,
@@ -294,6 +305,7 @@ describe('optionkit', () => {
     const kit = await createOptionKit({
       moduleUrl: import.meta.url,
       projectName: 'passthrough',
+      version: PACKAGE_VERSION,
     });
     let received: unknown;
     const command = kit.f.command({
@@ -308,7 +320,8 @@ describe('optionkit', () => {
         return undefined;
       });
 
-    await command.parseAsync(['--debug', '--', '--version', '-c', 'print(1)'], {
+    const program = kit.f.program({ name: 'example' }).router({ run: command });
+    await program.parseAsync(['run', '--debug', '--version', '-c', 'print(1)'], {
       from: 'user',
     });
 
@@ -357,6 +370,28 @@ describe('optionkit', () => {
     } finally {
       process.exitCode = previousExitCode ?? 0;
     }
+  });
+
+  test('treats formatter import and installation failures as optional', async () => {
+    const messages: string[] = [];
+    const missing = pathToFileURL(path.join(
+      import.meta.dir,
+      'fixtures',
+      'missing-error-formatter',
+    )).href;
+    const kit = await createOptionKit({
+      errorFormatter: {
+        name: 'optionkit-missing-error-formatter',
+        specifier: missing,
+      },
+      log: message => { messages.push(message); },
+      moduleUrl: import.meta.url,
+    });
+
+    expect(kit.formatError(new Error('fallback formatter')))
+      .toContain('Error: fallback formatter');
+    expect(messages).toContain('Installing optional error formatter.');
+    expect(messages).toContain('Optional error formatter is unavailable.');
   });
 });
 

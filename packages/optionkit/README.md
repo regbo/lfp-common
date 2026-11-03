@@ -55,20 +55,23 @@ await program.parseAsync(process.argv);
 
 ### Package version
 
-Set `version: 'auto'` to validate the consuming package's `package.json`
-version as SemVer and add `-v, --version` to commands and programs that do not
-already provide `--version`:
+Pass the CLI package's generated version to validate it as SemVer and add
+`-v, --version` when a command or program is parsed as the root route:
 
 ```ts
+import { PACKAGE_VERSION } from './_generated/metadata.js';
+
 const { f, z } = await createOptionKit({
   moduleUrl: import.meta.url,
-  version: 'auto',
+  version: PACKAGE_VERSION,
 });
 ```
 
-An explicit SemVer is also accepted. Automatic short-option generation reserves
-`-v` whenever a version is active. Missing versions are ignored in auto mode;
-invalid discovered or explicit versions fail during `createOptionKit()`.
+Optionkit never infers a version from a consuming project's `package.json`.
+Automatic short-option generation reserves `-v` whenever a version is active,
+and invalid versions fail during `createOptionKit()`. Mounted subcommands do not
+inherit this option, so wrapper commands can pass their executable's `--version`
+through unchanged.
 
 ### Environment values
 
@@ -98,7 +101,8 @@ const run = f.command({ name: 'run', passThroughArguments: true })
 ```
 
 Use `{ description: '...' }` instead of `true` to change the generated positional
-help text.
+help text. The wrapper's own `--help` remains active before the separator; place
+`--help` after `--` to send it to the executable.
 
 ## Override only what differs
 
@@ -115,7 +119,7 @@ const kit = await createOptionKit({
 
 Available Optionkit-level controls include `projectName`, `environmentPrefix`,
 `version`, `shortFlags`, `booleanNegations`, `reservedShortFlags`, per-field metadata,
-`invocationDirectory`, and an explicit `cacheDirectory`. A parser registered through `f.option({ parse })`
+`invocationDirectory`, `errorFormatter`, and an explicit `cacheDirectory`. A parser registered through `f.option({ parse })`
 or the `fields` setting is forwarded unchanged and bypasses automatic structured
 decoding.
 
@@ -137,11 +141,21 @@ and installs the catalog ranges from the consuming package root without changing
 the manifest or lockfile. `cacheDirectory` explicitly opts into an isolated
 installation; there is no default version cache.
 
-`@antfu/install-pkg` is Optionkit's only hard runtime dependency. Fireargs, Zod,
-and `clean-stack` are optional peers and development dependencies. Their ranges
+`@antfu/install-pkg` and `semver` are Optionkit's hard runtime dependencies.
+Fireargs and Zod are optional peers, while `clean-stack` is the default optional
+error formatter. Their ranges
 live in the package catalog and are generated into `src/_generated/catalog.ts` as
-a one-to-one runtime mirror. `clean-stack` is best-effort: failure never blocks a
-CLI. Rejected handlers and renderers are formatted at the `parseAsync` boundary,
+a one-to-one runtime mirror.
+
+Set `errorFormatter` to a package name or `{ name, specifier }` to try another
+formatter. Optionkit looks for a default, `formatError`, or `format` function
+export. It first imports the package from the CLI project, then tries a no-save
+installation through `@antfu/install-pkg` and imports it again. Import,
+installation, export-shape, and formatter-execution failures never block the CLI;
+formatting falls back to the original stack. Set `errorFormatter: false` to skip
+the optional integration.
+
+Rejected handlers and renderers are formatted at the `parseAsync` boundary,
 written to the command's configured error output, and set exit code 1 by default.
 Set `formatErrors: false` to keep rejection handling in the consumer. The returned
 `formatError(error)` uses the same formatter and falls back to the original stack.
