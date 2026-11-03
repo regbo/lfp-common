@@ -145,6 +145,7 @@ root.tasks.removeTask('eject');
 
 const baseTsconfig = new javascript.TypescriptConfig(root, {
   fileName: 'tsconfig.base.json',
+  include: [],
   compilerOptions: {
     target: 'ES2022',
     module: 'NodeNext',
