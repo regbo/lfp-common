@@ -1,7 +1,7 @@
 {
   "name": "optionkit",
   "version": "0.0.1",
-  "description": "Turn Zod configuration schemas into zero-setup Fireargs options.",
+  "description": "Turn Zod configuration schemas into zero-setup CLI options.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

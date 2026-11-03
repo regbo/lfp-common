@@ -5,14 +5,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { detectPackageManager, installPackage } from '@antfu/install-pkg';
-import type { OptionConfig } from 'fireargs';
 import type { ZodObject, ZodReadonly, ZodType } from 'zod';
 import { catalog } from './_generated/catalog.js';
-import { toEnvironmentKey } from './config.js';
 import { importPackageIfAvailable } from './resolve.js';
 
 type CleanStack = typeof import('clean-stack').default;
-type FireargsModule = typeof import('fireargs');
+type CliAdapterModule = typeof import('fireargs');
 type ZodNamespace = typeof import('zod').z;
 type ZodShape = Record<string, ZodType>;
 type ObjectSchema = ZodObject<ZodShape> | ZodReadonly<ZodObject<ZodShape>>;
@@ -24,11 +22,24 @@ type ShapeOf<Schema> = Schema extends ZodReadonly<infer Inner>
     ? Shape
     : never;
 
-export type OptionConfiguration = Omit<OptionConfig, 'env' | 'short'> & {
+export interface OptionConfiguration {
+  /** Long flag without dashes. Defaults to the kebab-case field key. */
+  name?: string;
   /** Override the generated environment variable, or disable it for this field. */
   env?: string | false;
   /** Override the generated short flag, or disable it for this field. */
   short?: string | false;
+  conflicts?: string | string[];
+  implies?: Record<string, unknown>;
+  hidden?: boolean;
+  preset?: unknown;
+  helpGroup?: string;
+  defaultDescription?: string;
+}
+
+type ResolvedOptionConfiguration = Omit<OptionConfiguration, 'env' | 'short'> & {
+  env?: string;
+  short?: string;
 };
 
 export type OptionKitLogger = (
@@ -49,7 +60,7 @@ export interface CreateOptionKitSettings<Schema extends ObjectSchema> {
   shortFlags?: boolean;
   /** Letters that automatic short-flag generation must not use. */
   reservedShortFlags?: readonly string[];
-  /** Per-field Fireargs configuration applied after generated values. */
+  /** Per-field CLI metadata applied after generated values. */
   fields?: Partial<Record<keyof ShapeOf<Schema>, OptionConfiguration>>;
   /** Working directory used to detect the caller's package manager. */
   invocationDirectory?: string;
@@ -60,11 +71,11 @@ export interface CreateOptionKitSettings<Schema extends ObjectSchema> {
 }
 
 export interface OptionKit<Schema extends ObjectSchema> {
-  /** Fireargs' builder namespace, loaded from the project or the lazy cache. */
-  f: FireargsModule['f'];
-  /** Zod from the same dependency location as Fireargs. */
+  /** CLI builder namespace, loaded from the project or the lazy cache. */
+  f: CliAdapterModule['f'];
+  /** Zod from the same dependency location as the CLI adapter. */
   z: ZodNamespace;
-  /** The source schema fields tagged with generated Fireargs option metadata. */
+  /** The source schema fields tagged with generated CLI option metadata. */
   options: ShapeOf<Schema>;
   /** Prefix used for generated environment variables, including its trailing underscore. */
   environmentPrefix: string | false;
@@ -78,8 +89,6 @@ export interface OptionKit<Schema extends ObjectSchema> {
 
 export type OptionSchemaFactory<Schema extends ObjectSchema> = (z: ZodNamespace) => Schema;
 
-export const FIREARGS_VERSION = catalog.fireargs;
-
 const REQUIRED_CLI_DEPENDENCY_SPECIFIERS = [
   `fireargs@${catalog.fireargs}`,
   `zod@${catalog.zod}`,
@@ -89,7 +98,7 @@ const installPromises = new Map<string, Promise<LoadedDependencies>>();
 const cleanStackPromises = new Map<string, Promise<CleanStack | undefined>>();
 
 /**
- * Load Fireargs on demand and map a Zod object schema to environment-aware,
+ * Load the CLI adapter on demand and map a Zod object schema to environment-aware,
  * conflict-free CLI options without duplicating the schema's field definitions.
  */
 export async function createOptionKit<const Schema extends ObjectSchema>(
@@ -130,7 +139,7 @@ interface PackageInfo {
 
 interface LoadedDependencies {
   cleanStack?: CleanStack;
-  f: FireargsModule['f'];
+  f: CliAdapterModule['f'];
   z: ZodNamespace;
   source: 'project' | 'cache';
 }
@@ -263,12 +272,12 @@ async function installAndImport(
 async function importDependencies(
   root: string,
 ): Promise<Omit<LoadedDependencies, 'source'> | undefined> {
-  const [fireargs, zod] = await Promise.all([
-    importPackageIfAvailable<FireargsModule>('fireargs', root),
+  const [adapter, zod] = await Promise.all([
+    importPackageIfAvailable<CliAdapterModule>('fireargs', root),
     importPackageIfAvailable<typeof import('zod')>('zod', root),
   ]);
-  if (!fireargs || !zod) return undefined;
-  return { f: fireargs.f, z: zod.z };
+  if (!adapter || !zod) return undefined;
+  return { f: adapter.f, z: zod.z };
 }
 
 async function cachedCleanStack(
@@ -398,14 +407,14 @@ function optionConfigurations<Schema extends ObjectSchema>(
   shape: ZodShape,
   environmentPrefix: string | false,
   settings: CreateOptionKitSettings<Schema>,
-): Record<string, OptionConfig> {
+): Record<string, ResolvedOptionConfiguration> {
   const keys = Object.keys(shape);
   const overrides = settings.fields as Record<string, OptionConfiguration | undefined> | undefined;
   const shorts = generatedShortFlags(keys, overrides, settings);
 
   return Object.fromEntries(keys.map(key => {
     const override = overrides?.[key];
-    const generated: OptionConfig = {};
+    const generated: ResolvedOptionConfiguration = {};
     if (environmentPrefix !== false && override?.env !== false) {
       generated.env = override?.env ?? `${environmentPrefix}${toEnvironmentKey(key)}`;
     }
@@ -463,4 +472,13 @@ function normalizeShort(value: string, key: string): string {
     throw new TypeError(`Short flag for ${key} must be one letter or digit.`);
   }
   return normalized;
+}
+
+function toEnvironmentKey(value: string): string {
+  return value
+    .replace(/([a-z0-9])([A-Z])/gu, '$1_$2')
+    .replace(/^@/u, '')
+    .replace(/[^a-zA-Z0-9]+/gu, '_')
+    .replace(/^_+|_+$/gu, '')
+    .toUpperCase();
 }

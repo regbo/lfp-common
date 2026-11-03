@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import path from 'node:path';
 import { z } from 'zod';
-import { createOptionKit, FIREARGS_VERSION } from '../src/index.ts';
+import { createOptionKit } from '../src/index.ts';
 
-describe('createOptionKit', () => {
+describe('optionkit', () => {
   test('maps a readonly Zod schema to env vars and unique short flags', async () => {
     const schema = z.object({
       uv: z.string().default('>=0.10,<1').describe('uv executable or version constraint.'),
@@ -67,9 +67,5 @@ describe('createOptionKit', () => {
 
     expect(kit.packageRoot).toBe(path.resolve(import.meta.dir, '..'));
     expect(kit.environmentPrefix).toBe('OPTIONKIT_');
-  });
-
-  test('exports the generated Fireargs range', () => {
-    expect(FIREARGS_VERSION).toBe('^0.6.2');
   });
 });

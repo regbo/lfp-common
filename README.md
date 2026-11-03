@@ -1,6 +1,6 @@
 # optionkit
 
-`optionkit` turns a Zod configuration schema into Fireargs options. It adds
+`optionkit` turns a Zod configuration schema into CLI options. It adds
 environment-variable bindings, adds unambiguous short flags, and lazily loads
 the CLI stack without making Fireargs, Commander, or Zod runtime dependencies
 of this package.
@@ -50,11 +50,11 @@ Zod, and `clean-stack` are development dependencies whose ranges are generated
 into the build from the catalog in `pnpm-workspace.yaml`. A matching root
 catalog keeps Bun compatible, and verification fails if the two catalogs
 diverge. `src/_generated/catalog.ts` is a one-to-one runtime mirror of the root
-catalog. The Fireargs range is also exported as `FIREARGS_VERSION`. The stack
-cleaner is installed separately and best-effort: a failure never prevents the
-CLI from starting, and `formatError` falls back to the original stack. Fireargs
-and Zod are also declared as optional peers, so a consumer's compatible
-installation is reused without making either package a required install.
+catalog. The stack cleaner is installed separately and best-effort: a failure
+never prevents the CLI from starting, and `formatError` falls back to the
+original stack. Fireargs and Zod are also declared as optional peers, so a
+consumer's compatible installation is reused without making either package a
+required install.
 
 For a CLI that does not otherwise use Zod, pass a schema factory to guarantee
 that the schema uses the same cached Zod instance as Fireargs:
@@ -118,20 +118,6 @@ Keeping the peer optional is important for packed and `bunx` execution: the
 package advertises its CLI integration without making Fireargs a required
 preinstalled peer, leaving optionkit's resolve-first loader free to populate
 the isolated cache.
-
-## Basic configuration loading
-
-The original `loadConfig` API remains available for small CLIs that do not use
-Zod or Fireargs. Its precedence is `defaults < environment < CLI`.
-
-```js
-import { loadConfig } from 'optionkit';
-
-const config = loadConfig({
-  defaults: { port: 3000, debug: false },
-  prefix: 'MY_APP_',
-});
-```
 
 ## Install
 
