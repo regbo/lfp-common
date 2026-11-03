@@ -3,6 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { PACKAGE_VERSION } from '../src/_generated/metadata.ts';
 
 describe('CLI', () => {
   let projectRoot = '';
@@ -13,6 +14,13 @@ describe('CLI', () => {
 
   afterAll(async () => {
     await rm(projectRoot, { force: true, recursive: true });
+  });
+
+  test('reports the package version', async () => {
+    const result = await runCli(['--version']);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout.trim()).toBe(PACKAGE_VERSION);
   });
 
   test('builds nested help and options from the codegen schemas', async () => {

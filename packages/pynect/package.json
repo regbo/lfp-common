@@ -82,6 +82,11 @@
       "types": "./dist/js/types/index.d.ts",
       "import": "./dist/js/types/index.js",
       "require": "./dist/js/types/index.js"
+    },
+    "./metadata": {
+      "types": "./dist/js/_generated/metadata.d.ts",
+      "import": "./dist/js/_generated/metadata.js",
+      "require": "./dist/js/_generated/metadata.js"
     }
   },
   "files": [

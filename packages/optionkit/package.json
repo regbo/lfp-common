@@ -29,6 +29,7 @@
   "devDependencies": {
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
+    "@types/semver": "catalog:",
     "clean-stack": "catalog:",
     "fireargs": "catalog:",
     "typescript": "catalog:",
@@ -39,7 +40,8 @@
     "zod": "catalog:"
   },
   "dependencies": {
-    "@antfu/install-pkg": "catalog:"
+    "@antfu/install-pkg": "catalog:",
+    "semver": "catalog:"
   },
   "keywords": [
     "args",
@@ -72,6 +74,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./metadata": {
+      "types": "./dist/_generated/metadata.d.ts",
+      "import": "./dist/_generated/metadata.js",
+      "default": "./dist/_generated/metadata.js"
     }
   },
   "files": [

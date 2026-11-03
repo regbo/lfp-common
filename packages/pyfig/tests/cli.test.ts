@@ -1,8 +1,16 @@
 import { describe, expect, test } from 'bun:test';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
+import { PACKAGE_VERSION } from '../src/_generated/metadata.ts';
 
 describe('CLI', () => {
+  test('reports the package version', async () => {
+    const result = await runCli(['--version']);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout.trim()).toBe(PACKAGE_VERSION);
+  });
+
   test('derives help and defaults from the Pyfig schemas', async () => {
     const result = await runCli(['resolve', '--help']);
 

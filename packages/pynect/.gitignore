@@ -34,3 +34,4 @@ jspm_packages/
 !/src/
 /dist/js
 /dist/
+!/src/_generated/metadata.ts

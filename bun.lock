@@ -41,10 +41,12 @@
       "version": "0.8.2",
       "dependencies": {
         "@antfu/install-pkg": "catalog:",
+        "semver": "catalog:",
       },
       "devDependencies": {
         "@types/bun": "catalog:",
         "@types/node": "catalog:",
+        "@types/semver": "catalog:",
         "clean-stack": "catalog:",
         "fireargs": "catalog:",
         "typescript": "catalog:",

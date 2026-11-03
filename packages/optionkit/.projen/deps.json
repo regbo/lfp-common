@@ -11,6 +11,11 @@
       "type": "build"
     },
     {
+      "name": "@types/semver",
+      "version": "catalog:",
+      "type": "build"
+    },
+    {
       "name": "clean-stack",
       "version": "catalog:",
       "type": "build"
@@ -42,6 +47,11 @@
     },
     {
       "name": "@antfu/install-pkg",
+      "version": "catalog:",
+      "type": "runtime"
+    },
+    {
+      "name": "semver",
       "version": "catalog:",
       "type": "runtime"
     }

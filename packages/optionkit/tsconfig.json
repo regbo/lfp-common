@@ -29,7 +29,8 @@
     "target": "ES2022",
     "types": [
       "bun",
-      "node"
+      "node",
+      "semver"
     ],
     "declarationMap": true,
     "sourceMap": true,

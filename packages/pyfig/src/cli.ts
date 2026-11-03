@@ -12,7 +12,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const debug = argv.includes('--debug') ||
     ['y', 'yes', 'true', 'on', '1'].includes(process.env.DEBUG?.toLowerCase() || '');
   const log = createDebugLogger(debug);
-  const { f, z } = await createOptionKit({ log, moduleUrl: import.meta.url });
+  const { f, z } = await createOptionKit({
+    log,
+    moduleUrl: import.meta.url,
+    version: 'auto',
+  });
   const createInput = () => pyfigOptionsSchema.unwrap();
   const output = z.object({
     uv: z.object({

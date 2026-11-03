@@ -10,7 +10,7 @@ import {
 
 /** Run the Pynect command-line interface. */
 export async function main(argv: string[] = process.argv): Promise<void> {
-  const { f, z } = await createOptionKit();
+  const { f, z } = await createOptionKit({ version: 'auto' });
   const generate = f.command({
     description: 'Generate TypeScript bindings from Python modules.',
   })

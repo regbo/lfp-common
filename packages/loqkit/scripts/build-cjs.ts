@@ -9,7 +9,10 @@ await rm(outdir, { force: true, recursive: true });
 await mkdir(outdir, { recursive: true });
 
 const result = await Bun.build({
-  entrypoints: [join(root, "src", "index.ts")],
+  entrypoints: [
+    join(root, "src", "index.ts"),
+    join(root, "src", "_generated", "metadata.ts"),
+  ],
   external: ["fs-ext"],
   format: "cjs",
   outdir,

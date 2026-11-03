@@ -200,7 +200,59 @@ replaceBuildDependencies(root, [
   'typescript@catalog:',
 ]);
 
-function workspace(options: typescript.TypeScriptProjectOptions) {
+interface PackageMetadataOptions {
+  readonly libdir: string;
+  readonly name: string;
+  readonly requirePath?: string;
+  readonly srcdir: string;
+}
+
+/** Synthesize package identity and merge its public subpath into the final manifest. */
+class PackageMetadata extends Component {
+  readonly #nodeProject: typescript.TypeScriptProject;
+  readonly #options: PackageMetadataOptions;
+
+  constructor(
+    project: typescript.TypeScriptProject,
+    options: PackageMetadataOptions,
+  ) {
+    super(project);
+    this.#nodeProject = project;
+    this.#options = options;
+    new TextFile(project, `${options.srcdir}/_generated/metadata.ts`, {
+      committed: true,
+      readonly: true,
+      lines: [
+        '/** Package identity synthesized from the shared Projen configuration. */',
+        `export const PACKAGE_NAME = ${JSON.stringify(options.name)} as const;`,
+        `export const PACKAGE_VERSION = ${JSON.stringify(VERSION)} as const;`,
+      ],
+    });
+  }
+
+  override preSynthesize(): void {
+    const configured = this.#nodeProject.package.manifest.exports;
+    if (configured !== undefined && (
+      configured === null ||
+      typeof configured !== 'object' ||
+      Array.isArray(configured)
+    )) {
+      throw new TypeError(`${this.#nodeProject.name} package exports must be an object.`);
+    }
+    this.#nodeProject.package.addField('exports', {
+      ...(configured as Record<string, unknown> | undefined),
+      './metadata': packageMetadataExport(
+        this.#options.libdir,
+        this.#options.requirePath,
+      ),
+    });
+  }
+}
+
+function workspace(
+  options: typescript.TypeScriptProjectOptions,
+  metadataRequirePath?: string,
+) {
   const outdir = options.outdir ?? `packages/${options.name}`;
   const srcdir = options.srcdir ?? 'src';
   const libdir = options.libdir ?? 'dist';
@@ -293,6 +345,14 @@ function workspace(options: typescript.TypeScriptProjectOptions) {
   });
 
   project.package.addVersion(VERSION);
+  new PackageMetadata(project, {
+    libdir,
+    name: options.name,
+    requirePath: metadataRequirePath ?? (commonJs
+      ? `./${libdir}/_generated/metadata.js`
+      : undefined),
+    srcdir,
+  });
   project.addFields({
     sideEffects: false,
     publishConfig: {
@@ -313,6 +373,16 @@ function workspace(options: typescript.TypeScriptProjectOptions) {
   ]);
 
   return project;
+}
+
+/** Build the public export map for a workspace's generated package metadata. */
+function packageMetadataExport(libdir: string, requirePath?: string) {
+  const modulePath = `./${libdir}/_generated/metadata.js`;
+  return {
+    types: `./${libdir}/_generated/metadata.d.ts`,
+    import: modulePath,
+    ...(requirePath ? { require: requirePath } : { default: modulePath }),
+  };
 }
 
 const loqkit = workspace({
@@ -345,7 +415,7 @@ const loqkit = workspace({
     'memoize',
     'typescript',
   ],
-});
+}, './release/cjs/_generated/metadata.js');
 loqkit.addFields({
   type: 'module',
   main: './release/cjs/index.js',
@@ -374,8 +444,12 @@ const optionkit = workspace({
   name: 'optionkit',
   description: 'Turn Zod configuration schemas into zero-setup CLI options.',
   authorName: 'optionkit contributors',
-  deps: ['@antfu/install-pkg@catalog:'],
+  deps: [
+    '@antfu/install-pkg@catalog:',
+    'semver@catalog:',
+  ],
   devDeps: [
+    '@types/semver@catalog:',
     'clean-stack@catalog:',
     'fireargs@catalog:',
     'zod@catalog:',
@@ -439,7 +513,7 @@ const pyfig = workspace({
   ],
   devDeps: ['@types/which@catalog:'],
   keywords: ['python', 'uv', 'bun', 'node'],
-});
+}, './dist/cjs/_generated/metadata.js');
 pyfig.addFields({
   type: 'module',
   main: './dist/cjs/index.js',
@@ -608,6 +682,7 @@ new TextFile(root, 'README.md', {
     '| [`pynect`](packages/pynect) | Lazy Python environments and object proxies. |',
     '',
     'All packages use the version declared in `.projenrc.ts`, external versions come from its Bun catalog, and sibling packages use `workspace:*`.',
+    'Every workspace publishes its generated `PACKAGE_NAME` and `PACKAGE_VERSION` constants from the `./metadata` subpath.',
     '',
     'Run `bun run projen` after changing project configuration and `bun run verify` for the full workspace check.',
   ],
@@ -619,6 +694,7 @@ new TextFile(root, 'docs/llm/UTILITIES.md', {
     '',
     '- `scripts/process.ts`: shell-free child-process execution shared by release tooling.',
     '- `ReadonlyGeneratedFiles`: Projen mixin that makes every synthesized file read-only across the project tree.',
+    '- `PackageMetadata`: emits tracked, read-only `_generated/metadata.ts` modules and merges public `./metadata` package exports.',
     '- `scripts/workspaces.ts`: Pacwich-backed workspace discovery and shared-version validation.',
     '- `scripts/release-lib.ts`: pure SemVer, tag, GitHub remote, and identity helpers.',
     '- `scripts/release.ts`: local fixed-version release transaction.',

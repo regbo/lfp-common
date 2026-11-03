@@ -7,6 +7,7 @@
     ".projen/tasks.json",
     "LICENSE",
     "package.json",
+    "src/_generated/metadata.ts",
     "tests/tsconfig.json",
     "tsconfig.json"
   ],

@@ -73,6 +73,11 @@
       "types": "./release/index.d.ts",
       "import": "./release/index.js",
       "require": "./release/cjs/index.js"
+    },
+    "./metadata": {
+      "types": "./release/_generated/metadata.d.ts",
+      "import": "./release/_generated/metadata.js",
+      "require": "./release/cjs/_generated/metadata.js"
     }
   },
   "files": [

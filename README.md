@@ -10,5 +10,6 @@ The shared Bun monorepo for LFP Connect JavaScript and TypeScript libraries.
 | [`pynect`](packages/pynect) | Lazy Python environments and object proxies. |
 
 All packages use the version declared in `.projenrc.ts`, external versions come from its Bun catalog, and sibling packages use `workspace:*`.
+Every workspace publishes its generated `PACKAGE_NAME` and `PACKAGE_VERSION` constants from the `./metadata` subpath.
 
 Run `bun run projen` after changing project configuration and `bun run verify` for the full workspace check.

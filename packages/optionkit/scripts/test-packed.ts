@@ -27,6 +27,7 @@ try {
     name: 'packed-consumer',
     private: true,
     type: 'module',
+    version: '2.3.4',
     packageManager: monorepo.packageManager,
   }, null, 2)}\n`, 'utf8');
   run(['bun', 'add', archive], consumer);
@@ -39,10 +40,16 @@ try {
   if (installedManifest.includes('catalog:')) {
     throw new Error('The packed manifest still contains unresolved catalog references.');
   }
+  const installedPackage = JSON.parse(installedManifest) as { version?: unknown };
   await writeFile(path.join(consumer, 'cli.mjs'), `
 import { createOptionKit } from 'optionkit';
+import { PACKAGE_NAME, PACKAGE_VERSION } from 'optionkit/metadata';
 
-const { f, z } = await createOptionKit({ moduleUrl: import.meta.url });
+if (PACKAGE_NAME !== 'optionkit' || PACKAGE_VERSION !== ${JSON.stringify(installedPackage.version)}) {
+  throw new Error('The public metadata export does not match the packed package.');
+}
+
+const { f, z } = await createOptionKit({ moduleUrl: import.meta.url, version: 'auto' });
 const input = z.object({
   uv: z.string().default('>=0.10,<1').describe('uv request.'),
   python: z.string().optional().describe('Python request.'),
@@ -71,6 +78,12 @@ await command.parseAsync(process.argv);
   assertIncludes(help, 'env: PACKED_CONSUMER_UV');
   assertIncludes(help, '-p, --python <value>');
   assertIncludes(help, '-d, --debug');
+  assertIncludes(help, '-v, --version');
+
+  const version = run(['bun', 'run', 'cli.mjs', '--version'], consumer);
+  if (version.stdout.trim() !== '2.3.4') {
+    throw new Error(`Automatic version output was: ${version.stdout}`);
+  }
 
   const structured = run(['bun', 'run', 'cli.mjs'], consumer, {
     ...process.env,

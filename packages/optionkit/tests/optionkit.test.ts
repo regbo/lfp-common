@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import path from 'node:path';
 import { z } from 'zod';
+import {
+  PACKAGE_NAME,
+  PACKAGE_VERSION,
+} from '../src/_generated/metadata.ts';
 import { createOptionKit } from '../src/index.ts';
 
 describe('optionkit', () => {
@@ -109,6 +113,47 @@ describe('optionkit', () => {
 
     expect(kit.packageRoot).toBe(path.resolve(import.meta.dir, '..'));
     expect(kit.environmentPrefix).toBe('OPTIONKIT_');
+  });
+
+  test('adds validated explicit and automatic package versions without overriding routes', async () => {
+    const automatic = await createOptionKit({
+      formatErrors: false,
+      moduleUrl: import.meta.url,
+      version: 'auto',
+    });
+    const autoCommand = automatic.f.command({ name: 'example' })
+      .input(automatic.z.object({ verbose: automatic.z.boolean().default(false) }))
+      .output(automatic.z.void())
+      .handler(() => undefined);
+
+    expect(PACKAGE_NAME).toBe('optionkit');
+    expect((autoCommand as typeof autoCommand & { version(): string }).version())
+      .toBe(PACKAGE_VERSION);
+    expect(autoCommand.helpInformation()).toContain('-v, --version');
+    expect(autoCommand.helpInformation()).not.toContain('-v, --verbose');
+
+    const explicit = await createOptionKit({
+      moduleUrl: import.meta.url,
+      version: '1.2.3',
+    });
+    const manualCommand = explicit.f.command({
+      name: 'manual',
+      version: '9.8.7',
+      versionOption: { flags: '-V, --version' },
+    })
+      .input(explicit.z.object({}))
+      .output(explicit.z.void())
+      .handler(() => undefined);
+
+    expect((manualCommand as typeof manualCommand & { version(): string }).version())
+      .toBe('9.8.7');
+    expect(manualCommand.helpInformation()).toContain('-V, --version');
+    expect(manualCommand.helpInformation()).not.toContain('-v, --version');
+
+    await expect(createOptionKit({
+      moduleUrl: import.meta.url,
+      version: 'not-semver',
+    })).rejects.toThrow('version must be valid SemVer');
   });
 
   test('finds the consuming root without an explicit locator', async () => {

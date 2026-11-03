@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { constants } from 'node:fs';
-import { access } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
   ROOT,
@@ -18,6 +18,16 @@ test('keeps one version, lockfile, catalog, and workspace protocol', async () =>
     const directory = workspacePath(workspace);
     const manifest = await readManifest(directory);
     expect(manifest.version).toBe(root.version);
+    expect(manifest.exports?.['./metadata']?.types).toEndWith('/_generated/metadata.d.ts');
+    expect(manifest.exports?.['./metadata']?.import).toEndWith('/_generated/metadata.js');
+
+    const metadataPath = path.join(directory, 'src', '_generated', 'metadata.ts');
+    const metadata = await readFile(metadataPath, 'utf8');
+    expect(metadata).toContain(`export const PACKAGE_NAME = ${JSON.stringify(workspace.name)} as const;`);
+    expect(metadata).toContain(`export const PACKAGE_VERSION = ${JSON.stringify(root.version)} as const;`);
+
+    const generatedFiles = await Bun.file(path.join(directory, '.projen/files.json')).json();
+    expect(generatedFiles.files).toContain('src/_generated/metadata.ts');
 
     for (const section of [
       manifest.dependencies,

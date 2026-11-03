@@ -79,6 +79,11 @@
     "./cli": {
       "types": "./dist/cli.d.ts",
       "import": "./dist/cli.js"
+    },
+    "./metadata": {
+      "types": "./dist/_generated/metadata.d.ts",
+      "import": "./dist/_generated/metadata.js",
+      "require": "./dist/cjs/_generated/metadata.js"
     }
   },
   "files": [

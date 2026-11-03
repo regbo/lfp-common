@@ -2,6 +2,7 @@
 
 - `scripts/process.ts`: shell-free child-process execution shared by release tooling.
 - `ReadonlyGeneratedFiles`: Projen mixin that makes every synthesized file read-only across the project tree.
+- `PackageMetadata`: emits tracked, read-only `_generated/metadata.ts` modules and merges public `./metadata` package exports.
 - `scripts/workspaces.ts`: Pacwich-backed workspace discovery and shared-version validation.
 - `scripts/release-lib.ts`: pure SemVer, tag, GitHub remote, and identity helpers.
 - `scripts/release.ts`: local fixed-version release transaction.

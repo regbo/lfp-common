@@ -53,6 +53,23 @@ const program = f.program({ name: 'app' }).router({ serve, status });
 await program.parseAsync(process.argv);
 ```
 
+### Package version
+
+Set `version: 'auto'` to validate the consuming package's `package.json`
+version as SemVer and add `-v, --version` to commands and programs that do not
+already provide `--version`:
+
+```ts
+const { f, z } = await createOptionKit({
+  moduleUrl: import.meta.url,
+  version: 'auto',
+});
+```
+
+An explicit SemVer is also accepted. Automatic short-option generation reserves
+`-v` whenever a version is active. Missing versions are ignored in auto mode;
+invalid discovered or explicit versions fail during `createOptionKit()`.
+
 ### Environment values
 
 Scalar values keep Fireargs' normal coercion. Array, tuple, object, and record
@@ -97,7 +114,7 @@ const kit = await createOptionKit({
 ```
 
 Available Optionkit-level controls include `projectName`, `environmentPrefix`,
-`shortFlags`, `booleanNegations`, `reservedShortFlags`, per-field metadata,
+`version`, `shortFlags`, `booleanNegations`, `reservedShortFlags`, per-field metadata,
 `invocationDirectory`, and an explicit `cacheDirectory`. A parser registered through `f.option({ parse })`
 or the `fields` setting is forwarded unchanged and bypasses automatic structured
 decoding.
@@ -133,6 +150,13 @@ Use the returned `z` when the consumer does not otherwise depend on Zod; it is
 resolved from the same location as the CLI adapter. `resolvePackage` and
 `importPackageIfAvailable` expose the same resolve-first behavior for other
 optional integrations and only suppress a genuinely missing package.
+
+Optionkit also exposes its Projen-generated package identity from
+`optionkit/metadata`:
+
+```ts
+import { PACKAGE_NAME, PACKAGE_VERSION } from 'optionkit/metadata';
+```
 
 ## License
 

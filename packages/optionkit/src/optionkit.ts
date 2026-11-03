@@ -3,6 +3,7 @@ import { access, mkdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { detectPackageManager, installPackage } from '@antfu/install-pkg';
+import { valid as validSemver } from 'semver';
 import type {
   ZodArray,
   ZodBoolean,
@@ -162,6 +163,11 @@ interface RuntimeOption {
   readonly long?: string;
 }
 
+interface VersionedRuntimeRoute extends CliRoute {
+  readonly options?: readonly RuntimeOption[];
+  version(value: string, flags?: string, description?: string): unknown;
+}
+
 interface RuntimeCliCommand extends CliCommand {
   readonly options?: readonly RuntimeOption[];
   configureOutput?: () => { writeErr?: (value: string) => void };
@@ -186,6 +192,8 @@ export interface CreateOptionKitSettings {
   packageRoot?: string;
   /** Override the consuming package name used to derive the environment prefix. */
   projectName?: string;
+  /** Add `-v, --version` from an explicit SemVer or the consuming package in auto mode. */
+  version?: string | 'auto' | false;
   /** Override the generated prefix, or disable environment bindings. */
   environmentPrefix?: string | false;
   /** Generate non-conflicting single-letter flags. Defaults to true. */
@@ -237,6 +245,7 @@ export async function createOptionKit(
   settings: CreateOptionKitSettings = {},
 ): Promise<OptionKit> {
   const packageInfo = await consumingPackage(settings);
+  const version = resolvePackageVersion(settings.version, packageInfo.version);
   const loaded = await loadDependencies(packageInfo.root, settings);
   const environmentPrefix = resolveEnvironmentPrefix(
     settings.environmentPrefix,
@@ -245,7 +254,14 @@ export async function createOptionKit(
   const errorFormatter = (error: unknown) => formatError(error, loaded.cleanStack);
 
   return {
-    f: createAdapter(loaded.f, loaded.z, environmentPrefix, settings, errorFormatter),
+    f: createAdapter(
+      loaded.f,
+      loaded.z,
+      environmentPrefix,
+      version,
+      settings,
+      errorFormatter,
+    ),
     z: loaded.z,
     environmentPrefix,
     packageRoot: packageInfo.root,
@@ -257,6 +273,7 @@ export async function createOptionKit(
 interface PackageInfo {
   name: string;
   root: string;
+  version?: unknown;
 }
 
 interface LoadedDependencies {
@@ -274,12 +291,27 @@ async function consumingPackage(
     : await findPackageRoot(await discoveryStart(settings.moduleUrl));
   const manifest = JSON.parse(
     await readFile(path.join(root, 'package.json'), 'utf8'),
-  ) as { name?: unknown };
+  ) as { name?: unknown; version?: unknown };
   const name = settings.projectName ?? manifest.name;
   if (typeof name !== 'string' || name.trim() === '') {
     throw new TypeError('The consuming package must have a name or set projectName.');
   }
-  return { name, root };
+  return { name, root, version: manifest.version };
+}
+
+function resolvePackageVersion(
+  configured: CreateOptionKitSettings['version'],
+  discovered: unknown,
+): string | undefined {
+  if (configured === undefined || configured === false) return undefined;
+  const candidate = configured === 'auto' ? discovered : configured;
+  if (candidate === undefined && configured === 'auto') return undefined;
+  const version = typeof candidate === 'string' ? validSemver(candidate) : null;
+  if (!version) {
+    const source = configured === 'auto' ? 'The consuming package version' : 'version';
+    throw new TypeError(`${source} must be valid SemVer; received ${JSON.stringify(candidate)}.`);
+  }
+  return version;
 }
 
 async function discoveryStart(moduleUrl: string | URL | undefined): Promise<string> {
@@ -545,10 +577,17 @@ function createAdapter(
   adapter: CliAdapterModule['f'],
   zod: ZodNamespace,
   environmentPrefix: string | false,
+  version: string | undefined,
   settings: CreateOptionKitSettings,
   errorFormatter: (error: unknown) => string,
 ): OptionKitAdapter {
   const environmentBindings = new WeakMap<CliRoute, readonly StructuredEnvironmentBinding[]>();
+  const inputSettings = version === undefined
+    ? settings
+    : {
+        ...settings,
+        reservedShortFlags: ['v', ...(settings.reservedShortFlags ?? [])],
+      };
   return {
     ...adapter,
     command(configuration: CommandConfiguration = {}) {
@@ -576,7 +615,7 @@ function createAdapter(
             adapter,
             zod,
             environmentPrefix,
-            settings,
+            inputSettings,
           );
           const inputBuilder = builder.input(adapted);
           return {
@@ -584,6 +623,7 @@ function createAdapter(
               const outputBuilder = inputBuilder.output(output);
               const attach = (route: CliCommand): CliCommand => {
                 addBooleanNegations(route, negations);
+                addVersionOption(route, version);
                 environmentBindings.set(route, bindings);
                 wrapParseBoundary(
                   route,
@@ -615,6 +655,7 @@ function createAdapter(
       return {
         router(routes: Readonly<Record<string, CliRoute>>) {
           const program = builder.router(routes as never);
+          addVersionOption(program, version);
           wrapParseBoundary(
             program,
             (argv, options) => {
@@ -628,6 +669,13 @@ function createAdapter(
       };
     },
   } as OptionKitAdapter;
+}
+
+function addVersionOption(route: CliRoute, version: string | undefined): void {
+  if (version === undefined) return;
+  const runtime = route as VersionedRuntimeRoute;
+  if (runtime.options?.some(option => option.long === '--version')) return;
+  runtime.version(version, '-v, --version');
 }
 
 function addPassThroughArgument(

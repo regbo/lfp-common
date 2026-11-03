@@ -8,6 +8,7 @@
     "LICENSE",
     "package.json",
     "scripts/tsconfig.json",
+    "src/_generated/metadata.ts",
     "tests/tsconfig.json",
     "tsconfig.json"
   ],
