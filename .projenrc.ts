@@ -196,42 +196,20 @@ replaceBuildDependencies(root, [
   'typescript@catalog:',
 ]);
 
-interface WorkspaceOptions {
-  readonly name: 'loqkit' | 'optionkit' | 'pyfig' | 'pynect';
-  readonly description: string;
-  readonly srcdir: string;
-  readonly libdir: string;
-  readonly testdir: string;
-  readonly copyrightOwner: string;
-  readonly module?: string;
-  readonly moduleResolution?: javascript.TypeScriptModuleResolution;
-  readonly lib?: string[];
-  readonly exactOptionalPropertyTypes?: boolean;
-  readonly entrypoint: string;
-  readonly entrypointTypes: string;
-  readonly bin?: Record<string, string>;
-  readonly deps?: string[];
-  readonly devDeps?: string[];
-  readonly peerDeps?: string[];
-  readonly keywords: string[];
-}
-
-function workspace(options: WorkspaceOptions): typescript.TypeScriptProject {
-  const outdir = `packages/${options.name}`;
+function workspace(options: typescript.TypeScriptProjectOptions) {
+  const outdir = options.outdir ?? `packages/${options.name}`;
+  const srcdir = options.srcdir ?? 'src';
+  const libdir = options.libdir ?? 'dist';
+  const testdir = options.testdir ?? 'tests';
+  const module = options.tsconfig?.compilerOptions?.module ?? 'NodeNext';
+  const commonJs = module === 'CommonJS';
   const project = new typescript.TypeScriptProject({
-    parent: root,
-    outdir,
-    name: options.name,
-    packageName: options.name,
-    description: options.description,
-    authorName: options.copyrightOwner,
     defaultReleaseBranch: 'main',
     repository: REPOSITORY,
-    repositoryDirectory: outdir,
     homepage: `${GITHUB_URL}/tree/main/${outdir}#readme`,
     bugsUrl: BUGS_URL,
     license: 'MIT',
-    copyrightOwner: options.copyrightOwner,
+    authorName: 'LFP Connect contributors',
     copyrightPeriod: '2026',
     packageManager: javascript.NodePackageManager.BUN,
     bunVersion: BUN_VERSION,
@@ -254,56 +232,60 @@ function workspace(options: WorkspaceOptions): typescript.TypeScriptProject {
     vscode: false,
     addPackageManagerToDevEngines: false,
     deleteOrphanedLockFiles: false,
-    srcdir: options.srcdir,
-    libdir: options.libdir,
-    testdir: options.testdir,
-    entrypoint: options.entrypoint,
-    entrypointTypes: options.entrypointTypes,
+    entrypoint: `${libdir}/index.js`,
+    entrypointTypes: `${libdir}/index.d.ts`,
     autoDetectBin: false,
-    bin: options.bin,
-    keywords: options.keywords,
-    deps: options.deps,
-    devDeps: options.devDeps,
-    peerDeps: options.peerDeps,
     peerDependencyOptions: {
       pinnedDevDependency: false,
     },
     typescriptVersion: CATALOG.typescript,
+    ...options,
+    parent: root,
+    outdir,
+    repositoryDirectory: outdir,
+    libdir,
+    testdir,
     tsconfig: {
-      extends: javascript.TypescriptConfigExtends.fromTypescriptConfigs([baseTsconfig]),
+      ...options.tsconfig,
+      extends: options.tsconfig?.extends
+        ?? javascript.TypescriptConfigExtends.fromTypescriptConfigs([baseTsconfig]),
       compilerOptions: {
-        rootDir: options.srcdir,
-        outDir: options.libdir,
+        rootDir: srcdir,
+        outDir: libdir,
         declaration: true,
         declarationMap: true,
         sourceMap: true,
         inlineSourceMap: false,
         inlineSources: true,
         target: 'ES2022',
-        lib: options.lib ?? ['ES2022'],
+        lib: ['ES2022'],
         experimentalDecorators: false,
         noEmitOnError: true,
         noUnusedLocals: false,
         noUnusedParameters: false,
         stripInternal: false,
-        exactOptionalPropertyTypes: options.exactOptionalPropertyTypes,
-        module: options.module ?? 'NodeNext',
-        moduleResolution: options.moduleResolution
-          ?? javascript.TypeScriptModuleResolution.NODE_NEXT,
+        exactOptionalPropertyTypes: options.tsconfig?.compilerOptions?.exactOptionalPropertyTypes,
+        module,
+        moduleResolution: commonJs
+          ? javascript.TypeScriptModuleResolution.NODE
+          : javascript.TypeScriptModuleResolution.NODE_NEXT,
         types: ['node'],
-        verbatimModuleSyntax: options.module === 'CommonJS' ? false : true,
+        verbatimModuleSyntax: !commonJs,
+        ...options.tsconfig?.compilerOptions,
       },
-      include: [`${options.srcdir}/**/*.ts`, `${options.srcdir}/**/*.mts`],
-      exclude: ['dist', 'release', 'node_modules', options.testdir],
+      include: options.tsconfig?.include ?? [`${srcdir}/**/*.ts`, `${srcdir}/**/*.mts`],
+      exclude: options.tsconfig?.exclude ?? ['dist', 'release', 'node_modules', testdir],
     },
     tsconfigDev: {
+      ...options.tsconfigDev,
       compilerOptions: {
         allowImportingTsExtensions: true,
-        module: options.module === 'CommonJS' ? 'ESNext' : undefined,
-        moduleResolution: options.module === 'CommonJS'
+        module: commonJs ? 'ESNext' : undefined,
+        moduleResolution: commonJs
           ? javascript.TypeScriptModuleResolution.BUNDLER
           : undefined,
         types: ['bun', 'node'],
+        ...options.tsconfigDev?.compilerOptions,
       },
     },
   });
@@ -333,13 +315,11 @@ function workspace(options: WorkspaceOptions): typescript.TypeScriptProject {
 const loqkit = workspace({
   name: 'loqkit',
   description: 'Typed memoization and layered memory, worker-thread, and file locks for JavaScript runtimes.',
-  srcdir: 'src',
   libdir: 'release',
   testdir: 'test',
-  copyrightOwner: 'Reggie Brooks',
+  authorName: 'Reggie Brooks',
   entrypoint: 'release/cjs/index.js',
-  entrypointTypes: 'release/index.d.ts',
-  exactOptionalPropertyTypes: true,
+  tsconfig: { compilerOptions: { exactOptionalPropertyTypes: true } },
   deps: [
     'async-mutex@catalog:',
     'ohash@catalog:',
@@ -388,12 +368,7 @@ configureTestsAndTypecheck(loqkit, [
 const optionkit = workspace({
   name: 'optionkit',
   description: 'Turn Zod configuration schemas into zero-setup CLI options.',
-  srcdir: 'src',
-  libdir: 'dist',
-  testdir: 'tests',
-  copyrightOwner: 'optionkit contributors',
-  entrypoint: 'dist/index.js',
-  entrypointTypes: 'dist/index.d.ts',
+  authorName: 'optionkit contributors',
   deps: ['@antfu/install-pkg@catalog:'],
   devDeps: [
     'clean-stack@catalog:',
@@ -459,12 +434,8 @@ optionkit.addTask('test:packed', {
 const pyfig = workspace({
   name: 'pyfig',
   description: 'Bootstrap uv and delegate Python execution to it.',
-  srcdir: 'src',
-  libdir: 'dist',
-  testdir: 'tests',
-  copyrightOwner: 'Reggie Bowser',
+  authorName: 'Reggie Bowser',
   entrypoint: 'dist/cjs/index.js',
-  entrypointTypes: 'dist/index.d.ts',
   bin: { pyfig: './dist/cli.js' },
   deps: [
     '@renovatebot/pep440@catalog:',
@@ -530,13 +501,13 @@ const pynect = workspace({
   description: 'Lazy uv-backed Python environments with object proxies for Node.js and Bun.',
   srcdir: 'src/js',
   libdir: 'dist/js',
-  testdir: 'tests',
-  copyrightOwner: 'Reggie Bowser and NodePyX contributors',
-  module: 'CommonJS',
-  moduleResolution: javascript.TypeScriptModuleResolution.NODE,
-  lib: ['ES2022', 'ESNext.Disposable'],
-  entrypoint: 'dist/js/index.js',
-  entrypointTypes: 'dist/js/index.d.ts',
+  authorName: 'Reggie Bowser and NodePyX contributors',
+  tsconfig: {
+    compilerOptions: {
+      module: 'CommonJS',
+      lib: ['ES2022', 'ESNext.Disposable'],
+    },
+  },
   bin: { pynect: 'dist/js/cli.mjs' },
   deps: [
     '@msgpack/msgpack@catalog:',
