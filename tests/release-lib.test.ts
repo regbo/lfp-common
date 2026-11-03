@@ -3,6 +3,7 @@ import {
   githubRepositoryFromRemote,
   isPublicGitHubIdentity,
   latestReleaseVersion,
+  npmPackResults,
   planRelease,
 } from '../scripts/release-lib.ts';
 
@@ -42,5 +43,12 @@ describe('release planning', () => {
     expect(githubRepositoryFromRemote('https://github.com/regbo/optionkit')).toBe('regbo/optionkit');
     expect(isPublicGitHubIdentity('123+user@users.noreply.github.com')).toBeTrue();
     expect(isPublicGitHubIdentity('user@example.com')).toBeFalse();
+  });
+
+  test('normalizes npm 11 and npm 12 pack output', () => {
+    const result = { filename: 'optionkit-0.0.2.tgz' };
+    expect(npmPackResults([result])).toEqual([result]);
+    expect(npmPackResults({ optionkit: result })).toEqual([result]);
+    expect(npmPackResults(undefined)).toEqual([]);
   });
 });

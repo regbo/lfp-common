@@ -12,6 +12,19 @@ export interface ReleasePlan {
   readonly nextVersion: string;
 }
 
+export interface NpmPackResult {
+  readonly filename?: string;
+}
+
+/** Normalize the npm 11 array and npm 12 package-keyed `npm pack --json` formats. */
+export function npmPackResults(value: unknown): NpmPackResult[] {
+  if (Array.isArray(value)) return value as NpmPackResult[];
+  if (value && typeof value === 'object') {
+    return Object.values(value as Record<string, NpmPackResult>);
+  }
+  return [];
+}
+
 const versionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u;
 
 export function parseVersion(value: string): SemVer | undefined {
