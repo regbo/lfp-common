@@ -8,8 +8,6 @@ const DEFAULT_CALL_TIMEOUT_MS = 0;
 const pyfigShape = pyfigOptionsSchema.unwrap().omit({
   cwd: true,
   env: true,
-  requireEmbedding: true,
-  requireGil: true,
 }).shape;
 
 export const createVenvOptionsSchema = z.object({
@@ -106,8 +104,6 @@ export function resolveVenvOptions(options: CreateVenvOptions = {}): ResolvedVen
       ...pyfigOptions,
       cwd: typeof project === 'string' ? project : cwd,
       env,
-      requireEmbedding: false,
-      requireGil: false,
     },
     startupTimeoutMs: parsedOptions.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS,
     uvArgs: Object.freeze([...(parsedOptions.uvArgs ?? [])]),

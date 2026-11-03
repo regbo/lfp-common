@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { spawn, type ChildProcess } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import path from 'node:path';
 import { memoize } from 'loqkit';
 import { pyfig, type PythonContext } from 'pyfig';
@@ -14,6 +14,7 @@ import type { PythonModule } from './python-object';
 import { RpcClient } from './rpc-client';
 import { LocalIpcServer } from './transport/local-ipc';
 import { withLock } from './utils/lock';
+import { resolvePythonPath } from './utils/pyfig';
 
 const WORKER_REQUIREMENT = 'msgpack>=1.1,<2';
 
@@ -120,11 +121,11 @@ export class PythonVenv<Modules extends object = PynectModules> implements Async
 
   async #startRuntime(): Promise<StartedVenv> {
     const environment = await pyfig(this.#options.pyfig);
+    const pythonPath = await resolvePythonPath(environment);
     const transport = await LocalIpcServer.listen();
     const token = randomBytes(32).toString('hex');
-    const child = spawn(
-      environment.uv.path,
-      buildUvArguments(this.#options, environment),
+    const child = await environment.uv.spawn(
+      ...buildUvArguments(this.#options, pythonPath),
       {
         cwd: this.#options.cwd,
         env: {
@@ -192,12 +193,12 @@ export function createVenv<Modules extends object = PynectModules>(
 
 function buildUvArguments(
   options: ResolvedVenvOptions,
-  environment: PythonContext,
+  pythonPath: string,
 ): string[] {
   const args = ['run', '--quiet'];
   if (options.project === false) args.push('--no-project');
   else if (typeof options.project === 'string') args.push('--project', options.project);
-  args.push('--python', environment.python.path);
+  args.push('--python', pythonPath);
   for (const requirement of [WORKER_REQUIREMENT, ...options.with]) {
     args.push('--with', requirement);
   }

@@ -1,9 +1,9 @@
-import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { parse as parseToml } from 'smol-toml';
 import { pyfig } from 'pyfig';
 import { z } from 'zod';
+import { resolvePythonPath } from './utils/pyfig';
 
 const moduleConfigSchema = z.union([z.array(z.string()), z.record(z.string(), z.string())]);
 
@@ -142,14 +142,21 @@ function deriveClassName(modules: Record<string, string>): string {
 
 async function runPython(request: PythonRequest): Promise<string> {
   const environment = await pyfig({ cwd: request.root });
+  const pythonPath = await resolvePythonPath(environment);
   const script = path.resolve(__dirname, '..', 'py', 'pynect_codegen.py');
+  const child = await environment.uv.spawn(
+    'run', '--no-project', '--python', pythonPath, script, JSON.stringify(request),
+    {
+      cwd: request.root,
+      env: process.env,
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'inherit'],
+    },
+  );
   return new Promise((resolve, reject) => {
-    const child = spawn(environment.uv.path, ['run', '--no-project', '--python', environment.python.path, script, JSON.stringify(request)], {
-      cwd: request.root, env: process.env, windowsHide: true, stdio: ['ignore', 'pipe', 'inherit'],
-    });
     let stdout = '';
-    child.stdout.setEncoding('utf8');
-    child.stdout.on('data', chunk => { stdout += chunk; });
+    child.stdout!.setEncoding('utf8');
+    child.stdout!.on('data', chunk => { stdout += chunk; });
     child.once('error', reject);
     child.once('close', code => code === 0 ? resolve(stdout.trim()) : reject(new Error(`Python codegen exited with ${code ?? 1}`)));
   });
