@@ -1,0 +1,73 @@
+{
+  "name": "loqkit",
+  "version": "0.0.7",
+  "description": "Typed memoization and layered memory, worker-thread, and file locks for JavaScript runtimes.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/regbo/loqkit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/regbo/loqkit/issues"
+  },
+  "homepage": "https://github.com/regbo/loqkit#readme",
+  "type": "module",
+  "packageManager": "bun@1.4.4",
+  "sideEffects": false,
+  "main": "./release/cjs/index.js",
+  "exports": {
+    ".": {
+      "types": "./release/index.d.ts",
+      "import": "./release/index.js",
+      "require": "./release/cjs/index.js"
+    }
+  },
+  "types": "./release/index.d.ts",
+  "files": [
+    "release",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && bun scripts/build-cjs.ts",
+    "check": "bun run typecheck && bun test && bun run build",
+    "prepack": "bun scripts/prepack.ts",
+    "release": "bun scripts/release.ts",
+    "test": "bun test",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "keywords": [
+    "lock",
+    "mutex",
+    "concurrency",
+    "flock",
+    "lockfile",
+    "worker-threads",
+    "memoization",
+    "memoize",
+    "typescript"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "async-mutex": "^0.5.0",
+    "ohash": "^2.0.12",
+    "proper-lockfile": "^4.1.2",
+    "read-package-up": "^12.0.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/fs-ext": "^2.0.3",
+    "@types/node": "^26.6.6",
+    "@types/proper-lockfile": "^4.1.4",
+    "typescript": "^5.9.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "optionalDependencies": {
+    "fs-ext": "^2.1.1"
+  }
+}
