@@ -2,7 +2,6 @@
   "files": [
     ".gitattributes",
     ".github/workflows/build.yml",
-    ".github/workflows/publish-pypi.yml",
     ".github/workflows/publish.yml",
     ".github/workflows/pull-request-lint.yml",
     ".gitignore",

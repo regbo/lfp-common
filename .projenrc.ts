@@ -837,7 +837,7 @@ new TextFile(root, 'docs/llm/UTILITIES.md', {
     '- `scripts/release-check.ts`: tag-workflow and registry preflight.',
     '- Bun runs each generated `pack:release` package script across the workspace.',
     '- Pacwich runs each generated `publish:release` package script in workspace dependency order.',
-    '- `.github/workflows/publish-pypi.yml`: publishes `pynect-worker` with PyPI Trusted Publishing.',
+    '- `.github/workflows/publish.yml`: publishes npm and matrix-configured PyPI packages, then creates one GitHub Release after every publisher succeeds.',
     '',
     'Project metadata, dependency versions, TypeScript configuration, tasks, and GitHub workflows belong in `.projenrc.ts`.',
   ],
@@ -845,6 +845,14 @@ new TextFile(root, 'docs/llm/UTILITIES.md', {
 
 const githubComponent = root.github;
 if (!githubComponent) throw new Error('GitHub integration must be enabled.');
+const pypiProjects = [
+  {
+    distribution: 'pynect-worker',
+    project_directory: 'packages/pynect',
+    environment: 'pypi',
+    artifact: 'pynect-worker',
+  },
+] as const;
 const publish = new github.GithubWorkflow(githubComponent, 'Publish', {
   fileName: 'publish.yml',
   limitConcurrency: true,
@@ -854,7 +862,7 @@ const publish = new github.GithubWorkflow(githubComponent, 'Publish', {
   },
 });
 publish.on({ push: { tags: ['v*.*.*'] } });
-publish.addJob('publish', {
+publish.addJob('publish-npm', {
   name: 'Publish packages',
   runsOn: ['ubuntu-latest'],
   if: `github.repository == '${GITHUB_REPOSITORY}'`,
@@ -896,46 +904,36 @@ publish.addJob('publish', {
       name: 'Publish the generated archives',
       run: 'bun run publish:release',
     },
+    github.WorkflowSteps.uploadArtifact({
+      name: 'Upload published npm archives',
+      with: {
+        name: 'npm-packages',
+        path: 'dist/packages/*.tgz',
+        ifNoFilesFound: 'error',
+        retentionDays: 7,
+      },
+    }),
   ],
 });
-publish.file?.addOverride('permissions', { contents: 'none' });
 
-const publishPython = new github.GithubWorkflow(githubComponent, 'Publish Python', {
-  fileName: 'publish-pypi.yml',
-  limitConcurrency: true,
-  concurrencyOptions: {
-    group: 'publish-pypi-${{ github.ref }}',
-    cancelInProgress: false,
-  },
-});
-publishPython.on({
-  push: { tags: ['v*.*.*'] },
-  workflowDispatch: {
-    inputs: {
-      tag: {
-        description: 'Release tag to publish',
-        required: true,
-        type: 'string',
-      },
-    },
-  },
-});
-publishPython.addJob('publish', {
-  name: 'Publish pynect-worker',
+publish.addJob('publish-pypi', {
+  name: 'Publish ${{ matrix.distribution }}',
   runsOn: ['ubuntu-latest'],
   if: `github.repository == '${GITHUB_REPOSITORY}'`,
-  environment: 'pypi',
+  environment: '${{ matrix.environment }}',
+  strategy: {
+    failFast: false,
+    matrix: {
+      include: pypiProjects.map((project) => ({ ...project })),
+    },
+  },
   timeoutMinutes: 10,
   permissions: {
     contents: github.workflows.JobPermission.READ,
     idToken: github.workflows.JobPermission.WRITE,
   },
   steps: [
-    github.WorkflowSteps.checkout({
-      with: {
-        ref: "${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}",
-      },
-    }),
+    github.WorkflowSteps.checkout(),
     {
       name: 'Setup uv',
       uses: SETUP_UV_ACTION,
@@ -944,24 +942,90 @@ publishPython.addJob('publish', {
     {
       name: 'Validate the release tag',
       env: {
-        RELEASE_TAG: "${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}",
+        PROJECT_DIRECTORY: '${{ matrix.project_directory }}',
+        RELEASE_TAG: '${{ github.ref_name }}',
       },
       run: [
-        'project_tag="v$(uv version --project packages/pynect --short)"',
+        'project_tag="v$(uv version --project "$PROJECT_DIRECTORY" --short)"',
         'test "$project_tag" = "$RELEASE_TAG" || { echo "Expected $project_tag, received $RELEASE_TAG."; exit 1; }',
       ].join('\n'),
     },
     {
       name: 'Build the Python distribution',
-      run: 'uv build --project packages/pynect --out-dir packages/pynect/dist/py --no-sources',
+      env: {
+        DISTRIBUTION_DIRECTORY: '${{ matrix.project_directory }}/dist/py',
+        PROJECT_DIRECTORY: '${{ matrix.project_directory }}',
+      },
+      run: 'uv build --project "$PROJECT_DIRECTORY" --out-dir "$DISTRIBUTION_DIRECTORY" --no-sources',
     },
     {
       name: 'Publish the Python distribution',
-      run: 'uv publish --trusted-publishing always packages/pynect/dist/py/*',
+      env: {
+        DISTRIBUTION_DIRECTORY: '${{ matrix.project_directory }}/dist/py',
+      },
+      run: 'uv publish --trusted-publishing always "$DISTRIBUTION_DIRECTORY"/*',
+    },
+    github.WorkflowSteps.uploadArtifact({
+      name: 'Upload published Python distributions',
+      with: {
+        name: 'python-package-${{ matrix.artifact }}',
+        path: '${{ matrix.project_directory }}/dist/py/*',
+        ifNoFilesFound: 'error',
+        retentionDays: 7,
+      },
+    }),
+  ],
+});
+
+publish.addJob('release', {
+  name: 'Create GitHub release',
+  runsOn: ['ubuntu-latest'],
+  needs: ['publish-npm', 'publish-pypi'],
+  if: `success() && github.repository == '${GITHUB_REPOSITORY}'`,
+  timeoutMinutes: 10,
+  permissions: {
+    contents: github.workflows.JobPermission.WRITE,
+  },
+  steps: [
+    github.WorkflowSteps.downloadArtifact({
+      name: 'Download published npm archives',
+      with: {
+        name: 'npm-packages',
+        path: '${{ runner.temp }}/release/npm',
+      },
+    }),
+    github.WorkflowSteps.downloadArtifact({
+      name: 'Download published Python distributions',
+      with: {
+        pattern: 'python-package-*',
+        path: '${{ runner.temp }}/release/python',
+        mergeMultiple: true,
+      },
+    }),
+    {
+      name: 'Create GitHub release',
+      env: {
+        GH_TOKEN: '${{ github.token }}',
+        RELEASE_DIR: '${{ runner.temp }}/release',
+        RELEASE_TAG: '${{ github.ref_name }}',
+      },
+      run: [
+        'if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then',
+        '  is_draft="$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)"',
+        '  if [[ "$is_draft" != "true" ]]; then',
+        '    echo "GitHub release $RELEASE_TAG already exists."',
+        '    exit 0',
+        '  fi',
+        'else',
+        '  gh release create "$RELEASE_TAG" --draft --verify-tag --generate-notes --title "$RELEASE_TAG"',
+        'fi',
+        'gh release upload "$RELEASE_TAG" "$RELEASE_DIR"/npm/*.tgz "$RELEASE_DIR"/python/* --clobber',
+        'gh release edit "$RELEASE_TAG" --draft=false',
+      ].join('\n'),
     },
   ],
 });
-publishPython.file?.addOverride('permissions', { contents: 'none' });
+publish.file?.addOverride('permissions', { contents: 'none' });
 
 function replaceBuildDependencies(
   project: javascript.NodeProject,

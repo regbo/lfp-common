@@ -9,7 +9,7 @@ concurrency:
   group: publish-${{ github.ref }}
   cancel-in-progress: false
 jobs:
-  publish:
+  publish-npm:
     name: Publish packages
     runs-on: ubuntu-latest
     permissions:
@@ -52,6 +52,111 @@ jobs:
       - name: Publish the generated archives
         id: publish_the_generated_archives
         run: bun run publish:release
+      - name: Upload published npm archives
+        id: upload_published_npm_archives
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: npm-packages
+          path: dist/packages/*.tgz
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 7
     timeout-minutes: 30
+  publish-pypi:
+    name: Publish ${{ matrix.distribution }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    environment: ${{ matrix.environment }}
+    if: github.repository == 'regbo/lfp-common'
+    steps:
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Setup uv
+        id: setup_uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+        with:
+          version: latest-known
+      - name: Validate the release tag
+        id: validate_the_release_tag
+        env:
+          PROJECT_DIRECTORY: ${{ matrix.project_directory }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |-
+          project_tag="v$(uv version --project "$PROJECT_DIRECTORY" --short)"
+          test "$project_tag" = "$RELEASE_TAG" || { echo "Expected $project_tag, received $RELEASE_TAG."; exit 1; }
+      - name: Build the Python distribution
+        id: build_the_python_distribution
+        env:
+          DISTRIBUTION_DIRECTORY: ${{ matrix.project_directory }}/dist/py
+          PROJECT_DIRECTORY: ${{ matrix.project_directory }}
+        run: uv build --project "$PROJECT_DIRECTORY" --out-dir "$DISTRIBUTION_DIRECTORY" --no-sources
+      - name: Publish the Python distribution
+        id: publish_the_python_distribution
+        env:
+          DISTRIBUTION_DIRECTORY: ${{ matrix.project_directory }}/dist/py
+        run: uv publish --trusted-publishing always "$DISTRIBUTION_DIRECTORY"/*
+      - name: Upload published Python distributions
+        id: upload_published_python_distributions
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: python-package-${{ matrix.artifact }}
+          path: ${{ matrix.project_directory }}/dist/py/*
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 7
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distribution: pynect-worker
+            project_directory: packages/pynect
+            environment: pypi
+            artifact: pynect-worker
+  release:
+    name: Create GitHub release
+    needs:
+      - publish-npm
+      - publish-pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    if: success() && github.repository == 'regbo/lfp-common'
+    steps:
+      - name: Download published npm archives
+        id: download_published_npm_archives
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: npm-packages
+          path: ${{ runner.temp }}/release/npm
+      - name: Download published Python distributions
+        id: download_published_python_distributions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          path: ${{ runner.temp }}/release/python
+          pattern: python-package-*
+          merge-multiple: true
+      - name: Create GitHub release
+        id: create_github_release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_DIR: ${{ runner.temp }}/release
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |-
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            is_draft="$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)"
+            if [[ "$is_draft" != "true" ]]; then
+              echo "GitHub release $RELEASE_TAG already exists."
+              exit 0
+            fi
+          else
+            gh release create "$RELEASE_TAG" --draft --verify-tag --generate-notes --title "$RELEASE_TAG"
+          fi
+          gh release upload "$RELEASE_TAG" "$RELEASE_DIR"/npm/*.tgz "$RELEASE_DIR"/python/* --clobber
+          gh release edit "$RELEASE_TAG" --draft=false
+    timeout-minutes: 10
 permissions:
   contents: none

@@ -3,7 +3,6 @@
 * text=auto eol=lf
 /.gitattributes linguist-generated
 /.github/workflows/build.yml linguist-generated
-/.github/workflows/publish-pypi.yml linguist-generated
 /.github/workflows/publish.yml linguist-generated
 /.github/workflows/pull-request-lint.yml linguist-generated
 /.gitignore linguist-generated
