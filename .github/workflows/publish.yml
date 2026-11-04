@@ -5,8 +5,14 @@ on:
   push:
     tags:
       - v*.*.*
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag to recover without republishing PyPI
+        required: true
+        type: string
 concurrency:
-  group: publish-${{ github.ref }}
+  group: publish-${{ inputs.release_tag || github.ref }}
   cancel-in-progress: false
 jobs:
   publish-npm:
@@ -21,6 +27,8 @@ jobs:
       - name: Checkout
         id: checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
       - name: Setup Node.js
         id: setup_node_js
         uses: actions/setup-node@v7.0.0
@@ -45,7 +53,16 @@ jobs:
         run: npm install --global npm@11.20.0
       - name: Validate the release tag
         id: validate_the_release_tag
-        run: bun run release:check -- "${{ github.ref_name }}"
+        if: github.event_name == 'push'
+        run: bun run release:check -- "${{ inputs.release_tag || github.ref_name }}" --npm-only
+      - name: Validate the recovery tag
+        id: validate_the_recovery_tag
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: |-
+          project_tag="v$(node -p "require('./package.json').version")"
+          test "$project_tag" = "$RELEASE_TAG" || { echo "Expected $project_tag, received $RELEASE_TAG."; exit 1; }
       - name: Build the tagged source
         id: build_the_tagged_source
         run: bun run build
@@ -74,6 +91,8 @@ jobs:
       - name: Checkout
         id: checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
       - name: Setup uv
         id: setup_uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
@@ -83,7 +102,7 @@ jobs:
         id: validate_the_release_tag
         env:
           PROJECT_DIRECTORY: ${{ matrix.project_directory }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
         run: |-
           project_tag="v$(uv version --project "$PROJECT_DIRECTORY" --short)"
           test "$project_tag" = "$RELEASE_TAG" || { echo "Expected $project_tag, received $RELEASE_TAG."; exit 1; }
@@ -95,6 +114,7 @@ jobs:
         run: uv build --project "$PROJECT_DIRECTORY" --out-dir "$DISTRIBUTION_DIRECTORY" --no-sources
       - name: Publish the Python distribution
         id: publish_the_python_distribution
+        if: github.event_name == 'push'
         env:
           DISTRIBUTION_DIRECTORY: ${{ matrix.project_directory }}/dist/py
         run: uv publish --trusted-publishing always "$DISTRIBUTION_DIRECTORY"/*
@@ -145,7 +165,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
           RELEASE_DIR: ${{ runner.temp }}/release
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
         run: |-
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             is_draft="$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)"

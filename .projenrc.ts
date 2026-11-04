@@ -913,15 +913,28 @@ const pypiProjects = [
     artifact: pynectWorker.name,
   },
 ] as const;
+const workflowReleaseRef = '${{ inputs.release_tag || github.ref }}';
+const workflowReleaseTag = '${{ inputs.release_tag || github.ref_name }}';
 const publish = new github.GithubWorkflow(githubComponent, 'Publish', {
   fileName: 'publish.yml',
   limitConcurrency: true,
   concurrencyOptions: {
-    group: 'publish-${{ github.ref }}',
+    group: 'publish-${{ inputs.release_tag || github.ref }}',
     cancelInProgress: false,
   },
 });
-publish.on({ push: { tags: ['v*.*.*'] } });
+publish.on({
+  push: { tags: ['v*.*.*'] },
+  workflowDispatch: {
+    inputs: {
+      release_tag: {
+        description: 'Existing release tag to recover without republishing PyPI',
+        required: true,
+        type: 'string',
+      },
+    },
+  },
+});
 publish.addJob('publish-npm', {
   name: 'Publish packages',
   runsOn: ['ubuntu-latest'],
@@ -933,7 +946,7 @@ publish.addJob('publish-npm', {
     idToken: github.workflows.JobPermission.WRITE,
   },
   steps: [
-    github.WorkflowSteps.checkout(),
+    github.WorkflowSteps.checkout({ with: { ref: workflowReleaseRef } }),
     {
       name: 'Setup Node.js',
       uses: github.ActionRefs.ACTIONS_SETUP_NODE,
@@ -954,7 +967,17 @@ publish.addJob('publish-npm', {
     },
     {
       name: 'Validate the release tag',
-      run: 'bun run release:check -- "${{ github.ref_name }}"',
+      if: "github.event_name == 'push'",
+      run: `bun run release:check -- "${workflowReleaseTag}" --npm-only`,
+    },
+    {
+      name: 'Validate the recovery tag',
+      if: "github.event_name == 'workflow_dispatch'",
+      env: { RELEASE_TAG: workflowReleaseTag },
+      run: [
+        'project_tag="v$(node -p "require(\'./package.json\').version")"',
+        'test "$project_tag" = "$RELEASE_TAG" || { echo "Expected $project_tag, received $RELEASE_TAG."; exit 1; }',
+      ].join('\n'),
     },
     {
       name: 'Build the tagged source',
@@ -993,7 +1016,7 @@ publish.addJob('publish-pypi', {
     idToken: github.workflows.JobPermission.WRITE,
   },
   steps: [
-    github.WorkflowSteps.checkout(),
+    github.WorkflowSteps.checkout({ with: { ref: workflowReleaseRef } }),
     {
       name: 'Setup uv',
       uses: SETUP_UV_ACTION,
@@ -1003,7 +1026,7 @@ publish.addJob('publish-pypi', {
       name: 'Validate the release tag',
       env: {
         PROJECT_DIRECTORY: '${{ matrix.project_directory }}',
-        RELEASE_TAG: '${{ github.ref_name }}',
+        RELEASE_TAG: workflowReleaseTag,
       },
       run: [
         'project_tag="v$(uv version --project "$PROJECT_DIRECTORY" --short)"',
@@ -1020,6 +1043,7 @@ publish.addJob('publish-pypi', {
     },
     {
       name: 'Publish the Python distribution',
+      if: "github.event_name == 'push'",
       env: {
         DISTRIBUTION_DIRECTORY: '${{ matrix.project_directory }}/dist/py',
       },
@@ -1068,7 +1092,7 @@ publish.addJob('release', {
         GH_REPO: '${{ github.repository }}',
         GH_TOKEN: '${{ github.token }}',
         RELEASE_DIR: '${{ runner.temp }}/release',
-        RELEASE_TAG: '${{ github.ref_name }}',
+        RELEASE_TAG: workflowReleaseTag,
       },
       run: [
         'if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then',

@@ -11,6 +11,10 @@ import {
 
 const version = await sharedVersion();
 const tag = process.argv[2] ?? process.env.GITHUB_REF_NAME;
+const flags = new Set(process.argv.slice(3));
+const unknownFlags = [...flags].filter(flag => flag !== '--npm-only');
+if (unknownFlags.length > 0) throw new Error(`Unknown release-check option: ${unknownFlags.join(', ')}.`);
+const npmOnly = flags.has('--npm-only');
 if (tag !== `v${version}`) {
   throw new Error(`Release tag ${tag ?? '<missing>'} must exactly match v${version}.`);
 }
@@ -32,15 +36,17 @@ for (const workspace of WORKSPACES) {
   }
 }
 
-for (const project of PYTHON_DISTRIBUTIONS) {
-  const response = await fetch(pypiVersionUrl(project.name, version), { redirect: 'error' });
-  if (response.ok) throw new Error(`${project.name}==${version} is already published on PyPI.`);
-  if (response.status !== 404) {
-    throw new Error(`Could not verify ${project.name}==${version} on PyPI: HTTP ${response.status}.`);
+if (!npmOnly) {
+  for (const project of PYTHON_DISTRIBUTIONS) {
+    const response = await fetch(pypiVersionUrl(project.name, version), { redirect: 'error' });
+    if (response.ok) throw new Error(`${project.name}==${version} is already published on PyPI.`);
+    if (response.status !== 404) {
+      throw new Error(`Could not verify ${project.name}==${version} on PyPI: HTTP ${response.status}.`);
+    }
   }
 }
 
 console.log(
-  `Release validated: ${tag} for ${WORKSPACES.length} npm and ` +
-  `${PYTHON_DISTRIBUTIONS.length} PyPI package(s).`,
+  `Release validated: ${tag} for ${WORKSPACES.length} npm` +
+  (npmOnly ? '.' : ` and ${PYTHON_DISTRIBUTIONS.length} PyPI package(s).`),
 );
