@@ -176,16 +176,22 @@ launcher captures the real Python PID, and the worker watches its parent PID,
 so it exits if the parent disappears. Use `await using` for scoped cleanup or
 call `await server.close()` explicitly. Both are safe to call more than once.
 
-For a long-lived command, wait without adding signal handlers:
+For a long-lived command, wait for the worker:
 
 ```ts
 const server = await startIpcServer({ root: '../python' });
 await server.wait();
 ```
 
-The parent process keeps its normal signal behavior; Python shuts down when
-that parent exits. `ensureIpcServer()` remains available only when deliberately
-reusing an existing endpoint is desired.
+Pynect forwards `SIGINT`, `SIGTERM`, `SIGHUP`, and the platform shutdown signal
+(`SIGQUIT` on macOS/Linux or `SIGBREAK` on Windows) through the owned worker
+tree. On macOS/Linux, uv and Python run in an isolated process group so the
+whole group receives the signal. On Windows, Pynect follows uv's behavior and
+lets the console deliver Ctrl+C or Ctrl+Break directly, avoiding an abrupt
+emulated signal; if Python starts after that event, the captured PID receives a
+retained shutdown signal. A custom parent signal handler remains authoritative.
+`ensureIpcServer()` remains available only when deliberately reusing an
+existing endpoint is desired.
 
 Run a long-lived local server from the command line with:
 

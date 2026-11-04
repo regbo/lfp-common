@@ -13,6 +13,7 @@ import {
   ipcClientOptions,
 } from './ipc.js';
 import { captureServerPid } from './pid-handshake.js';
+import { OwnedProcessTree } from './process-signals.js';
 import { spawnWorker } from './python-runtime.js';
 
 const IPC_LAUNCHER = [
@@ -41,42 +42,46 @@ export class IpcServer implements AsyncDisposable {
   readonly exited: Promise<number | null>;
   readonly owned: boolean;
   readonly path: string;
-  readonly pid: number | undefined;
-  #closing: Promise<void> | undefined;
+  #pid: number | undefined;
+  #tree: OwnedProcessTree | undefined;
 
   constructor(options: {
     child?: ChildProcess;
     path: string;
-    pid?: number;
+    pid?: number | Promise<number>;
+    processGroup?: boolean;
   }) {
     this.child = options.child;
     this.clientOptions = ipcClientOptions(options.path);
     this.owned = options.child !== undefined;
     this.path = options.path;
-    this.pid = options.pid;
-    this.exited = options.child
-      ? new Promise(resolve => options.child!.once('close', code => resolve(code)))
-      : Promise.resolve(null);
+    if (options.child) {
+      this.#tree = new OwnedProcessTree(options.child, options.pid, {
+        processGroup: options.processGroup ?? false,
+      });
+      this.exited = this.#tree.exited;
+      if (typeof options.pid === 'number') this.#pid = options.pid;
+      else if (options.pid) {
+        void options.pid.then(pid => { this.#pid = pid; }, () => undefined);
+      }
+    } else {
+      this.exited = Promise.resolve(null);
+      if (typeof options.pid === 'number') this.#pid = options.pid;
+    }
   }
 
-  /** Wait until the Python worker exits without installing process signal handlers. */
+  get pid(): number | undefined {
+    return this.#pid;
+  }
+
+  /** Wait until the Python worker exits. */
   wait(): Promise<number | null> {
     return this.exited;
   }
 
   /** Stop an owned worker. Concurrent calls share the same shutdown operation. */
   close(): Promise<void> {
-    if (!this.owned) return Promise.resolve();
-    this.#closing ??= this.#closeOwnedWorker();
-    return this.#closing;
-  }
-
-  async #closeOwnedWorker(): Promise<void> {
-    if (this.pid !== undefined) await terminateProcess(this.pid);
-    if (this.child && this.child.exitCode === null && this.child.signalCode === null) {
-      this.child.kill();
-    }
-    await Promise.race([this.exited, delay(2_000)]);
+    return this.#tree?.close() ?? Promise.resolve();
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
@@ -100,6 +105,7 @@ export async function startIpcServer(
   const stdout = input.stdout ?? process.stdout;
   const stderr = input.stderr ?? process.stderr;
   const { child } = await spawnWorker(project, ['-c', IPC_LAUNCHER], {
+    detached: process.platform !== 'win32',
     env: {
       PYNECT_APP: project.app,
       PYNECT_IPC_PATH: ipcPath,
@@ -110,13 +116,22 @@ export async function startIpcServer(
   });
   child.stderr?.pipe(stderr, { end: false });
 
+  let server: IpcServer | undefined;
   try {
     if (!child.stdout) throw new Error('Python IPC server stdout is unavailable.');
-    const pid = await captureServerPid(child.stdout, stdout, parsed.startupTimeoutMs);
+    const pid = captureServerPid(child.stdout, stdout, parsed.startupTimeoutMs);
+    server = new IpcServer({
+      child,
+      path: ipcPath,
+      pid,
+      processGroup: process.platform !== 'win32',
+    });
+    await pid;
     await waitForIpc(ipcPath, child, parsed.startupTimeoutMs);
-    return new IpcServer({ child, path: ipcPath, pid });
+    return server;
   } catch (error) {
-    child.kill();
+    if (server) await server.close();
+    else if (child.exitCode === null && child.signalCode === null) child.kill();
     throw error;
   }
 }
@@ -148,32 +163,6 @@ async function waitForIpc(
     await delay(25);
   }
   throw new Error(`Python IPC server did not listen at ${ipcPath} within ${timeoutMs} ms.`);
-}
-
-async function terminateProcess(pid: number): Promise<void> {
-  if (!isProcessAlive(pid)) return;
-  try {
-    process.kill(pid, 'SIGTERM');
-  } catch {
-    return;
-  }
-  const deadline = Date.now() + 2_000;
-  while (isProcessAlive(pid) && Date.now() < deadline) await delay(25);
-  if (!isProcessAlive(pid)) return;
-  try {
-    process.kill(pid, 'SIGKILL');
-  } catch {
-    return;
-  }
-}
-
-function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function delay(ms: number): Promise<void> {

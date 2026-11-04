@@ -3,10 +3,14 @@ import { spawn } from 'node:child_process';
 import { PassThrough } from 'node:stream';
 import path from 'node:path';
 import { canConnectIpc } from '../src/js/ipc.js';
+import { forwardedProcessSignals } from '../src/js/process-signals.js';
 import { startIpcServer } from '../src/js/server.js';
 
 describe('Pyfig IPC server', () => {
   test('captures the Python PID, forwards later output, and disposes the server', async () => {
+    const initialSignalListeners = new Map(
+      forwardedProcessSignals.map(signal => [signal, process.listenerCount(signal)]),
+    );
     const stdout = new PassThrough();
     let output = '';
     stdout.setEncoding('utf8');
@@ -26,6 +30,9 @@ describe('Pyfig IPC server', () => {
     expect(await canConnectIpc(server.path)).toBe(true);
     expect(output).toContain('IPC server listening at');
     expect(output).not.toContain('#IPC_SERVER_PID#');
+    for (const signal of forwardedProcessSignals) {
+      expect(process.listenerCount(signal)).toBe((initialSignalListeners.get(signal) ?? 0) + 1);
+    }
 
     const pid = server.pid!;
     const exited = server.wait();
@@ -33,6 +40,9 @@ describe('Pyfig IPC server', () => {
     await exited;
     expect(server.child?.exitCode !== null || server.child?.signalCode !== null).toBe(true);
     expect(isProcessAlive(pid)).toBe(false);
+    for (const signal of forwardedProcessSignals) {
+      expect(process.listenerCount(signal)).toBe(initialSignalListeners.get(signal) ?? 0);
+    }
   }, 60_000);
 
   test('stops the Python worker when its owning process is killed', async () => {
