@@ -1005,6 +1005,7 @@ publish.addJob('release', {
     {
       name: 'Create GitHub release',
       env: {
+        GH_REPO: '${{ github.repository }}',
         GH_TOKEN: '${{ github.token }}',
         RELEASE_DIR: '${{ runner.temp }}/release',
         RELEASE_TAG: '${{ github.ref_name }}',
