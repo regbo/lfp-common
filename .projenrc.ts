@@ -860,7 +860,7 @@ publish.addJob('publish', {
   environment: 'npm',
   timeoutMinutes: 30,
   permissions: {
-    contents: github.workflows.JobPermission.WRITE,
+    contents: github.workflows.JobPermission.READ,
     idToken: github.workflows.JobPermission.WRITE,
   },
   steps: [
@@ -894,11 +894,6 @@ publish.addJob('publish', {
     {
       name: 'Publish the generated archives',
       run: 'bun run publish:release',
-    },
-    {
-      name: 'Create GitHub release',
-      env: { GH_TOKEN: '${{ github.token }}' },
-      run: 'gh release create "${{ github.ref_name }}" dist/packages/*.tgz packages/pynect/dist/py/* --verify-tag --generate-notes --title "${{ github.ref_name }}"',
     },
   ],
 });
