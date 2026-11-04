@@ -30,7 +30,7 @@
     }
   },
   "operations": {
-    "list_models_stream": {
+    "list_models": {
       "action": "receive",
       "channel": {
         "$ref": "#/channels/models"

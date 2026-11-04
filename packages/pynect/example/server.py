@@ -44,24 +44,26 @@ CATALOG = [
 ]
 
 
-async def iter_models(filters: ModelFilters) -> AsyncIterator[Model]:
-    query = filters.query.casefold() if filters.query else None
+async def generate_models(
+    message: ListModelsRequest,
+) -> AsyncIterator[ListModelsResponse]:
+    query = message.payload.query.casefold() if message.payload.query else None
     for model in CATALOG:
         if (query is None or query in model.id.casefold()) and (
-            filters.provider is None or filters.provider == model.provider
+            message.payload.provider is None or message.payload.provider == model.provider
         ):
             await asyncio.sleep(random.uniform(0.05, 0.2))
-            yield model
+            yield ListModelsResponse(payload=model)
 
 
 @channel(name="models", description="Read the model catalog")
 class ModelsConsumer(AsyncJsonWebsocketConsumer):
     @ws_handler(output_type=(ListModelsResponse, ListModelsComplete))
-    async def list_models_stream(self, message: ListModelsRequest) -> None:
+    async def list_models(self, message: ListModelsRequest) -> None:
         count = 0
-        async for model in iter_models(message.payload):
+        async for response in generate_models(message):
             count += 1
-            await self.send_message(ListModelsResponse(payload=model))
+            await self.send_message(response)
         await self.send_message(ListModelsComplete(payload=count))
 
 
