@@ -1,3 +1,3 @@
 """Package identity synthesized from the shared Projen configuration."""
 PACKAGE_NAME = "pynect-worker"
-PACKAGE_VERSION = "0.8.8"
+PACKAGE_VERSION = "0.8.9"

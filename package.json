@@ -40,7 +40,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "0.8.8",
+  "version": "0.8.9",
   "bugs": {
     "url": "https://github.com/regbo/lfp-common/issues"
   },
