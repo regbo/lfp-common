@@ -1,29 +1,45 @@
 import { createClient, type ClientOptions } from '@chanx-js/client';
-import { models } from './_generated/model-catalog/index.js';
+import {
+  models,
+  type ModelFilters,
+} from './_generated/model-catalog/index.js';
 
-export async function listModels(options: ClientOptions): Promise<void> {
+export async function listModels(
+  options: ClientOptions,
+  filters: ModelFilters = {},
+): Promise<void> {
   const connection = createClient(options).connect(models);
   try {
     await connection.ready({ timeout: 5_000 });
 
     const result = await connection.request({
       action: 'list_models',
-      payload: {},
+      payload: filters,
     });
-    console.log('Immediate list_models response');
     console.table(result.payload);
+  } finally {
+    connection.terminate(1000, 'Example complete');
+  }
+}
 
+export async function listModelsStream(
+  options: ClientOptions,
+  filters: ModelFilters = {},
+): Promise<void> {
+  const connection = createClient(options).connect(models);
+  try {
+    await connection.ready({ timeout: 5_000 });
     const responses = connection.stream();
     try {
-      console.log('Delayed list_models_stream responses');
       connection.send({
         action: 'list_models_stream',
-        payload: {},
+        payload: filters,
       });
 
       for await (const response of responses) {
         if (response.action === 'models_complete') {
-          console.log(`Received ${response.payload} streamed models`);
+          const suffix = response.payload === 1 ? '' : 's';
+          console.log(`Received ${response.payload} streamed model${suffix}`);
           break;
         }
         if (response.action === 'model') {

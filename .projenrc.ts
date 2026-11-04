@@ -697,6 +697,7 @@ new javascript.TypescriptConfig(pynect, {
 });
 pynect.gitattributes.addAttributes('/example/_generated/**', 'linguist-generated');
 pynect.addScripts({
+  'example:cli': 'bun example/cli.ts',
   'example:generate': 'bun src/js/cli.ts generate --root example',
   'example:local': 'bun example/local.ts',
   'example:remote': 'bun example/remote.ts',

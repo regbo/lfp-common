@@ -16,6 +16,14 @@ Generate or refresh the client:
 bun run example:generate
 ```
 
+Call either operation from the example CLI. It starts the local IPC server when
+needed:
+
+```sh
+bun run example:cli -- list-models
+bun run example:cli -- list-models-stream --provider openai
+```
+
 Call Python locally over a Unix socket or Windows named pipe:
 
 ```sh
