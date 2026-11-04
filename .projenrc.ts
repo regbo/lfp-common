@@ -34,7 +34,7 @@ class ReadonlyGeneratedFilesPolicy extends Component {
   }
 }
 
-const VERSION = '0.8.7';
+const VERSION = '0.8.8';
 const BUN_VERSION = '1.4.4';
 const PROJEN_VERSION = '0.104.23';
 const SETUP_UV_ACTION = 'astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2';

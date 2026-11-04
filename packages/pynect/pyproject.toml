@@ -2,7 +2,7 @@
 
 [project]
 name = "pynect-worker"
-version = "0.8.7"
+version = "0.8.8"
 description = "Chanx schema export and local IPC adapter for Pynect"
 readme = "README.md"
 requires-python = ">=3.11"

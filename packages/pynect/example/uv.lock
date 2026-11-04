@@ -421,7 +421,7 @@ requires-dist = [
 
 [[package]]
 name = "pynect-worker"
-version = "0.8.7"
+version = "0.8.8"
 source = { editable = "../" }
 dependencies = [
     { name = "chanx", extra = ["fast-channels"] },
