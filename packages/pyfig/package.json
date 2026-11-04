@@ -3,7 +3,7 @@
   "description": "Bootstrap uv and delegate Python execution to it.",
   "repository": {
     "type": "git",
-    "url": "https://github.com/regbo/lfp-js.git",
+    "url": "https://github.com/regbo/lfp-common.git",
     "directory": "packages/pyfig"
   },
   "bin": {
@@ -57,7 +57,7 @@
   },
   "main": "./dist/cjs/index.js",
   "license": "MIT",
-  "homepage": "https://github.com/regbo/lfp-js/tree/main/packages/pyfig#readme",
+  "homepage": "https://github.com/regbo/lfp-common/tree/main/packages/pyfig#readme",
   "publishConfig": {
     "access": "public",
     "provenance": true,
@@ -65,7 +65,7 @@
   },
   "version": "0.8.5",
   "bugs": {
-    "url": "https://github.com/regbo/lfp-js/issues"
+    "url": "https://github.com/regbo/lfp-common/issues"
   },
   "types": "./dist/index.d.ts",
   "sideEffects": false,

@@ -3,7 +3,7 @@
   "description": "Typed memoization and layered memory, worker-thread, and file locks for JavaScript runtimes.",
   "repository": {
     "type": "git",
-    "url": "https://github.com/regbo/lfp-js.git",
+    "url": "https://github.com/regbo/lfp-common.git",
     "directory": "packages/loqkit"
   },
   "scripts": {
@@ -55,7 +55,7 @@
   },
   "main": "./release/cjs/index.js",
   "license": "MIT",
-  "homepage": "https://github.com/regbo/lfp-js/tree/main/packages/loqkit#readme",
+  "homepage": "https://github.com/regbo/lfp-common/tree/main/packages/loqkit#readme",
   "publishConfig": {
     "access": "public",
     "provenance": true,
@@ -63,7 +63,7 @@
   },
   "version": "0.8.5",
   "bugs": {
-    "url": "https://github.com/regbo/lfp-js/issues"
+    "url": "https://github.com/regbo/lfp-common/issues"
   },
   "types": "./release/index.d.ts",
   "sideEffects": false,

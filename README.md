@@ -1,6 +1,6 @@
-# lfp-js
+# lfp-common
 
-The shared Bun monorepo for LFP Connect JavaScript and TypeScript libraries.
+The shared Bun and uv monorepo for LFP Connect libraries.
 
 | Package | Purpose |
 | --- | --- |

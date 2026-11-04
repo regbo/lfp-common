@@ -3,7 +3,7 @@
   "description": "Local IPC and remote WebSocket object proxies for Python, Node.js, Bun, and browsers.",
   "repository": {
     "type": "git",
-    "url": "https://github.com/regbo/lfp-js.git",
+    "url": "https://github.com/regbo/lfp-common.git",
     "directory": "packages/pynect"
   },
   "bin": {
@@ -63,7 +63,7 @@
   },
   "main": "dist/js/index.js",
   "license": "MIT",
-  "homepage": "https://github.com/regbo/lfp-js/tree/main/packages/pynect#readme",
+  "homepage": "https://github.com/regbo/lfp-common/tree/main/packages/pynect#readme",
   "publishConfig": {
     "access": "public",
     "provenance": true,
@@ -71,7 +71,7 @@
   },
   "version": "0.8.5",
   "bugs": {
-    "url": "https://github.com/regbo/lfp-js/issues"
+    "url": "https://github.com/regbo/lfp-common/issues"
   },
   "types": "dist/js/index.d.ts",
   "sideEffects": false,

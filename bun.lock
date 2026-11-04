@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "lfp-js",
+      "name": "lfp-common",
       "devDependencies": {
         "@types/bun": "catalog:",
         "@types/node": "catalog:",

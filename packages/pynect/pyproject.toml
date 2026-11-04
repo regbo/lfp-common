@@ -23,9 +23,9 @@ dependencies = [ "cyclopts>=5.3,<6", "msgpack>=1.1,<2", "pydantic>=2.12,<3" ]
   name = "Reggie Bowser and NodePyX contributors"
 
   [project.urls]
-  Homepage = "https://github.com/regbo/lfp-js/tree/main/packages/pynect#readme"
-  Repository = "https://github.com/regbo/lfp-js.git"
-  Issues = "https://github.com/regbo/lfp-js/issues"
+  Homepage = "https://github.com/regbo/lfp-common/tree/main/packages/pynect#readme"
+  Repository = "https://github.com/regbo/lfp-common.git"
+  Issues = "https://github.com/regbo/lfp-common/issues"
 
   [project.scripts]
   pynect-worker = "pynect_worker.cli:main"

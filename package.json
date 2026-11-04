@@ -1,9 +1,9 @@
 {
-  "name": "lfp-js",
-  "description": "LFP Connect JavaScript and TypeScript libraries.",
+  "name": "lfp-common",
+  "description": "Shared libraries and Python integrations for LFP Connect.",
   "repository": {
     "type": "git",
-    "url": "https://github.com/regbo/lfp-js.git"
+    "url": "https://github.com/regbo/lfp-common.git"
   },
   "scripts": {
     "build": "projen build",
@@ -36,13 +36,13 @@
     "typescript": "catalog:"
   },
   "license": "MIT",
-  "homepage": "https://github.com/regbo/lfp-js#readme",
+  "homepage": "https://github.com/regbo/lfp-common#readme",
   "publishConfig": {
     "access": "public"
   },
   "version": "0.8.5",
   "bugs": {
-    "url": "https://github.com/regbo/lfp-js/issues"
+    "url": "https://github.com/regbo/lfp-common/issues"
   },
   "private": true,
   "type": "module",

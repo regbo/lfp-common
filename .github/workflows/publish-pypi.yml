@@ -22,7 +22,7 @@ jobs:
       contents: read
       id-token: write
     environment: pypi
-    if: github.repository == 'regbo/lfp-js'
+    if: github.repository == 'regbo/lfp-common'
     steps:
       - name: Checkout
         id: checkout

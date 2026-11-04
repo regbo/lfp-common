@@ -3,7 +3,7 @@
   "description": "Turn Zod configuration schemas into zero-setup CLI options.",
   "repository": {
     "type": "git",
-    "url": "https://github.com/regbo/lfp-js.git",
+    "url": "https://github.com/regbo/lfp-common.git",
     "directory": "packages/optionkit"
   },
   "scripts": {
@@ -56,7 +56,7 @@
   },
   "main": "./dist/index.js",
   "license": "MIT",
-  "homepage": "https://github.com/regbo/lfp-js/tree/main/packages/optionkit#readme",
+  "homepage": "https://github.com/regbo/lfp-common/tree/main/packages/optionkit#readme",
   "publishConfig": {
     "access": "public",
     "provenance": true,
@@ -64,7 +64,7 @@
   },
   "version": "0.8.5",
   "bugs": {
-    "url": "https://github.com/regbo/lfp-js/issues"
+    "url": "https://github.com/regbo/lfp-common/issues"
   },
   "types": "./dist/index.d.ts",
   "sideEffects": false,

@@ -33,9 +33,9 @@ describe('release version planning', () => {
 });
 describe('public GitHub repository and identity checks', () => {
   test('accepts supported remote forms', () => {
-    expect(githubRepositoryFromRemote('git@github.com:regbo/lfp-js.git')).toBe('regbo/lfp-js');
-    expect(githubRepositoryFromRemote('https://github.com/regbo/lfp-js.git')).toBe('regbo/lfp-js');
-    expect(githubRepositoryFromRemote('ssh://git@github.com/regbo/lfp-js.git')).toBe('regbo/lfp-js');
+    expect(githubRepositoryFromRemote('git@github.com:regbo/lfp-common.git')).toBe('regbo/lfp-common');
+    expect(githubRepositoryFromRemote('https://github.com/regbo/lfp-common.git')).toBe('regbo/lfp-common');
+    expect(githubRepositoryFromRemote('ssh://git@github.com/regbo/lfp-common.git')).toBe('regbo/lfp-common');
   });
 
   test('requires a GitHub noreply identity', () => {
