@@ -26,7 +26,7 @@
     "watch": "projen watch",
     "projen": "projen",
     "pack:release": "bun pm pack --ignore-scripts --destination ../../dist/packages --quiet",
-    "publish:release": "npm publish ../../dist/packages/pynect-0.8.3.tgz --access public --tag latest --provenance"
+    "publish:release": "npm publish ../../dist/packages/pynect-0.8.4.tgz --access public --tag latest --provenance"
   },
   "author": {
     "name": "Reggie Bowser and NodePyX contributors",
@@ -67,7 +67,7 @@
     "provenance": true,
     "registry": "https://registry.npmjs.org"
   },
-  "version": "0.8.3",
+  "version": "0.8.4",
   "bugs": {
     "url": "https://github.com/regbo/lfp-js/issues"
   },
