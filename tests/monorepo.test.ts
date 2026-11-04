@@ -8,6 +8,7 @@ import {
   generatedMetadataPath,
   generatedPackageVersionPaths,
   readManifest,
+  uvWorkspacePaths,
   workspacePath,
 } from '../scripts/workspaces.ts';
 
@@ -66,4 +67,8 @@ test('keeps every Projen-generated file read-only', async () => {
       await expect(access(path.join(directory, file), constants.W_OK)).rejects.toThrow();
     }
   }
+});
+
+test('discovers uv workspaces whose lockfiles must follow release versions', async () => {
+  expect(await uvWorkspacePaths()).toEqual(['packages/pynect']);
 });

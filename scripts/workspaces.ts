@@ -35,6 +35,18 @@ export async function generatedPackageVersionPaths(directory: string): Promise<r
   );
 }
 
+export async function uvWorkspacePaths(): Promise<readonly string[]> {
+  const projects = await Promise.all(WORKSPACES.map(async workspace => {
+    const directory = workspacePath(workspace);
+    const [hasProject, hasLockfile] = await Promise.all([
+      Bun.file(path.join(directory, 'pyproject.toml')).exists(),
+      Bun.file(path.join(directory, 'uv.lock')).exists(),
+    ]);
+    return hasProject && hasLockfile ? workspace.path : undefined;
+  }));
+  return projects.filter((project): project is string => project !== undefined);
+}
+
 export async function sharedVersion(): Promise<string> {
   const version = (await readManifest(ROOT)).version;
   if (typeof version !== 'string') throw new Error('Root package.json has no version.');

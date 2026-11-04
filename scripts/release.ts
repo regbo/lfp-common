@@ -16,6 +16,7 @@ import {
   generatedPackageVersionPaths,
   readManifest,
   sharedVersion,
+  uvWorkspacePaths,
   workspacePath,
 } from './workspaces.ts';
 
@@ -31,6 +32,7 @@ const dryRun = args.has('--dry-run');
 const initial = args.has('--initial');
 const remote = 'origin';
 const releaseBranch = 'main';
+const uvProjects = await uvWorkspacePaths();
 const generatedVersionFiles = (await Promise.all(WORKSPACES.map(async workspace =>
   (await generatedPackageVersionPaths(workspacePath(workspace)))
     .map(file => `${workspace.path}/${file}`)
@@ -41,6 +43,7 @@ const versionFiles = [
   'bun.lock',
   ...WORKSPACES.map(workspace => `${workspace.path}/package.json`),
   ...generatedVersionFiles,
+  ...uvProjects.map(project => `${project}/uv.lock`),
 ] as const;
 const snapshots = new Map<string, { readonly content: Buffer; readonly mode: number }>();
 for (const filename of versionFiles) {
@@ -121,6 +124,9 @@ try {
     inherit: true,
   });
   await runBun(['install'], { cwd: ROOT, inherit: true });
+  for (const project of uvProjects) {
+    await runCommand('uv', ['lock', '--project', project], { cwd: ROOT, inherit: true });
+  }
   await runBun(['run', 'verify'], { cwd: ROOT, inherit: true });
 
   if (dryRun) {
