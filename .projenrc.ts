@@ -727,7 +727,7 @@ configureTestsAndTypecheck(pynect, [
   ['uv', 'run', '--locked', 'ruff', 'check', 'src/py', 'tests/py'],
   ['uv', 'run', '--locked', 'ruff', 'format', '--check', 'src/py', 'tests/py'],
 ]);
-pynect.testTask.execArgs(['uv', 'run', '--locked', 'pytest']);
+pynect.testTask.execArgs(['uv', 'run', '--locked', 'python', '-m', 'pytest']);
 pynect.addTask('check:python', {
   execArgs: ['uv', 'run', '--locked', 'ruff', 'check', 'src/py', 'tests/py'],
 });

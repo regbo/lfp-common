@@ -157,6 +157,8 @@
             "uv",
             "run",
             "--locked",
+            "python",
+            "-m",
             "pytest"
           ]
         }
