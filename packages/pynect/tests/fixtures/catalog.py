@@ -1,0 +1,32 @@
+from typing import Literal
+
+from chanx.core.decorators import channel, ws_handler
+from chanx.fast_channels.websocket import AsyncJsonWebsocketConsumer
+from chanx.messages.base import BaseMessage
+from fastapi import FastAPI
+from pydantic import BaseModel
+
+
+class PingPayload(BaseModel):
+    value: str
+
+
+class PingRequest(BaseMessage):
+    action: Literal["ping"] = "ping"
+    payload: PingPayload
+
+
+class PongResponse(BaseMessage):
+    action: Literal["pong"] = "pong"
+    payload: PingPayload
+
+
+@channel(name="catalog", description="Pynect generation fixture")
+class CatalogConsumer(AsyncJsonWebsocketConsumer):
+    @ws_handler
+    async def ping(self, message: PingRequest) -> PongResponse:
+        return PongResponse(payload=message.payload)
+
+
+app = FastAPI(title="Pynect fixture", version="1.0.0")
+app.router.add_websocket_route("/ws/catalog", CatalogConsumer.as_asgi())

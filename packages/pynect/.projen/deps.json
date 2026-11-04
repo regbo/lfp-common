@@ -11,22 +11,17 @@
       "type": "build"
     },
     {
-      "name": "json-schema-to-typescript",
-      "version": "catalog:",
-      "type": "build"
-    },
-    {
       "name": "typescript",
       "version": "catalog:",
       "type": "build"
     },
     {
-      "name": "@msgpack/msgpack",
+      "name": "@chanx-js/client",
       "version": "catalog:",
       "type": "runtime"
     },
     {
-      "name": "async-mutex",
+      "name": "@chanx-js/codegen",
       "version": "catalog:",
       "type": "runtime"
     },

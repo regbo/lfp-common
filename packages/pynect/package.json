@@ -1,13 +1,13 @@
 {
   "name": "pynect",
-  "description": "Local IPC and remote WebSocket object proxies for Python, Node.js, Bun, and browsers.",
+  "description": "Generate Chanx TypeScript clients from Python and run them locally over IPC.",
   "repository": {
     "type": "git",
     "url": "https://github.com/regbo/lfp-common.git",
     "directory": "packages/pynect"
   },
   "bin": {
-    "pynect": "dist/js/cli.mjs"
+    "pynect": "dist/js/cli.js"
   },
   "scripts": {
     "build": "projen build",
@@ -20,7 +20,6 @@
     "post-compile": "projen post-compile",
     "pre-compile": "projen pre-compile",
     "test": "projen test",
-    "test:smoke": "projen test:smoke",
     "typecheck": "projen typecheck",
     "verify": "projen verify",
     "watch": "projen watch",
@@ -35,23 +34,24 @@
   "devDependencies": {
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
-    "json-schema-to-typescript": "catalog:",
     "typescript": "catalog:"
   },
   "dependencies": {
-    "@msgpack/msgpack": "catalog:",
-    "async-mutex": "catalog:",
+    "@chanx-js/client": "catalog:",
+    "@chanx-js/codegen": "catalog:",
     "optionkit": "workspace:*",
     "pyfig": "workspace:*",
     "smol-toml": "catalog:",
     "zod": "catalog:"
   },
   "keywords": [
+    "asyncapi",
     "bun",
+    "chanx",
+    "codegen",
     "ipc",
     "named-pipe",
     "nodejs",
-    "pydantic",
     "python",
     "typescript",
     "uv",
@@ -75,26 +75,17 @@
   },
   "types": "dist/js/index.d.ts",
   "sideEffects": false,
+  "type": "module",
   "exports": {
     ".": {
       "types": "./dist/js/index.d.ts",
       "import": "./dist/js/index.js",
-      "require": "./dist/js/index.js"
-    },
-    "./websocket": {
-      "types": "./dist/js/websocket.d.ts",
-      "import": "./dist/js/websocket.js",
-      "require": "./dist/js/websocket.js"
-    },
-    "./schema": {
-      "types": "./dist/js/_generated/schema.d.ts",
-      "import": "./dist/js/_generated/schema.js",
-      "require": "./dist/js/_generated/schema.js"
+      "default": "./dist/js/index.js"
     },
     "./metadata": {
       "types": "./dist/js/_generated/metadata.d.ts",
       "import": "./dist/js/_generated/metadata.js",
-      "require": "./dist/js/_generated/metadata.js"
+      "default": "./dist/js/_generated/metadata.js"
     }
   },
   "files": [

@@ -1,123 +1,114 @@
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { pyfigOptionsSchema } from 'pyfig';
+import { parse as parseToml } from 'smol-toml';
 import { z } from 'zod';
-import { workerOptionsSchema } from './_generated/schema';
-import { DEFAULT_CALL_TIMEOUT_MS, DEFAULT_STARTUP_TIMEOUT_MS } from './defaults';
 
-const pyfigShape = pyfigOptionsSchema.unwrap().omit({
-  cwd: true,
-  env: true,
-}).shape;
+const importTargetSchema = z.string()
+  .trim()
+  .regex(
+    /^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*:[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*$/u,
+    'app must use the form "module:object".',
+  );
 
-export const createVenvOptionsSchema = z.object({
-  ...pyfigShape,
-  ...workerOptionsSchema.shape,
-  cwd: z.string()
-    .describe("Working directory used by uv and added to Python's import path.")
-    .optional(),
-  env: z.record(z.string(), z.string().optional())
-    .describe('Environment overrides used for resolution and the Python worker.')
-    .optional(),
-  project: z.union([z.string(), z.literal(false)])
-    .describe('A uv project directory, false for --no-project, or omitted for uv discovery.')
-    .optional(),
-  with: z.array(z.string())
-    .describe('Additional requirements layered with uv run --with.')
-    .optional(),
-  withEditable: z.array(z.string())
-    .describe('Additional editable requirements layered with uv run --with-editable.')
-    .optional(),
-  withRequirements: z.array(z.string())
-    .describe('Requirements, pylock, or inline-metadata files passed to --with-requirements.')
-    .optional(),
-  modules: z.record(z.string(), z.string())
-    .describe('Public module names mapped to their Python import names.')
-    .optional(),
-  uvArgs: z.array(z.string())
-    .describe('Additional uv run options inserted before the Python command.')
-    .optional(),
-  autoClose: z.boolean()
-    .describe('Let the host exit naturally and terminate the Python child during shutdown.')
-    .optional(),
-  startupTimeoutMs: z.number().int().positive()
-    .describe('Time allowed for uv to prepare the environment and connect the worker.')
-    .optional(),
-  callTimeoutMs: z.number().int().nonnegative()
-    .describe('Default RPC timeout. Zero disables call timeouts.')
-    .optional(),
-}).readonly().describe('Options for a lazy uv-backed Python environment.');
+const fileConfigSchema = z.object({
+  app: importTargetSchema.default('server:app'),
+  out: z.string().trim().min(1).optional(),
+  name: z.string().trim().min(1).optional(),
+  python: z.string().trim().min(1).optional(),
+  uv: z.string().trim().min(1).optional(),
+  debug: z.boolean().default(false),
+  validation: z.enum(['none', 'zod']).default('none'),
+  format: z.boolean().default(false),
+}).strict();
 
-export type CreateVenvOptions = z.input<typeof createVenvOptionsSchema>;
+export const projectOptionsSchema = z.object({
+  root: z.string().trim().min(1).default('.').describe('Python project directory.'),
+  app: importTargetSchema.optional().describe('ASGI app as module:object.'),
+  out: z.string().trim().min(1).optional().describe('Generated output directory.'),
+  name: z.string().trim().min(1).optional().describe('Project and IPC name override.'),
+  python: z.string().trim().min(1).optional().describe('Python request passed to Pyfig.'),
+  uv: z.string().trim().min(1).optional().describe('uv executable or version constraint.'),
+  debug: z.boolean().optional().describe('Write Pyfig diagnostics to stderr.'),
+}).readonly();
 
-export interface ResolvedVenvOptions {
-  readonly autoClose: boolean;
-  readonly callTimeoutMs: number;
-  readonly cwd: string;
-  readonly env: NodeJS.ProcessEnv;
-  readonly modules: Readonly<Record<string, string>>;
-  readonly project: string | false | undefined;
-  readonly pyfig: z.input<typeof pyfigOptionsSchema>;
-  readonly startupTimeoutMs: number;
-  readonly uvArgs: readonly string[];
-  readonly validatePydantic: boolean;
-  readonly with: readonly string[];
-  readonly withEditable: readonly string[];
-  readonly withRequirements: readonly string[];
+export type ProjectOptions = z.input<typeof projectOptionsSchema>;
+
+export interface PynectProject {
+  readonly app: string;
+  readonly debug: boolean;
+  readonly format: boolean;
+  readonly ipcEnvironmentVariable: string;
+  readonly name: string;
+  readonly outDir: string;
+  readonly pyprojectPath: string;
+  readonly python?: string;
+  readonly root: string;
+  readonly schemaPath: string;
+  readonly slug: string;
+  readonly uv?: string;
+  readonly validation: 'none' | 'zod';
 }
 
-export function resolveVenvOptions(options: CreateVenvOptions = {}): ResolvedVenvOptions {
-  const parsedOptions = createVenvOptionsSchema.parse(options);
-  const cwd = path.resolve(parsedOptions.cwd ?? process.cwd());
-  const project = typeof parsedOptions.project === 'string'
-    ? path.resolve(cwd, parsedOptions.project)
-    : parsedOptions.project;
-  const env = { ...process.env, ...parsedOptions.env };
-
-  assertUvArgs(parsedOptions.uvArgs ?? []);
-
-  const {
-    autoClose: _autoClose,
-    callTimeoutMs: _callTimeoutMs,
-    cwd: _cwd,
-    modules: _modules,
-    project: _project,
-    startupTimeoutMs: _startupTimeoutMs,
-    uvArgs: _uvArgs,
-    validatePydantic: _validatePydantic,
-    with: _with,
-    withEditable: _withEditable,
-    withRequirements: _withRequirements,
-    ...pyfigOptions
-  } = parsedOptions;
+/** Resolve direct options over `[tool.pynect]`, then apply project-derived defaults. */
+export function resolveProject(input: ProjectOptions = {}): PynectProject {
+  const options = projectOptionsSchema.parse(input);
+  const pyprojectPath = findPyproject(path.resolve(options.root));
+  const root = path.dirname(pyprojectPath);
+  const document = parseToml(readFileSync(pyprojectPath, 'utf8')) as Record<string, unknown>;
+  const projectTable = objectAt(document, ['project']);
+  const toolConfig = objectAt(document, ['tool', 'pynect']) ?? {};
+  const configured = fileConfigSchema.parse(toolConfig);
+  const declaredName = z.string().trim().min(1).parse(projectTable?.name);
+  const name = options.name ?? configured.name ?? declaredName;
+  const slug = slugify(name);
+  const out = options.out ?? configured.out ?? path.join('_generated', slug);
+  const outDir = path.resolve(root, out);
 
   return Object.freeze({
-    autoClose: parsedOptions.autoClose ?? true,
-    callTimeoutMs: parsedOptions.callTimeoutMs ?? DEFAULT_CALL_TIMEOUT_MS,
-    cwd,
-    env,
-    modules: Object.freeze({ ...(parsedOptions.modules ?? {}) }),
-    project,
-    pyfig: {
-      ...pyfigOptions,
-      cwd: typeof project === 'string' ? project : cwd,
-      env,
-    },
-    startupTimeoutMs: parsedOptions.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS,
-    uvArgs: Object.freeze([...(parsedOptions.uvArgs ?? [])]),
-    validatePydantic: parsedOptions.validatePydantic ?? true,
-    with: Object.freeze([...(parsedOptions.with ?? [])]),
-    withEditable: Object.freeze([...(parsedOptions.withEditable ?? [])]),
-    withRequirements: Object.freeze(
-      (parsedOptions.withRequirements ?? []).map(requirement => path.resolve(cwd, requirement)),
-    ),
+    app: options.app ?? configured.app,
+    debug: options.debug ?? configured.debug,
+    format: configured.format,
+    ipcEnvironmentVariable: `${slug.replaceAll('-', '_').toUpperCase()}_IPC_PATH`,
+    name,
+    outDir,
+    pyprojectPath,
+    ...(options.python ?? configured.python
+      ? { python: options.python ?? configured.python }
+      : {}),
+    root,
+    schemaPath: path.join(outDir, 'asyncapi.json'),
+    slug,
+    ...(options.uv ?? configured.uv ? { uv: options.uv ?? configured.uv } : {}),
+    validation: configured.validation,
   });
 }
 
-function assertUvArgs(args: readonly string[]): void {
-  if (args.includes('--')) {
-    throw new TypeError('uvArgs cannot contain -- or replace the worker command.');
+function findPyproject(start: string): string {
+  for (let directory = start; ; directory = path.dirname(directory)) {
+    const candidate = path.join(directory, 'pyproject.toml');
+    if (existsSync(candidate)) return candidate;
+    const parent = path.dirname(directory);
+    if (parent === directory) break;
   }
-  for (const argument of args) {
-    if (argument.includes('\0')) throw new TypeError('uvArgs cannot contain NUL characters.');
+  throw new Error(`Could not find pyproject.toml from ${start}.`);
+}
+
+function objectAt(
+  value: Record<string, unknown>,
+  keys: readonly string[],
+): Record<string, unknown> | undefined {
+  let current: unknown = value;
+  for (const key of keys) {
+    if (!current || typeof current !== 'object' || Array.isArray(current)) return undefined;
+    current = (current as Record<string, unknown>)[key];
   }
+  return current && typeof current === 'object' && !Array.isArray(current)
+    ? current as Record<string, unknown>
+    : undefined;
+}
+
+function slugify(name: string): string {
+  const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/gu, '-').replace(/^-|-$/gu, '');
+  if (!slug) throw new Error(`Project name cannot form a generated directory: ${JSON.stringify(name)}.`);
+  return slug;
 }

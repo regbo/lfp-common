@@ -1,49 +1,50 @@
-"""Emit the canonical Pynect JSON Schema for JavaScript code generation."""
-
-from __future__ import annotations
+"""Export a Chanx AsyncAPI document from a configured ASGI app."""
 
 import json
+import os
+from pathlib import Path
 from typing import Any
 
-from .models import (
-    PROTOCOL_VERSION,
-    WEBSOCKET_SUBPROTOCOL,
-    CodegenRequest,
-    MessageKind,
-    Operation,
-    ServerOptions,
-    WireValueType,
-    WorkerOptions,
-)
+from chanx.fast_channels.views import generate_asyncapi_schema
+from starlette.requests import Request
+
+from pynect_worker._app import load_object
 
 
-def schema_document() -> dict[str, Any]:
-    """Build the stable cross-language schema document."""
-
-    return {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$id": "https://nodepyx.dev/schemas/pynect.json",
-        "title": "Pynect shared schema",
-        "$defs": {
-            "CodegenRequest": CodegenRequest.model_json_schema(by_alias=True),
-            "WorkerOptions": WorkerOptions.model_json_schema(by_alias=True),
-            "ServerOptions": ServerOptions.model_json_schema(by_alias=True),
-        },
-        "x-pynect-protocol": {
-            "version": PROTOCOL_VERSION,
-            "websocketSubprotocol": WEBSOCKET_SUBPROTOCOL,
-            "messageKinds": [item.value for item in MessageKind],
-            "operations": [item.value for item in Operation],
-            "wireValueTypes": [item.value for item in WireValueType],
-        },
-    }
+def export_schema(app_target: str, output: Path) -> None:
+    """Generate AsyncAPI without starting an HTTP server."""
+    app = load_object(app_target)
+    request = Request(
+        {
+            "type": "http",
+            "asgi": {"version": "3.0", "spec_version": "2.4"},
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": "/",
+            "raw_path": b"/",
+            "root_path": "",
+            "query_string": b"",
+            "headers": [],
+            "client": ("127.0.0.1", 0),
+            "server": ("localhost", 80),
+            "state": {},
+            "app": app,
+        }
+    )
+    schema: dict[str, Any] = generate_asyncapi_schema(request=request, app=app)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output.with_name(f".{output.name}.{os.getpid()}.tmp")
+    temporary.write_text(json.dumps(schema, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(output)
 
 
 def main() -> None:
-    """Write canonical JSON to stdout for a language-neutral generator."""
-
-    print(json.dumps(schema_document(), indent=2, sort_keys=True))
-
-
-if __name__ == "__main__":
-    main()
+    """Console entry point driven by the Node launcher environment."""
+    app_target = os.environ.get("PYNECT_APP")
+    output = os.environ.get("PYNECT_SCHEMA_PATH")
+    if not app_target:
+        raise RuntimeError("PYNECT_APP is required")
+    if not output:
+        raise RuntimeError("PYNECT_SCHEMA_PATH is required")
+    export_schema(app_target, Path(output))

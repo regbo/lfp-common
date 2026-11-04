@@ -48,23 +48,7 @@
         {
           "execArgs": [
             "bun",
-            "src/js/generate-schema.ts"
-          ]
-        },
-        {
-          "execArgs": [
-            "bun",
-            "src/js/cli.mts",
-            "codegen",
-            "generate",
-            "--root",
-            "example/python"
-          ]
-        },
-        {
-          "execArgs": [
-            "bun",
-            "src/js/build.js"
+            "scripts/build.ts"
           ]
         }
       ]
@@ -164,19 +148,6 @@
         }
       ]
     },
-    "test:smoke": {
-      "name": "test:smoke",
-      "description": "Run opt-in Pynect I/O and startup smoke benchmarks.",
-      "steps": [
-        {
-          "execArgs": [
-            "bun",
-            "test",
-            "./tests/io.smoke.ts"
-          ]
-        }
-      ]
-    },
     "typecheck": {
       "name": "typecheck",
       "description": "Type-check pynect.",
@@ -194,7 +165,7 @@
             "tsc",
             "--noEmit",
             "-p",
-            "tests/tsconfig.json"
+            "scripts/tsconfig.json"
           ]
         },
         {
@@ -202,14 +173,7 @@
             "tsc",
             "--noEmit",
             "-p",
-            "example/app/tsconfig.json"
-          ]
-        },
-        {
-          "execArgs": [
-            "bun",
-            "src/js/generate-schema.ts",
-            "--check"
+            "tests/tsconfig.json"
           ]
         },
         {

@@ -4,9 +4,7 @@
   "compilerOptions": {
     "noEmit": true,
     "rootDir": "..",
-    "allowImportingTsExtensions": true,
-    "module": "ESNext",
-    "moduleResolution": "bundler"
+    "allowImportingTsExtensions": true
   },
   "include": [
     "**/*.ts"

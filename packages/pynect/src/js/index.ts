@@ -1,8 +1,19 @@
-/** Lazy, uv-backed Python object bridging for Node.js and Bun. */
+/** Python-owned Chanx code generation and local IPC transport. */
 
-export { createVenv, PythonVenv } from './python-venv';
-export { kwargs } from './python-object';
-export type { PythonKeywordArguments, PythonObject } from './python-object';
-export { PythonError, VenvClosedError, VenvStartupError } from './errors';
-export { createVenvOptionsSchema } from './config';
-export type { CreateVenvOptions } from './config';
+export { generateProject } from './codegen.js';
+export type { PynectGenerateResult } from './codegen.js';
+export { projectOptionsSchema, resolveProject } from './config.js';
+export type { PynectProject, ProjectOptions } from './config.js';
+export {
+  canConnectIpc,
+  createIpcSocketFactory,
+  defaultIpcPath,
+  ipcClientOptions,
+} from './ipc.js';
+export {
+  ensureIpcServer,
+  IpcServer,
+  serverOptionsSchema,
+  startIpcServer,
+} from './server.js';
+export type { StartIpcServerOptions } from './server.js';

@@ -48,7 +48,8 @@ const BUGS_URL = `${GITHUB_URL}/issues`;
 /** The only source of external dependency versions for every workspace. */
 const CATALOG = {
   '@antfu/install-pkg': '^2.1.0',
-  '@msgpack/msgpack': '^3.1.2',
+  '@chanx-js/client': '^2.4.0',
+  '@chanx-js/codegen': '^2.1.2',
   '@renovatebot/pep440': '^5.0.1',
   '@types/bun': '^1.4.4',
   '@types/fs-ext': '^2.0.3',
@@ -62,7 +63,6 @@ const CATALOG = {
   'fflate': '^0.8.3',
   'fireargs': '^0.6.2',
   'fs-ext': '^2.1.1',
-  'json-schema-to-typescript': '^16.0.0',
   'ohash': '^2.0.12',
   'pacwich': '^0.7.3',
   'proper-lockfile': '^4.1.2',
@@ -251,7 +251,7 @@ class PackageMetadata extends Component {
   }
 }
 
-/** Synthesize the Python distribution that shares Pynect's package directory. */
+/** Synthesize the small Python adapter bundled with the Pynect npm package. */
 class PynectPythonPackage extends Component {
   constructor(project: typescript.TypeScriptProject) {
     super(project);
@@ -260,7 +260,7 @@ class PynectPythonPackage extends Component {
       project: {
         name: 'pynect-worker',
         version: VERSION,
-        description: 'Python worker and WebSocket server for Pynect',
+        description: 'Chanx schema export and local IPC adapter for Pynect',
         readme: 'README.md',
         requiresPython: '>=3.11',
         license: 'MIT',
@@ -280,24 +280,16 @@ class PynectPythonPackage extends Component {
           Repository: REPOSITORY,
           Issues: BUGS_URL,
         },
-        dependencies: [
-          'cyclopts>=5.3,<6',
-          'msgpack>=1.1,<2',
-          'pydantic>=2.12,<3',
-        ],
-        optionalDependencies: {
-          server: ['websockets>=17,<18'],
-        },
+        dependencies: ['chanx[fast_channels]>=2.14,<3'],
         scripts: {
-          'pynect-worker': 'pynect_worker.cli:main',
-          'pynect-server': 'pynect_worker.cli:server_main',
+          'pynect-ipc': 'pynect_worker.ipc:main',
+          'pynect-schema': 'pynect_worker.schema:main',
         },
       },
       dependencyGroups: {
         dev: [
           'pytest>=9,<10',
           'ruff>=0.17,<1',
-          'websockets>=17,<18',
         ],
       },
       buildSystem: {
@@ -639,32 +631,33 @@ pyfig.addScripts({ pyfig: 'bun ./src/cli.ts' });
 
 const pynect = workspace({
   name: 'pynect',
-  description: 'Local IPC and remote WebSocket object proxies for Python, Node.js, Bun, and browsers.',
+  description: 'Generate Chanx TypeScript clients from Python and run them locally over IPC.',
   srcdir: 'src/js',
   libdir: 'dist/js',
   authorName: 'Reggie Bowser and NodePyX contributors',
   tsconfig: {
     compilerOptions: {
-      module: 'CommonJS',
+      module: 'NodeNext',
       lib: ['ES2022', 'ESNext.Disposable'],
     },
   },
-  bin: { pynect: 'dist/js/cli.mjs' },
+  bin: { pynect: 'dist/js/cli.js' },
   deps: [
-    '@msgpack/msgpack@catalog:',
-    'async-mutex@catalog:',
+    '@chanx-js/client@catalog:',
+    '@chanx-js/codegen@catalog:',
     'optionkit@workspace:*',
     'pyfig@workspace:*',
     'smol-toml@catalog:',
     'zod@catalog:',
   ],
-  devDeps: ['json-schema-to-typescript@catalog:'],
   keywords: [
     'python',
     'nodejs',
     'bun',
     'typescript',
-    'pydantic',
+    'chanx',
+    'asyncapi',
+    'codegen',
     'uv',
     'ipc',
     'named-pipe',
@@ -672,24 +665,15 @@ const pynect = workspace({
   ],
 });
 pynect.addFields({
+  type: 'module',
   main: 'dist/js/index.js',
   types: 'dist/js/index.d.ts',
-  bin: { pynect: 'dist/js/cli.mjs' },
+  bin: { pynect: 'dist/js/cli.js' },
   exports: {
     '.': {
       types: './dist/js/index.d.ts',
       import: './dist/js/index.js',
-      require: './dist/js/index.js',
-    },
-    './websocket': {
-      types: './dist/js/websocket.d.ts',
-      import: './dist/js/websocket.js',
-      require: './dist/js/websocket.js',
-    },
-    './schema': {
-      types: './dist/js/_generated/schema.d.ts',
-      import: './dist/js/_generated/schema.js',
-      require: './dist/js/_generated/schema.js',
+      default: './dist/js/index.js',
     },
   },
   files: ['dist/', 'README.md', 'SECURITY.md', 'LICENSE'],
@@ -699,31 +683,13 @@ pynect.addFields({
   },
 });
 new PynectPythonPackage(pynect);
-for (const artifact of [
-  'example/app/src/generated/example-python.ts',
-  'src/js/_generated/codegen.ts',
-  'src/js/_generated/protocol.ts',
-  'src/js/_generated/schema.ts',
-] as const) {
-  pynect.addGitIgnore(`!/${artifact}`);
-  pynect.gitattributes.addAttributes(`/${artifact}`, 'linguist-generated');
-}
+configureScriptTypes(pynect);
 pynect.compileTask.reset();
-pynect.compileTask.execArgs(['bun', 'src/js/generate-schema.ts']);
-pynect.compileTask.execArgs([
-  'bun',
-  'src/js/cli.mts',
-  'codegen',
-  'generate',
-  '--root',
-  'example/python',
-]);
-pynect.compileTask.execArgs(['bun', 'src/js/build.js']);
+pynect.compileTask.execArgs(['bun', 'scripts/build.ts']);
 configureTestsAndTypecheck(pynect, [
   ['tsc', '--noEmit', '-p', 'tsconfig.json'],
+  ['tsc', '--noEmit', '-p', 'scripts/tsconfig.json'],
   ['tsc', '--noEmit', '-p', 'tests/tsconfig.json'],
-  ['tsc', '--noEmit', '-p', 'example/app/tsconfig.json'],
-  ['bun', 'src/js/generate-schema.ts', '--check'],
   ['uv', 'run', '--locked', 'ruff', 'check', 'src/py', 'tests/py'],
   ['uv', 'run', '--locked', 'ruff', 'format', '--check', 'src/py', 'tests/py'],
 ]);
@@ -736,10 +702,6 @@ pynect.addTask('format:python', {
 });
 pynect.addTask('format:python:check', {
   execArgs: ['uv', 'run', '--locked', 'ruff', 'format', '--check', 'src/py', 'tests/py'],
-});
-pynect.addTask('test:smoke', {
-  description: 'Run opt-in Pynect I/O and startup smoke benchmarks.',
-  execArgs: ['bun', 'test', './tests/io.smoke.ts'],
 });
 
 const WORKSPACE_FILTER = './packages/*';
@@ -813,7 +775,7 @@ new TextFile(root, 'README.md', {
     '| [`loqkit`](packages/loqkit) | Typed memoization and layered locks. |',
     '| [`optionkit`](packages/optionkit) | Zod-backed CLI configuration. |',
     '| [`pyfig`](packages/pyfig) | uv bootstrap and Python execution. |',
-    '| [`pynect`](packages/pynect) | Local and remote Python object proxies plus the `pynect-worker` Python distribution. |',
+    '| [`pynect`](packages/pynect) | Python-owned Chanx APIs with generated TypeScript and local IPC. |',
     '',
     'All packages use the version declared in `.projenrc.ts`, external versions come from its Bun catalog, and sibling packages use `workspace:*`.',
     'Every workspace publishes its generated `PACKAGE_NAME` and `PACKAGE_VERSION` constants from the `./metadata` subpath.',
@@ -829,7 +791,7 @@ new TextFile(root, 'docs/llm/UTILITIES.md', {
     '- `scripts/process.ts`: shell-free child-process execution shared by release tooling.',
     '- `ReadonlyGeneratedFiles`: Projen mixin that makes every synthesized file read-only across the project tree.',
     '- `PackageMetadata`: emits tracked, read-only `_generated/metadata.ts` modules and merges public `./metadata` package exports.',
-    '- `PynectPythonPackage`: synthesizes the shared uv/uv_build Python distribution and read-only Python metadata.',
+    '- `PynectPythonPackage`: synthesizes Pynect\'s small Chanx schema/IPC Python adapter.',
     '- `scripts/workspaces.ts`: Pacwich-backed workspace discovery and shared-version validation.',
     '- `scripts/release-lib.ts`: pure SemVer, tag, GitHub remote, and identity helpers.',
     '- `scripts/release.ts`: local fixed-version release transaction.',

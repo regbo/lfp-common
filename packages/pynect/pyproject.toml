@@ -3,7 +3,7 @@
 [project]
 name = "pynect-worker"
 version = "0.8.6"
-description = "Python worker and WebSocket server for Pynect"
+description = "Chanx schema export and local IPC adapter for Pynect"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
@@ -17,7 +17,7 @@ classifiers = [
   "Programming Language :: Python :: 3.14",
   "Typing :: Typed"
 ]
-dependencies = [ "cyclopts>=5.3,<6", "msgpack>=1.1,<2", "pydantic>=2.12,<3" ]
+dependencies = [ "chanx[fast_channels]>=2.14,<3" ]
 
   [[project.authors]]
   name = "Reggie Bowser and NodePyX contributors"
@@ -28,14 +28,11 @@ dependencies = [ "cyclopts>=5.3,<6", "msgpack>=1.1,<2", "pydantic>=2.12,<3" ]
   Issues = "https://github.com/regbo/lfp-common/issues"
 
   [project.scripts]
-  pynect-worker = "pynect_worker.cli:main"
-  pynect-server = "pynect_worker.cli:server_main"
-
-  [project.optional-dependencies]
-  server = [ "websockets>=17,<18" ]
+  pynect-ipc = "pynect_worker.ipc:main"
+  pynect-schema = "pynect_worker.schema:main"
 
 [dependency-groups]
-dev = [ "pytest>=9,<10", "ruff>=0.17,<1", "websockets>=17,<18" ]
+dev = [ "pytest>=9,<10", "ruff>=0.17,<1" ]
 
 [build-system]
 requires = [ "uv_build>=0.10.7,<0.11" ]

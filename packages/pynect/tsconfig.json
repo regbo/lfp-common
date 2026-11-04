@@ -14,7 +14,7 @@
       "ES2022",
       "ESNext.Disposable"
     ],
-    "module": "CommonJS",
+    "module": "NodeNext",
     "noEmitOnError": true,
     "noFallthroughCasesInSwitch": true,
     "noImplicitAny": true,
@@ -34,8 +34,8 @@
     ],
     "declarationMap": true,
     "sourceMap": true,
-    "moduleResolution": "node",
-    "verbatimModuleSyntax": false
+    "moduleResolution": "nodenext",
+    "verbatimModuleSyntax": true
   },
   "include": [
     "src/js/**/*.ts",
