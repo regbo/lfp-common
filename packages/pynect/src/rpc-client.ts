@@ -11,7 +11,7 @@ import {
 import { createPythonObject, getPythonReference } from './python-object';
 import { withTimeout } from './utils/timing';
 
-const PROTOCOL_VERSION = 1;
+const PROTOCOL_VERSION = 2;
 const MAX_FRAME_BYTES = 256 * 1024 * 1024;
 const WIRE_TYPE = '__pynect_wire_type__';
 
@@ -28,6 +28,11 @@ interface FinalizedReference {
 
 type JavaScriptCallback = (...args: any[]) => unknown;
 
+interface CallbackEntry {
+  readonly callback: JavaScriptCallback;
+  leases: number;
+}
+
 const referenceFinalizer = new FinalizationRegistry<FinalizedReference>(({ client, id }) => {
   client.deref()?.notify(RPC_OPERATION.release, { target: id });
 });
@@ -38,13 +43,14 @@ export class RpcClient {
   readonly #callTimeoutMs: number;
   readonly #autoUnref: boolean;
   readonly #pending = new Map<number, PendingRequest>();
-  readonly #callbacks = new Map<number, JavaScriptCallback>();
+  readonly #callbacks = new Map<number, CallbackEntry>();
   readonly #callbackIds = new WeakMap<JavaScriptCallback, number>();
   #nextRequestId = 1;
   #nextCallbackId = 1;
   #buffer: Buffer<ArrayBufferLike> = Buffer.alloc(0);
   #closed = false;
   #helloSettled = false;
+  #pythonPid = 0;
   readonly #hello: Promise<void>;
   #resolveHello!: () => void;
   #rejectHello!: (error: unknown) => void;
@@ -83,13 +89,23 @@ export class RpcClient {
       options.callTimeoutMs,
       options.autoUnref,
     );
-    await withTimeout(client.#hello, options.timeoutMs, 'Python worker handshake timed out.');
+    try {
+      await withTimeout(client.#hello, options.timeoutMs, 'Python worker handshake timed out.');
+    } catch (error) {
+      client.forceClose(error instanceof Error ? error : new Error(String(error)));
+      throw error;
+    }
     if (options.autoUnref) options.socket.unref();
     return client;
   }
 
   get closed(): boolean {
     return this.#closed;
+  }
+
+  get pythonPid(): number {
+    if (this.#pythonPid <= 0) throw new Error('Python worker handshake is incomplete.');
+    return this.#pythonPid;
   }
 
   request(
@@ -110,22 +126,42 @@ export class RpcClient {
       timer?.unref();
       this.#pending.set(id, { reject, resolve, timer });
     });
+    const callbackLeases: number[] = [];
+    let encodedPayload: unknown;
+    try {
+      encodedPayload = this.#encodeValue(payload, new Set(), callbackLeases);
+    } catch (error) {
+      this.#rollbackCallbackLeases(callbackLeases);
+      this.#rejectPending(id, error);
+      return promise.finally(() => this.#unrefWhenIdle());
+    }
     void this.#send({
       id,
       kind: MESSAGE_KIND.request,
       op: operation,
-      payload: this.#encodeValue(payload),
-    }).catch(error => this.#rejectPending(id, error));
+      payload: encodedPayload,
+    }).catch(error => {
+      this.#rollbackCallbackLeases(callbackLeases);
+      this.#rejectPending(id, error);
+    });
     return promise.finally(() => this.#unrefWhenIdle());
   }
 
   notify(operation: RpcOperation, payload: Readonly<Record<string, unknown>> = {}): void {
     if (this.#closed) return;
+    const callbackLeases: number[] = [];
+    let encodedPayload: unknown;
+    try {
+      encodedPayload = this.#encodeValue(payload, new Set(), callbackLeases);
+    } catch {
+      this.#rollbackCallbackLeases(callbackLeases);
+      return;
+    }
     void this.#send({
       kind: MESSAGE_KIND.notify,
       op: operation,
-      payload: this.#encodeValue(payload),
-    }).catch(() => undefined);
+      payload: encodedPayload,
+    }).catch(() => this.#rollbackCallbackLeases(callbackLeases));
   }
 
   release(id: number): Promise<void> {
@@ -133,7 +169,11 @@ export class RpcClient {
   }
 
   trackReference(value: object, id: number): void {
-    referenceFinalizer.register(value, { client: new WeakRef(this), id });
+    referenceFinalizer.register(value, { client: new WeakRef(this), id }, value);
+  }
+
+  untrackReference(value: object): void {
+    referenceFinalizer.unregister(value);
   }
 
   async close(): Promise<void> {
@@ -195,6 +235,9 @@ export class RpcClient {
       case MESSAGE_KIND.callback:
         void this.#handleCallback(value);
         return;
+      case MESSAGE_KIND.callbackRelease:
+        this.#handleCallbackRelease(value);
+        return;
       default:
         throw new TypeError(`Python worker sent an unknown message kind: ${value['kind']}`);
     }
@@ -203,12 +246,16 @@ export class RpcClient {
   #handleHello(message: Record<string, unknown>): void {
     if (this.#helloSettled) throw new Error('Python worker sent more than one handshake.');
     this.#helloSettled = true;
-    if (message['protocol'] !== PROTOCOL_VERSION || message['token'] !== this.#token) {
+    if (
+      message['protocol'] !== PROTOCOL_VERSION || message['token'] !== this.#token ||
+      typeof message['pid'] !== 'number' || !Number.isInteger(message['pid']) || message['pid'] <= 0
+    ) {
       const error = new Error('Python worker handshake validation failed.');
       this.#rejectHello(error);
       this.#fail(error);
       return;
     }
+    this.#pythonPid = message['pid'];
     this.#resolveHello();
   }
 
@@ -232,7 +279,7 @@ export class RpcClient {
     if (typeof requestId !== 'number' || typeof callbackId !== 'number') {
       throw new TypeError('Python callback request is malformed.');
     }
-    const callback = this.#callbacks.get(callbackId);
+    const callback = this.#callbacks.get(callbackId)?.callback;
     this.#socket.ref();
     try {
       if (!callback) throw new Error(`JavaScript callback ${callbackId} is unavailable.`);
@@ -241,12 +288,19 @@ export class RpcClient {
       const args = Array.isArray(argsValue) ? argsValue : [];
       if (isRecord(kwargsValue) && Object.keys(kwargsValue).length > 0) args.push(kwargsValue);
       const result = await callback(...args);
-      await this.#send({
-        id: requestId,
-        kind: MESSAGE_KIND.callbackResult,
-        ok: true,
-        value: this.#encodeValue(result),
-      });
+      const callbackLeases: number[] = [];
+      try {
+        const encodedResult = this.#encodeValue(result, new Set(), callbackLeases);
+        await this.#send({
+          id: requestId,
+          kind: MESSAGE_KIND.callbackResult,
+          ok: true,
+          value: encodedResult,
+        });
+      } catch (error) {
+        this.#rollbackCallbackLeases(callbackLeases);
+        throw error;
+      }
     } catch (error) {
       await this.#send({
         error: serializeJavaScriptError(error),
@@ -259,7 +313,19 @@ export class RpcClient {
     }
   }
 
-  #encodeValue(value: unknown, seen = new Set<object>()): unknown {
+  #handleCallbackRelease(message: Record<string, unknown>): void {
+    const callbackId = message['callback'];
+    if (typeof callbackId !== 'number') {
+      throw new TypeError('Python callback release has no numeric callback id.');
+    }
+    this.#releaseCallbackLease(callbackId);
+  }
+
+  #encodeValue(
+    value: unknown,
+    seen = new Set<object>(),
+    callbackLeases: number[] = [],
+  ): unknown {
     if (
       value === null || typeof value === 'string' || typeof value === 'boolean' ||
       typeof value === 'number' || typeof value === 'bigint'
@@ -280,11 +346,15 @@ export class RpcClient {
     if (typeof value === 'function') {
       const callback = value as JavaScriptCallback;
       let id = this.#callbackIds.get(callback);
-      if (id === undefined) {
+      let entry = id === undefined ? undefined : this.#callbacks.get(id);
+      if (id === undefined || !entry) {
         id = this.#nextCallbackId++;
+        entry = { callback, leases: 0 };
         this.#callbackIds.set(callback, id);
-        this.#callbacks.set(id, callback);
+        this.#callbacks.set(id, entry);
       }
+      entry.leases += 1;
+      callbackLeases.push(id);
       return { [WIRE_TYPE]: WIRE_VALUE_TYPE.callback, id };
     }
     if (typeof value !== 'object') {
@@ -297,19 +367,21 @@ export class RpcClient {
         return { [WIRE_TYPE]: WIRE_VALUE_TYPE.datetime, value: value.toISOString() };
       }
       if (value instanceof Uint8Array) return value;
-      if (Array.isArray(value)) return value.map(item => this.#encodeValue(item, seen));
+      if (Array.isArray(value)) {
+        return value.map(item => this.#encodeValue(item, seen, callbackLeases));
+      }
       if (value instanceof Set) {
         return {
           [WIRE_TYPE]: WIRE_VALUE_TYPE.set,
-          value: [...value].map(item => this.#encodeValue(item, seen)),
+          value: [...value].map(item => this.#encodeValue(item, seen, callbackLeases)),
         };
       }
       if (value instanceof Map) {
         return {
           [WIRE_TYPE]: WIRE_VALUE_TYPE.map,
           value: [...value].map(([key, item]) => [
-            this.#encodeValue(key, seen),
-            this.#encodeValue(item, seen),
+            this.#encodeValue(key, seen, callbackLeases),
+            this.#encodeValue(item, seen, callbackLeases),
           ]),
         };
       }
@@ -317,11 +389,17 @@ export class RpcClient {
       if (WIRE_TYPE in record) {
         return {
           [WIRE_TYPE]: WIRE_VALUE_TYPE.map,
-          value: Object.entries(record).map(([key, item]) => [key, this.#encodeValue(item, seen)]),
+          value: Object.entries(record).map(([key, item]) => [
+            key,
+            this.#encodeValue(item, seen, callbackLeases),
+          ]),
         };
       }
       return Object.fromEntries(
-        Object.entries(record).map(([key, item]) => [key, this.#encodeValue(item, seen)]),
+        Object.entries(record).map(([key, item]) => [
+          key,
+          this.#encodeValue(item, seen, callbackLeases),
+        ]),
       );
     } finally {
       seen.delete(value);
@@ -330,6 +408,7 @@ export class RpcClient {
 
   #decodeValue(value: unknown): unknown {
     if (Array.isArray(value)) return value.map(item => this.#decodeValue(item));
+    if (value instanceof Uint8Array) return value;
     if (!isRecord(value)) return value;
     const type = value[WIRE_TYPE];
     if (type !== undefined && !isWireValueType(type)) {
@@ -394,6 +473,19 @@ export class RpcClient {
     this.#unrefWhenIdle();
   }
 
+  #rollbackCallbackLeases(callbackIds: readonly number[]): void {
+    for (const id of callbackIds) this.#releaseCallbackLease(id);
+  }
+
+  #releaseCallbackLease(id: number): void {
+    const entry = this.#callbacks.get(id);
+    if (!entry) return;
+    entry.leases -= 1;
+    if (entry.leases > 0) return;
+    this.#callbacks.delete(id);
+    this.#callbackIds.delete(entry.callback);
+  }
+
   #fail(error: unknown): void {
     const failure = error instanceof Error ? error : new Error(String(error));
     this.#closed = true;
@@ -406,6 +498,9 @@ export class RpcClient {
       if (pending.timer) clearTimeout(pending.timer);
       pending.reject(failure);
     }
+    this.#callbacks.clear();
+    this.#buffer = Buffer.alloc(0);
+    if (!this.#socket.destroyed) this.#socket.destroy();
   }
 
   #unrefWhenIdle(): void {

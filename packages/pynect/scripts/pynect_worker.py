@@ -14,19 +14,21 @@ import sys
 import threading
 import time
 import traceback
+import weakref
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, get_type_hints
 
 import msgpack
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 MAX_FRAME_BYTES = 256 * 1024 * 1024
 WIRE_TYPE = "__pynect_wire_type__"
 
 
 class MessageKind(str, enum.Enum):
     CALLBACK = "callback"
+    CALLBACK_RELEASE = "callback_release"
     CALLBACK_RESULT = "callback_result"
     HELLO = "hello"
     NOTIFY = "notify"
@@ -316,6 +318,11 @@ class JavaScriptCallback:
     def __init__(self, bridge: Bridge, callback_id: int) -> None:
         self._bridge = bridge
         self._callback_id = callback_id
+        self._release = weakref.finalize(
+            self,
+            bridge.release_callback,
+            callback_id,
+        )
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         return self._bridge.invoke_callback(self._callback_id, list(args), kwargs)
@@ -337,7 +344,6 @@ class Bridge:
         self._callback_lock = threading.Lock()
         self._next_callback_id = 1
         self._pending_callbacks: dict[int, PendingCallback] = {}
-        self._callbacks: dict[int, JavaScriptCallback] = {}
         worker_count = min(32, (os.cpu_count() or 1) + 4)
         self._executor = concurrent.futures.ThreadPoolExecutor(
             max_workers=worker_count,
@@ -348,6 +354,7 @@ class Bridge:
         self.connection.write(
             {
                 "kind": MessageKind.HELLO.value,
+                "pid": os.getpid(),
                 "protocol": PROTOCOL_VERSION,
                 "token": self.token,
             }
@@ -478,12 +485,20 @@ class Bridge:
         raise ValueError(f"Unknown RPC operation: {operation}")
 
     def callback(self, callback_id: int) -> JavaScriptCallback:
-        with self._callback_lock:
-            callback = self._callbacks.get(callback_id)
-            if callback is None:
-                callback = JavaScriptCallback(self, callback_id)
-                self._callbacks[callback_id] = callback
-            return callback
+        return JavaScriptCallback(self, callback_id)
+
+    def release_callback(self, callback_id: int) -> None:
+        if self._stopped.is_set():
+            return
+        try:
+            self.connection.write(
+                {
+                    "callback": callback_id,
+                    "kind": MessageKind.CALLBACK_RELEASE.value,
+                }
+            )
+        except (EOFError, OSError):
+            pass
 
     def invoke_callback(
         self,

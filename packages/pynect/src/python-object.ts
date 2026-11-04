@@ -35,8 +35,13 @@ export type PythonObject = PythonObjectMethods &
 
 export type PythonModule = PythonObject;
 
-interface ProxyState extends PythonReference {
+interface ProxyLifetime {
+  finalizerToken?: object;
   released: boolean;
+}
+
+interface ProxyState extends PythonReference {
+  readonly lifetime: ProxyLifetime;
   readonly type?: string;
 }
 
@@ -61,7 +66,7 @@ export function createPythonObject(
   type?: string,
   registerFinalizer = true,
 ): PythonObject {
-  return createProxy({ client, id, path: [], released: false, type }, registerFinalizer);
+  return createProxy({ client, id, lifetime: { released: false }, path: [], type }, registerFinalizer);
 }
 
 function createProxy(state: ProxyState, registerFinalizer: boolean): PythonObject {
@@ -74,7 +79,10 @@ function createProxy(state: ProxyState, registerFinalizer: boolean): PythonObjec
       throw new TypeError('Python attributes are asynchronous; use object.$set(name, value).');
     },
   }) as unknown as PythonObject;
-  if (registerFinalizer && state.path.length === 0) state.client.trackReference(proxy, state.id);
+  if (registerFinalizer && state.path.length === 0) {
+    state.lifetime.finalizerToken = proxy;
+    state.client.trackReference(proxy, state.id);
+  }
   return proxy;
 }
 
@@ -147,29 +155,54 @@ function request(
 }
 
 async function release(state: ProxyState): Promise<void> {
-  if (state.released || state.path.length !== 0) return;
-  state.released = true;
-  await state.client.release(state.id);
+  if (state.lifetime.released || state.path.length !== 0) return;
+  state.lifetime.released = true;
+  try {
+    await state.client.release(state.id);
+    if (state.lifetime.finalizerToken) {
+      state.client.untrackReference(state.lifetime.finalizerToken);
+      state.lifetime.finalizerToken = undefined;
+    }
+  } catch (error) {
+    state.lifetime.released = false;
+    throw error;
+  }
 }
 
 function createAsyncIterator(state: ProxyState): AsyncIterator<unknown> {
   const iterator = request(state, RPC_OPERATION.iter) as Promise<PythonObject>;
+  let finished = false;
   return {
     async next(): Promise<IteratorResult<unknown>> {
-      const reference = getPythonReference(await iterator);
+      if (finished) return { done: true, value: undefined };
+      const remoteIterator = await iterator;
+      const reference = getPythonReference(remoteIterator);
       if (!reference) throw new TypeError('Python did not return an iterator reference.');
-      return reference.client.request(RPC_OPERATION.next, {
-        target: reference.id,
-      }) as Promise<IteratorResult<unknown>>;
+      try {
+        const result = await reference.client.request(RPC_OPERATION.next, {
+          target: reference.id,
+        }) as IteratorResult<unknown>;
+        if (result.done) {
+          finished = true;
+          await remoteIterator.$release();
+        }
+        return result;
+      } catch (error) {
+        finished = true;
+        await remoteIterator.$release().catch(() => undefined);
+        throw error;
+      }
     },
     async return(): Promise<IteratorResult<unknown>> {
-      const reference = getPythonReference(await iterator);
-      if (reference) await reference.client.release(reference.id);
+      if (!finished) {
+        finished = true;
+        await (await iterator).$release();
+      }
       return { done: true, value: undefined };
     },
   };
 }
 
 function assertOpen(state: ProxyState): void {
-  if (state.released) throw new Error(`Python object #${state.id} has been released.`);
+  if (state.lifetime.released) throw new Error(`Python object #${state.id} has been released.`);
 }

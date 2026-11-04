@@ -135,6 +135,19 @@
         }
       ]
     },
+    "test:smoke": {
+      "name": "test:smoke",
+      "description": "Run opt-in Pynect I/O and startup smoke benchmarks.",
+      "steps": [
+        {
+          "execArgs": [
+            "bun",
+            "test",
+            "./tests/io.smoke.ts"
+          ]
+        }
+      ]
+    },
     "typecheck": {
       "name": "typecheck",
       "description": "Type-check pynect.",

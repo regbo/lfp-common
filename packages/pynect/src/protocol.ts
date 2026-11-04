@@ -1,5 +1,6 @@
 export const MESSAGE_KIND = {
   callback: 'callback',
+  callbackRelease: 'callback_release',
   callbackResult: 'callback_result',
   hello: 'hello',
   notify: 'notify',

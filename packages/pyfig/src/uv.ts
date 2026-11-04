@@ -55,6 +55,12 @@ interface UvSetupContext {
   specifier: string;
 }
 
+interface ResolvedUv {
+  path: string;
+  source: 'cache' | 'download' | 'path';
+  version: string;
+}
+
 const RELEASE_METADATA_TTL_MS = 24 * 60 * 60_000;
 const METADATA_TIMEOUT_MS = 30_000;
 const DOWNLOAD_TIMEOUT_MS = 5 * 60_000;
@@ -68,7 +74,7 @@ export async function resolveUv(
   cwd: string,
   env: NodeJS.ProcessEnv,
   log: DebugLogger,
-): Promise<{ path: string; source: 'cache' | 'download' | 'path' }> {
+): Promise<ResolvedUv> {
   const context: UvSetupContext = {
     cache: uvCacheDirectory(env),
     cwd,
@@ -84,7 +90,7 @@ export async function resolveUv(
   }
 
   const policy = createHash('sha256').update(specifier).digest('hex');
-  return withProvisioningLock<{ path: string; source: 'cache' | 'download' | 'path' }>({
+  return withProvisioningLock<ResolvedUv>({
     key: `uv-policy:${canonicalPath(context.cache)}:${policy}`,
     log,
     check: () => findAvailableUv(context),
@@ -108,18 +114,19 @@ export async function resolveUv(
           return executable;
         },
       });
-      return { path: installed, source: 'download' };
+      return { ...installed, source: 'download' };
     },
   });
 }
 
 async function findAvailableUv(
   context: UvSetupContext,
-): Promise<{ path: string; source: 'cache' | 'path' } | null> {
+): Promise<ResolvedUv | null> {
   for await (const external of findExecutables(['uv'], context.cwd, context.env)) {
-    if (await probeUv(external, context)) {
-      context.log('Using uv from PATH.', { path: external });
-      return { path: external, source: 'path' };
+    const resolved = await probeUv(external, context);
+    if (resolved) {
+      context.log('Using uv from PATH.', { path: resolved.path });
+      return { ...resolved, source: 'path' };
     }
     context.log('Skipping incompatible uv from PATH.', { path: external });
   }
@@ -128,7 +135,7 @@ async function findAvailableUv(
 
 async function findCachedUv(
   context: UvSetupContext,
-): Promise<{ path: string; source: 'cache' } | null> {
+): Promise<ResolvedUv | null> {
   const root = uvInstallRoot(context);
   const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
   let versions = entries
@@ -137,10 +144,10 @@ async function findCachedUv(
   while (versions.length > 0) {
     const version = maxSatisfying(versions, context.specifier);
     if (!version) return null;
-    const executable = await probeUv(uvExecutable(context, version), context, version);
-    if (executable) {
-      context.log('Using cached uv.', { path: executable, version });
-      return { path: executable, source: 'cache' };
+    const resolved = await probeUv(uvExecutable(context, version), context, version);
+    if (resolved) {
+      context.log('Using cached uv.', { path: resolved.path, version });
+      return { ...resolved, source: 'cache' };
     }
     versions = versions.filter(candidate => candidate !== version);
   }
@@ -151,14 +158,13 @@ async function probeUv(
   executable: string,
   context: UvSetupContext,
   expectedVersion?: string,
-): Promise<string | null> {
+): Promise<Omit<ResolvedUv, 'source'> | null> {
   try {
     const output = await capture(executable, ['--version'], context.cwd, context.env);
     const version = validVersion(output.match(/^uv\s+(\S+)/iu)?.[1] ?? '');
-    return version && (!expectedVersion || version === expectedVersion) &&
-        maxSatisfying([version], context.specifier)
-      ? executable
-      : null;
+    if (!version || expectedVersion && version !== expectedVersion ||
+        !maxSatisfying([version], context.specifier)) return null;
+    return { path: path.normalize(executable), version };
   } catch {
     return null;
   }

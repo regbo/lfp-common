@@ -607,6 +607,10 @@ pynect.addTask('format:python', {
 pynect.addTask('format:python:check', {
   execArgs: ['uv', 'run', '--locked', 'ruff', 'format', '--check', 'scripts'],
 });
+pynect.addTask('test:smoke', {
+  description: 'Run opt-in Pynect I/O and startup smoke benchmarks.',
+  execArgs: ['bun', 'test', './tests/io.smoke.ts'],
+});
 
 const WORKSPACE_FILTER = './packages/*';
 const PACWICH = ['bun', 'node_modules/pacwich/bin/cli.js'] as const;

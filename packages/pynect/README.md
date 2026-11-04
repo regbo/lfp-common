@@ -250,6 +250,10 @@ Python and uv selection options such as `python`, `uv`, and `debug` are passed t
 
 Messages are length-prefixed MessagePack frames. One connection multiplexes calls, responses, callback requests, releases, and shutdown. Windows uses overlapped named-pipe reads and writes so a blocked read does not prevent a callback response or nested call. Python stdout and stderr remain attached to the host rather than carrying protocol traffic.
 
+Remote objects, completed iterators, and JavaScript callback leases are released
+as soon as their cross-runtime ownership ends. Explicit `$release()` and
+`await using` remain available for deterministic object cleanup.
+
 Use `await using`, call `close()` explicitly, or rely on `autoClose` for process shutdown:
 
 ```ts
@@ -262,6 +266,14 @@ try {
 }
 ```
 
+With `autoClose`, natural host exit waits for every active uv and Python process.
+Catchable termination signals are forwarded before that wait: `SIGHUP`, `SIGINT`,
+`SIGQUIT`, and `SIGTERM` on Unix, plus `SIGBREAK` on Windows. The uncatchable
+`SIGKILL` and `SIGSTOP` signals cannot run asynchronous cleanup. Signal handling
+starts before uv or Python resolution, so one termination signal either cancels
+pre-spawn work or is forwarded once to a child that is already starting; it does
+not require another signal after the Python handshake.
+
 ## Development
 
 ```sh
@@ -269,5 +281,16 @@ bun install --frozen-lockfile --ignore-scripts
 uv sync --locked
 bun run verify
 ```
+
+Run the opt-in I/O smoke benchmarks separately:
+
+```sh
+bun run test:smoke
+```
+
+The smoke suite compares first and warm operations against pure Python launched
+through `uv run`. Runtime, process, server, and fixture setup finish before the
+timers start. HTTP checks use `localhost` and `127.0.0.1` loopback endpoints so
+external network latency and availability do not affect results.
 
 MIT licensed.

@@ -259,8 +259,7 @@ async function selectUv(
   const specifier = selection.specifier;
   if (!specifier) throw new Error('uv selection did not contain a version specifier.');
   log('Resolving uv version constraint.', { specifier });
-  const resolved = await resolveUv(specifier, cwd, env, log);
-  return { ...await probeUv(resolved.path, cwd, env), source: resolved.source };
+  return resolveUv(specifier, cwd, env, log);
 }
 
 async function resolvePython(
@@ -297,7 +296,7 @@ async function resolvePythonWithUv(
   for (const attempt of PYTHON_FIND_ATTEMPTS) {
     try {
       const executable = await findPython(defaults, env, attempt.args, signal);
-      return await runPythonProbe(defaults, env, ['--python', executable], signal, [executable]);
+      return await probePythonExecutable(defaults, env, executable, signal);
     } catch (error) {
       const failure = error instanceof Error ? error : new Error(String(error));
       failures.push(failure);
@@ -354,6 +353,26 @@ async function runPythonProbe(
 ): Promise<PythonResolution> {
   const args = ['run', ...runArguments, '--', 'python', '-I', '-S', '-c', PYTHON_PROBE];
   const output = await capture(defaults.uvPath, args, defaults.cwd, env, { redact, signal });
+  return parsePythonProbe(output, defaults);
+}
+
+async function probePythonExecutable(
+  defaults: PythonRuntimeDefaults,
+  env: NodeJS.ProcessEnv,
+  executable: string,
+  signal?: AbortSignal,
+): Promise<PythonResolution> {
+  const output = await capture(executable, ['-I', '-S', '-c', PYTHON_PROBE], defaults.cwd, env, {
+    redact: [executable],
+    signal,
+  });
+  return parsePythonProbe(output, defaults);
+}
+
+function parsePythonProbe(
+  output: string,
+  defaults: PythonRuntimeDefaults,
+): PythonResolution {
   const line = output.trim().split(/\r?\n/u).at(-1) ?? '';
   let metadata: unknown;
   try {
