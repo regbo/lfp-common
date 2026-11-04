@@ -30,6 +30,8 @@ jspm_packages/
 .yarn-integrity
 .cache
 !/.github/workflows/build.yml
+!/.vscode/extensions.json
+!/.vscode/settings.json
 .venv/
 **/__pycache__/
 *.pyc

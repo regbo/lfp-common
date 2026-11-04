@@ -139,6 +139,18 @@ root.addFields({
     catalog: CATALOG,
   },
 });
+const rootVsCode = root.vscode;
+if (!rootVsCode) throw new Error('Root VS Code integration must be enabled.');
+rootVsCode.extensions.addRecommendations('charliermarsh.ruff');
+rootVsCode.settings.addSettings({
+  'editor.codeActionsOnSave': {
+    'source.fixAll.ruff': 'explicit',
+    'source.organizeImports.ruff': 'explicit',
+  },
+  'editor.defaultFormatter': 'charliermarsh.ruff',
+  'editor.formatOnSave': true,
+}, 'python');
+rootVsCode.settings.addSetting('ruff.configurationPreference', 'filesystemFirst');
 for (const pattern of [
   '.venv/',
   '**/__pycache__/',
@@ -311,6 +323,11 @@ class PynectPythonPackage extends Component {
           'line-length': 120,
           'target-version': 'py311',
           src: ['src/py', 'tests/py'],
+          format: {
+            'indent-style': 'space',
+            'line-ending': 'lf',
+            'quote-style': 'double',
+          },
           lint: { select: ['E', 'F', 'I', 'UP', 'B', 'SIM'] },
         },
       },
