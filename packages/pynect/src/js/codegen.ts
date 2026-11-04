@@ -2,6 +2,7 @@ import { mkdir, readFile } from 'node:fs/promises';
 import { generate, type AsyncAPIDocument, type GenerateResult } from '@chanx-js/codegen';
 import { resolveProject, type PynectProject, type ProjectOptions } from './config.js';
 import { spawnWorker, waitForChild } from './python-runtime.js';
+import { emitStreamHelpers } from './stream-codegen.js';
 
 export interface PynectGenerateResult extends GenerateResult {
   readonly outDir: string;
@@ -22,8 +23,10 @@ export async function generateProject(
     emit: 'ts',
     format: project.format,
   });
+  const streamsPath = await emitStreamHelpers(document, project.outDir);
   return Object.freeze({
     ...result,
+    files: [...result.files, streamsPath],
     outDir: project.outDir,
     schemaPath: project.schemaPath,
   });

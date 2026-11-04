@@ -23,9 +23,6 @@
         "list_models_response": {
           "$ref": "#/components/messages/list_models_response"
         },
-        "list_models_stream_complete": {
-          "$ref": "#/components/messages/list_models_stream_complete"
-        },
         "list_models_stream_request": {
           "$ref": "#/components/messages/list_models_stream_request"
         },
@@ -78,12 +75,10 @@
         "messages": [
           {
             "$ref": "#/channels/models/messages/list_models_stream_response"
-          },
-          {
-            "$ref": "#/channels/models/messages/list_models_stream_complete"
           }
         ]
-      }
+      },
+      "x-pynect-stream": true
     }
   },
   "components": {
@@ -99,14 +94,6 @@
       "list_models_response": {
         "payload": {
           "$ref": "#/components/schemas/ListModelsResponse"
-        },
-        "correlationId": {
-          "$ref": "#/components/correlationIds/ref"
-        }
-      },
-      "list_models_stream_complete": {
-        "payload": {
-          "$ref": "#/components/schemas/ListModelsStreamComplete"
         },
         "correlationId": {
           "$ref": "#/components/correlationIds/ref"
@@ -168,25 +155,6 @@
           "payload"
         ],
         "title": "ListModelsResponse",
-        "type": "object"
-      },
-      "ListModelsStreamComplete": {
-        "properties": {
-          "action": {
-            "const": "models_complete",
-            "default": "models_complete",
-            "title": "Action",
-            "type": "string"
-          },
-          "payload": {
-            "title": "Payload",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "payload"
-        ],
-        "title": "ListModelsStreamComplete",
         "type": "object"
       },
       "ListModelsStreamRequest": {

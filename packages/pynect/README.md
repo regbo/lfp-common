@@ -20,7 +20,10 @@ Python projects use Chanx directly:
 name = "model-catalog"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = ["chanx[fast_channels]>=2.14,<3"]
+dependencies = [
+  "chanx[fast_channels]>=2.14,<3",
+  "pynect-worker>=0.8,<1",
+]
 
 [tool.pynect]
 app = "server:app"
@@ -36,13 +39,15 @@ with generated TypeScript plus local IPC and remote WebSocket clients.
 ## Write the API in Python
 
 ```py
+from collections.abc import AsyncIterator
 from typing import Literal
 
-from chanx.core.decorators import channel, ws_handler
+from chanx.core.decorators import channel
 from chanx.fast_channels.websocket import AsyncJsonWebsocketConsumer
 from chanx.messages.base import BaseMessage
 from fastapi import FastAPI
 from pydantic import BaseModel
+from pynect_worker import ws_handler
 
 
 class GreetPayload(BaseModel):
@@ -70,6 +75,28 @@ app = FastAPI(title="Greeter", version="1.0.0")
 app.router.add_websocket_route("/ws/greeter", Greeter.as_asgi())
 ```
 
+Annotate a handler with `AsyncIterator[Response]` and yield messages to make it
+a stream. Pynect forwards each yield, emits Chanx's protocol-level `complete`
+frame when the iterator exits normally, and generates a TypeScript async
+iterator. Application messages do not need a completion model or flag:
+
+```py
+@ws_handler
+async def greet_many(
+    self, message: GreetRequest
+) -> AsyncIterator[GreetResponse]:
+    for name in message.payload.name.split(","):
+        yield GreetResponse(payload=f"Hello {name.strip()}")
+```
+
+```ts
+import { greetMany } from './_generated/model-catalog/index.js';
+
+for await (const response of greetMany(clientOptions, { name: 'Ada, Grace' })) {
+  console.log(response.payload);
+}
+```
+
 ## Generate TypeScript
 
 ```sh
@@ -84,6 +111,7 @@ _generated/model-catalog/
   channels.ts
   index.ts
   schemas.ts
+  streams.ts
 ```
 
 Set `out` under `[tool.pynect]` when the TypeScript project lives elsewhere:

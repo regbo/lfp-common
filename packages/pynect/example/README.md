@@ -9,6 +9,11 @@ async iterator. [`client.ts`](client.ts) calls both and consumes the streamed
 replies with `for await`. Each server start builds a fresh catalog of readable
 random model IDs with `coolname`.
 
+The stream does not define an application-level completion message. Pynect
+detects the `AsyncIterator[...]` return type, sends Chanx's built-in `complete`
+frame when Python reaches the end of the function, and generates the
+TypeScript async iterator that stops on that frame.
+
 Run these commands from `packages/pynect`.
 
 Generate or refresh the client:

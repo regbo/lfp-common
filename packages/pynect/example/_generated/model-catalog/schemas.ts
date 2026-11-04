@@ -11,11 +11,6 @@ export interface ListModelsResponse {
   payload: Array<Model>;
 }
 
-export interface ListModelsStreamComplete {
-  action: "models_complete";
-  payload: number;
-}
-
 export interface ListModelsStreamRequest {
   action: "list_models_stream";
   payload: ModelFilters;

@@ -28,7 +28,18 @@ describe('Chanx code generation', () => {
     expect(result.channels).toBe(1);
     expect(existsSync(path.join(output, 'asyncapi.json'))).toBe(true);
     expect(existsSync(path.join(output, 'index.ts'))).toBe(true);
+    expect(existsSync(path.join(output, 'streams.ts'))).toBe(true);
     expect(readFileSync(path.join(output, 'channels.ts'), 'utf8')).toContain('catalog');
     expect(readFileSync(path.join(output, 'schemas.ts'), 'utf8')).toContain('PingRequest');
+    expect(readFileSync(path.join(output, 'streams.ts'), 'utf8')).toContain(
+      'export async function* watch',
+    );
+    expect(readFileSync(path.join(output, 'index.ts'), 'utf8')).toContain(
+      "export * from './streams.js';",
+    );
+
+    const schema = JSON.parse(readFileSync(path.join(output, 'asyncapi.json'), 'utf8'));
+    expect(schema.operations.watch['x-pynect-stream']).toBe(true);
+    expect(schema.operations.watch.reply.messages).toHaveLength(1);
   }, 60_000);
 });

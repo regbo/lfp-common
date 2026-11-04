@@ -6,16 +6,15 @@ import { defineChannel } from '@chanx-js/client';
 import type {
   ListModelsRequest,
   ListModelsResponse,
-  ListModelsStreamComplete,
   ListModelsStreamRequest,
   ListModelsStreamResponse,
 } from './schemas.js';
 
 export type ModelsToServer = ListModelsRequest | ListModelsStreamRequest;
-export type ModelsToClient = ListModelsResponse | ListModelsStreamComplete | ListModelsStreamResponse;
+export type ModelsToClient = ListModelsResponse | ListModelsStreamResponse;
 export type ModelsReplies = {
   list_models: ListModelsResponse;
-  list_models_stream: ListModelsStreamComplete | ListModelsStreamResponse;
+  list_models_stream: ListModelsStreamResponse;
 };
 
 /** Read the model catalog */

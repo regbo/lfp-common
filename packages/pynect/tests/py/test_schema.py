@@ -13,3 +13,5 @@ def test_export_schema_writes_chanx_asyncapi(tmp_path: Path) -> None:
     assert schema["asyncapi"].startswith("3.")
     assert schema["channels"]["catalog"]["address"] == "/ws/catalog"
     assert "PingRequest" in schema["components"]["schemas"]
+    assert schema["operations"]["watch"]["x-pynect-stream"] is True
+    assert len(schema["operations"]["watch"]["reply"]["messages"]) == 1

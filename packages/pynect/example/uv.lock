@@ -407,6 +407,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "chanx", extra = ["fast-channels"] },
     { name = "coolname" },
+    { name = "pynect-worker" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -414,7 +415,25 @@ dependencies = [
 requires-dist = [
     { name = "chanx", extras = ["fast-channels"], specifier = ">=2.14,<3" },
     { name = "coolname", specifier = ">=5,<6" },
+    { name = "pynect-worker", editable = "../" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.40,<1" },
+]
+
+[[package]]
+name = "pynect-worker"
+version = "0.8.6"
+source = { editable = "../" }
+dependencies = [
+    { name = "chanx", extra = ["fast-channels"] },
+]
+
+[package.metadata]
+requires-dist = [{ name = "chanx", extras = ["fast-channels"], specifier = ">=2.14,<3" }]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=9,<10" },
+    { name = "ruff", specifier = ">=0.17,<1" },
 ]
 
 [[package]]

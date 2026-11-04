@@ -3,12 +3,14 @@ import random
 from collections.abc import AsyncIterator
 from typing import Literal
 
-from chanx.core.decorators import channel, ws_handler
+from chanx.core.decorators import channel
 from chanx.fast_channels.websocket import AsyncJsonWebsocketConsumer
 from chanx.messages.base import BaseMessage
 from coolname import generate_slug
 from fastapi import FastAPI
 from pydantic import BaseModel
+
+from pynect_worker import ws_handler
 
 Provider = Literal["anthropic", "openai"]
 PROVIDERS: tuple[Provider, ...] = ("anthropic", "openai")
@@ -47,11 +49,6 @@ class ListModelsStreamResponse(BaseMessage):
     payload: Model
 
 
-class ListModelsStreamComplete(BaseMessage):
-    action: Literal["models_complete"] = "models_complete"
-    payload: int
-
-
 def generate_catalog(count: int = MODEL_COUNT) -> list[Model]:
     models: list[Model] = []
     for _ in range(count):
@@ -79,27 +76,17 @@ def filter_models(filters: ModelFilters) -> list[Model]:
     ]
 
 
-async def generate_models(
-    filters: ModelFilters,
-) -> AsyncIterator[ListModelsStreamResponse]:
-    for model in filter_models(filters):
-        await asyncio.sleep(random.uniform(0.5, 2))
-        yield ListModelsStreamResponse(payload=model)
-
-
 @channel(name="models", description="Read the model catalog")
 class ModelsConsumer(AsyncJsonWebsocketConsumer):
     @ws_handler
     async def list_models(self, message: ListModelsRequest) -> ListModelsResponse:
         return ListModelsResponse(payload=filter_models(message.payload))
 
-    @ws_handler(output_type=(ListModelsStreamResponse, ListModelsStreamComplete))
-    async def list_models_stream(self, message: ListModelsStreamRequest) -> None:
-        count = 0
-        async for response in generate_models(message.payload):
-            count += 1
-            await self.send_message(response)
-        await self.send_message(ListModelsStreamComplete(payload=count))
+    @ws_handler
+    async def list_models_stream(self, message: ListModelsStreamRequest) -> AsyncIterator[ListModelsStreamResponse]:
+        for model in filter_models(message.payload):
+            await asyncio.sleep(random.uniform(0.5, 2))
+            yield ListModelsStreamResponse(payload=model)
 
 
 app = FastAPI(title="Pynect model catalog", version="1.0.0")

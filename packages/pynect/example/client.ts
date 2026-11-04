@@ -1,5 +1,6 @@
 import { createClient, type ClientOptions } from '@chanx-js/client';
 import {
+  listModelsStream as generatedListModelsStream,
   models,
   type Model,
   type ModelFilters,
@@ -26,30 +27,8 @@ export async function listModels(
 export async function* listModelsStream(
   options: ClientOptions,
   filters: ModelFilters = {},
-): AsyncGenerator<Model, number> {
-  const connection = createClient(options).connect(models);
-  try {
-    await connection.ready({ timeout: 5_000 });
-    const responses = connection.stream();
-    try {
-      connection.send({
-        action: 'list_models_stream',
-        payload: filters,
-      });
-
-      for await (const response of responses) {
-        if (response.action === 'models_complete') {
-          return response.payload;
-        }
-        if (response.action === 'model') {
-          yield response.payload;
-        }
-      }
-      return 0;
-    } finally {
-      responses.close();
-    }
-  } finally {
-    connection.terminate(1000, 'Example complete');
+): AsyncGenerator<Model> {
+  for await (const response of generatedListModelsStream(options, filters)) {
+    yield response.payload;
   }
 }
