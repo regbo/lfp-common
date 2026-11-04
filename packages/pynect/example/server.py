@@ -30,10 +30,20 @@ class ListModelsRequest(BaseMessage):
 
 class ListModelsResponse(BaseMessage):
     action: Literal["models"] = "models"
+    payload: list[Model]
+
+
+class ListModelsStreamRequest(BaseMessage):
+    action: Literal["list_models_stream"] = "list_models_stream"
+    payload: ModelFilters
+
+
+class ListModelsStreamResponse(BaseMessage):
+    action: Literal["model"] = "model"
     payload: Model
 
 
-class ListModelsComplete(BaseMessage):
+class ListModelsStreamComplete(BaseMessage):
     action: Literal["models_complete"] = "models_complete"
     payload: int
 
@@ -44,27 +54,37 @@ CATALOG = [
 ]
 
 
+def filter_models(filters: ModelFilters) -> list[Model]:
+    query = filters.query.casefold() if filters.query else None
+    return [
+        model
+        for model in CATALOG
+        if (query is None or query in model.id.casefold())
+        and (filters.provider is None or filters.provider == model.provider)
+    ]
+
+
 async def generate_models(
-    message: ListModelsRequest,
-) -> AsyncIterator[ListModelsResponse]:
-    query = message.payload.query.casefold() if message.payload.query else None
-    for model in CATALOG:
-        if (query is None or query in model.id.casefold()) and (
-            message.payload.provider is None or message.payload.provider == model.provider
-        ):
-            await asyncio.sleep(random.uniform(0.05, 0.2))
-            yield ListModelsResponse(payload=model)
+    filters: ModelFilters,
+) -> AsyncIterator[ListModelsStreamResponse]:
+    for model in filter_models(filters):
+        await asyncio.sleep(random.uniform(0.05, 0.2))
+        yield ListModelsStreamResponse(payload=model)
 
 
 @channel(name="models", description="Read the model catalog")
 class ModelsConsumer(AsyncJsonWebsocketConsumer):
-    @ws_handler(output_type=(ListModelsResponse, ListModelsComplete))
-    async def list_models(self, message: ListModelsRequest) -> None:
+    @ws_handler
+    async def list_models(self, message: ListModelsRequest) -> ListModelsResponse:
+        return ListModelsResponse(payload=filter_models(message.payload))
+
+    @ws_handler(output_type=(ListModelsStreamResponse, ListModelsStreamComplete))
+    async def list_models_stream(self, message: ListModelsStreamRequest) -> None:
         count = 0
-        async for response in generate_models(message):
+        async for response in generate_models(message.payload):
             count += 1
             await self.send_message(response)
-        await self.send_message(ListModelsComplete(payload=count))
+        await self.send_message(ListModelsStreamComplete(payload=count))
 
 
 app = FastAPI(title="Pynect model catalog", version="1.0.0")

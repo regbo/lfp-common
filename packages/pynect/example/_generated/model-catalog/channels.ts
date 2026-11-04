@@ -4,15 +4,18 @@
 import { defineChannel } from '@chanx-js/client';
 
 import type {
-  ListModelsComplete,
   ListModelsRequest,
   ListModelsResponse,
+  ListModelsStreamComplete,
+  ListModelsStreamRequest,
+  ListModelsStreamResponse,
 } from './schemas.js';
 
-export type ModelsToServer = ListModelsRequest;
-export type ModelsToClient = ListModelsComplete | ListModelsResponse;
+export type ModelsToServer = ListModelsRequest | ListModelsStreamRequest;
+export type ModelsToClient = ListModelsResponse | ListModelsStreamComplete | ListModelsStreamResponse;
 export type ModelsReplies = {
-  list_models: ListModelsComplete | ListModelsResponse;
+  list_models: ListModelsResponse;
+  list_models_stream: ListModelsStreamComplete | ListModelsStreamResponse;
 };
 
 /** Read the model catalog */

@@ -17,14 +17,20 @@
       "title": "models",
       "description": "Read the model catalog",
       "messages": {
-        "list_models_complete": {
-          "$ref": "#/components/messages/list_models_complete"
-        },
         "list_models_request": {
           "$ref": "#/components/messages/list_models_request"
         },
         "list_models_response": {
           "$ref": "#/components/messages/list_models_response"
+        },
+        "list_models_stream_complete": {
+          "$ref": "#/components/messages/list_models_stream_complete"
+        },
+        "list_models_stream_request": {
+          "$ref": "#/components/messages/list_models_stream_request"
+        },
+        "list_models_stream_response": {
+          "$ref": "#/components/messages/list_models_stream_response"
         }
       }
     }
@@ -49,9 +55,32 @@
         "messages": [
           {
             "$ref": "#/channels/models/messages/list_models_response"
+          }
+        ]
+      }
+    },
+    "list_models_stream": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/models"
+      },
+      "description": "",
+      "summary": "",
+      "messages": [
+        {
+          "$ref": "#/channels/models/messages/list_models_stream_request"
+        }
+      ],
+      "reply": {
+        "channel": {
+          "$ref": "#/channels/models"
+        },
+        "messages": [
+          {
+            "$ref": "#/channels/models/messages/list_models_stream_response"
           },
           {
-            "$ref": "#/channels/models/messages/list_models_complete"
+            "$ref": "#/channels/models/messages/list_models_stream_complete"
           }
         ]
       }
@@ -59,14 +88,6 @@
   },
   "components": {
     "messages": {
-      "list_models_complete": {
-        "payload": {
-          "$ref": "#/components/schemas/ListModelsComplete"
-        },
-        "correlationId": {
-          "$ref": "#/components/correlationIds/ref"
-        }
-      },
       "list_models_request": {
         "payload": {
           "$ref": "#/components/schemas/ListModelsRequest"
@@ -82,28 +103,33 @@
         "correlationId": {
           "$ref": "#/components/correlationIds/ref"
         }
+      },
+      "list_models_stream_complete": {
+        "payload": {
+          "$ref": "#/components/schemas/ListModelsStreamComplete"
+        },
+        "correlationId": {
+          "$ref": "#/components/correlationIds/ref"
+        }
+      },
+      "list_models_stream_request": {
+        "payload": {
+          "$ref": "#/components/schemas/ListModelsStreamRequest"
+        },
+        "correlationId": {
+          "$ref": "#/components/correlationIds/ref"
+        }
+      },
+      "list_models_stream_response": {
+        "payload": {
+          "$ref": "#/components/schemas/ListModelsStreamResponse"
+        },
+        "correlationId": {
+          "$ref": "#/components/correlationIds/ref"
+        }
       }
     },
     "schemas": {
-      "ListModelsComplete": {
-        "properties": {
-          "action": {
-            "const": "models_complete",
-            "default": "models_complete",
-            "title": "Action",
-            "type": "string"
-          },
-          "payload": {
-            "title": "Payload",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "payload"
-        ],
-        "title": "ListModelsComplete",
-        "type": "object"
-      },
       "ListModelsRequest": {
         "properties": {
           "action": {
@@ -131,13 +157,72 @@
             "type": "string"
           },
           "payload": {
-            "$ref": "#/components/schemas/Model"
+            "items": {
+              "$ref": "#/components/schemas/Model"
+            },
+            "title": "Payload",
+            "type": "array"
           }
         },
         "required": [
           "payload"
         ],
         "title": "ListModelsResponse",
+        "type": "object"
+      },
+      "ListModelsStreamComplete": {
+        "properties": {
+          "action": {
+            "const": "models_complete",
+            "default": "models_complete",
+            "title": "Action",
+            "type": "string"
+          },
+          "payload": {
+            "title": "Payload",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "payload"
+        ],
+        "title": "ListModelsStreamComplete",
+        "type": "object"
+      },
+      "ListModelsStreamRequest": {
+        "properties": {
+          "action": {
+            "const": "list_models_stream",
+            "default": "list_models_stream",
+            "title": "Action",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/ModelFilters"
+          }
+        },
+        "required": [
+          "payload"
+        ],
+        "title": "ListModelsStreamRequest",
+        "type": "object"
+      },
+      "ListModelsStreamResponse": {
+        "properties": {
+          "action": {
+            "const": "model",
+            "default": "model",
+            "title": "Action",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/Model"
+          }
+        },
+        "required": [
+          "payload"
+        ],
+        "title": "ListModelsStreamResponse",
         "type": "object"
       },
       "Model": {
