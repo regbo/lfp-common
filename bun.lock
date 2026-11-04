@@ -92,7 +92,7 @@
       },
       "dependencies": {
         "@msgpack/msgpack": "catalog:",
-        "loqkit": "workspace:*",
+        "async-mutex": "catalog:",
         "optionkit": "workspace:*",
         "pyfig": "workspace:*",
         "smol-toml": "catalog:",

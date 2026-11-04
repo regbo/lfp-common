@@ -3,7 +3,7 @@
 import { VenvClosedError, VenvStartupError } from './errors';
 import { DEFAULT_CALL_TIMEOUT_MS, DEFAULT_STARTUP_TIMEOUT_MS } from './defaults';
 import { PROTOCOL_VERSION, RPC_OPERATION, WEBSOCKET_SUBPROTOCOL } from './protocol';
-import type { PythonModule } from './python-object';
+import type { PythonObject } from './python-object';
 import { DEFAULT_WEBSOCKET_RPC_FRAME_BYTES } from './rpc-frame';
 import { RpcClient } from './rpc-client';
 import { WebSocketRpcTransport } from './transport/websocket-rpc';
@@ -17,7 +17,7 @@ export interface ConnectWebSocketVenvOptions {
   readonly url: string | URL;
 }
 
-export interface WebSocketVenvInfo {
+interface WebSocketVenvInfo {
   readonly protocol: number;
   readonly url: string;
 }
@@ -43,7 +43,7 @@ export class WebSocketVenv<Modules extends object = object> implements AsyncDisp
   }
 
   import<Name extends keyof Modules & string>(name: Name): Promise<Modules[Name]>;
-  import(name: string): Promise<PythonModule>;
+  import(name: string): Promise<PythonObject>;
   async import(name: string): Promise<unknown> {
     if (!name.trim()) throw new TypeError('Python module name cannot be empty.');
     const client = await this.#start();

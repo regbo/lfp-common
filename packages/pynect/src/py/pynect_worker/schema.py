@@ -8,6 +8,7 @@ from typing import Any
 from .models import (
     PROTOCOL_VERSION,
     WEBSOCKET_SUBPROTOCOL,
+    CodegenRequest,
     MessageKind,
     Operation,
     ServerOptions,
@@ -24,6 +25,7 @@ def schema_document() -> dict[str, Any]:
         "$id": "https://nodepyx.dev/schemas/pynect.json",
         "title": "Pynect shared schema",
         "$defs": {
+            "CodegenRequest": CodegenRequest.model_json_schema(by_alias=True),
             "WorkerOptions": WorkerOptions.model_json_schema(by_alias=True),
             "ServerOptions": ServerOptions.model_json_schema(by_alias=True),
         },

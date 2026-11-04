@@ -5,6 +5,7 @@ import { compile } from 'json-schema-to-typescript';
 
 interface SchemaDocument {
   readonly $defs: {
+    readonly CodegenRequest: Record<string, unknown>;
     readonly ServerOptions: Record<string, unknown>;
     readonly WorkerOptions: Record<string, unknown>;
   };
@@ -20,7 +21,12 @@ interface SchemaDocument {
 const packageRoot = path.resolve(__dirname, '..', '..');
 const generatedRoot = path.join(__dirname, '_generated');
 const check = process.argv.includes('--check');
-const banner = '// Generated from pynect_worker.models. Do not edit directly.\n';
+const banner = '// Generated from pynect_worker Pydantic models. Do not edit directly.\n';
+const typeOptions = {
+  bannerComment: '',
+  format: true,
+  style: { singleQuote: true, trailingComma: 'all' as const },
+};
 
 void main();
 
@@ -28,13 +34,12 @@ async function main(): Promise<void> {
   const schema = loadSchema();
   const protocol = schema['x-pynect-protocol'];
   const outputs = new Map<string, string>([
-    [
-      path.join(generatedRoot, 'pynect.schema.json'),
-      `${JSON.stringify(schema, null, 2)}\n`,
-    ],
+    [path.join(generatedRoot, 'codegen.ts'), await generateType(
+      schema.$defs.CodegenRequest,
+      'CodegenRequest',
+    )],
     [path.join(generatedRoot, 'protocol.ts'), generateProtocol(protocol)],
-    [path.join(generatedRoot, 'schema.ts'), generateZod(schema)],
-    [path.join(generatedRoot, 'schema-types.ts'), await generateTypes(schema)],
+    [path.join(generatedRoot, 'schema.ts'), await generateSchema(schema)],
   ]);
   const stale = [...outputs].filter(([file, content]) => {
     try {
@@ -83,17 +88,24 @@ export type WireValueType = typeof WIRE_VALUE_TYPE[keyof typeof WIRE_VALUE_TYPE]
 `;
 }
 
-function generateZod(value: SchemaDocument): string {
+async function generateSchema(value: SchemaDocument): Promise<string> {
   const workerSchema = JSON.stringify(value.$defs.WorkerOptions, null, 2);
   const serverSchema = JSON.stringify(value.$defs.ServerOptions, null, 2);
+  const types = await compile(
+    omitTitles({
+      ...value.$defs.WorkerOptions,
+      $defs: { ServerOptions: value.$defs.ServerOptions },
+    }) as Record<string, unknown>,
+    'WorkerOptions',
+    { ...typeOptions, unreachableDefinitions: true },
+  );
   return `${banner}
 import { z } from 'zod';
-import type { ServerOptions, WorkerOptions } from './schema-types';
 
-export type { ServerOptions, WorkerOptions } from './schema-types';
+${types.trim()}
 
-export const workerOptionsJsonSchema = ${workerSchema} as const;
-export const serverOptionsJsonSchema = ${serverSchema} as const;
+const workerOptionsJsonSchema = ${workerSchema} as const;
+const serverOptionsJsonSchema = ${serverSchema} as const;
 
 export const workerOptionsSchema = z.fromJSONSchema(workerOptionsJsonSchema) as z.ZodObject<{
   validatePydantic: z.ZodDefault<z.ZodBoolean>;
@@ -108,27 +120,19 @@ void _workerOptionsTypecheck;
 `;
 }
 
-async function generateTypes(value: SchemaDocument): Promise<string> {
-  const options = {
-    bannerComment: '',
-    format: true,
-    style: { singleQuote: true, trailingComma: 'all' as const },
-  };
-  const types = await compile(
-    {
-      $defs: value.$defs,
-      additionalProperties: false,
-      properties: {
-        serverOptions: { $ref: '#/$defs/ServerOptions' },
-        workerOptions: { $ref: '#/$defs/WorkerOptions' },
-      },
-      required: ['serverOptions', 'workerOptions'],
-      type: 'object',
-    },
-    'PynectSchemas',
-    options,
+async function generateType(value: Record<string, unknown>, name: string): Promise<string> {
+  const generated = await compile(omitTitles(value) as Record<string, unknown>, name, typeOptions);
+  return `${banner}\n${generated.trim()}\n`;
+}
+
+function omitTitles(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(omitTitles);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => key !== 'title')
+      .map(([key, entry]) => [key, omitTitles(entry)]),
   );
-  return `${banner}\n${types.trim()}\n`;
 }
 
 function constantMap(values: readonly string[]): string {

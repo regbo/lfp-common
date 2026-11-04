@@ -1,4 +1,4 @@
-// Generated from pynect_worker.models. Do not edit directly.
+// Generated from pynect_worker Pydantic models. Do not edit directly.
 
 export const PROTOCOL_VERSION = 2 as const;
 export const WEBSOCKET_SUBPROTOCOL = "pynect.v2" as const;

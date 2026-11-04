@@ -54,6 +54,16 @@
         {
           "execArgs": [
             "bun",
+            "src/js/cli.mts",
+            "codegen",
+            "generate",
+            "--root",
+            "example/python"
+          ]
+        },
+        {
+          "execArgs": [
+            "bun",
             "src/js/build.js"
           ]
         }
@@ -183,6 +193,14 @@
             "--noEmit",
             "-p",
             "tests/tsconfig.json"
+          ]
+        },
+        {
+          "execArgs": [
+            "tsc",
+            "--noEmit",
+            "-p",
+            "example/app/tsconfig.json"
           ]
         },
         {

@@ -5,14 +5,16 @@ This example has two small projects:
 - `python/` contains the Python module exposed through Pynect.
 - `app/` contains a TypeScript consumer that runs with Bun or Node.js.
 
-From `example/app`, install dependencies and generate the typed bridge:
+Install dependencies from the repository root, then generate the typed bridge
+from `example/app`:
 
 ```sh
 bun install
+cd packages/pynect/example/app
 bun run generate
 ```
 
-The generate script invokes `pynect codegen` from the local `pynect` dependency.
+The generate script invokes the repository's `pynect codegen` source entry point.
 
 Run it with Bun:
 

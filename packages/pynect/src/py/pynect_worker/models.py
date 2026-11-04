@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import enum
-from typing import Annotated
+from pathlib import Path
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.alias_generators import to_camel
@@ -12,6 +13,26 @@ PROTOCOL_VERSION = 2
 WEBSOCKET_SUBPROTOCOL = f"pynect.v{PROTOCOL_VERSION}"
 MAX_LOCAL_FRAME_BYTES = 256 * 1024 * 1024
 DEFAULT_WEBSOCKET_FRAME_BYTES = 8 * 1024 * 1024
+NonEmptyString = Annotated[str, Field(min_length=1)]
+
+
+class CodegenRequest(BaseModel):
+    """Validated internal request sent by the Node codegen command."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="forbid")
+
+    bridge: dict[str, Any] = Field(default_factory=dict)
+    class_name: NonEmptyString
+    modules: Annotated[dict[NonEmptyString, NonEmptyString], Field(min_length=1)]
+    out: Path
+    root: Path
+
+    @field_validator("root")
+    @classmethod
+    def resolve_root(cls, value: Path) -> Path:
+        if not value.is_absolute():
+            raise ValueError("must be absolute")
+        return value.resolve()
 
 
 class MessageKind(enum.StrEnum):

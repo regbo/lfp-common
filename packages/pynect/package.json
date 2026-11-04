@@ -40,7 +40,7 @@
   },
   "dependencies": {
     "@msgpack/msgpack": "catalog:",
-    "loqkit": "workspace:*",
+    "async-mutex": "catalog:",
     "optionkit": "workspace:*",
     "pyfig": "workspace:*",
     "smol-toml": "catalog:",
@@ -81,20 +81,15 @@
       "import": "./dist/js/index.js",
       "require": "./dist/js/index.js"
     },
-    "./types": {
-      "types": "./dist/js/types/index.d.ts",
-      "import": "./dist/js/types/index.js",
-      "require": "./dist/js/types/index.js"
-    },
     "./websocket": {
       "types": "./dist/js/websocket.d.ts",
       "import": "./dist/js/websocket.js",
       "require": "./dist/js/websocket.js"
     },
     "./schema": {
-      "types": "./dist/js/schema.d.ts",
-      "import": "./dist/js/schema.js",
-      "require": "./dist/js/schema.js"
+      "types": "./dist/js/_generated/schema.d.ts",
+      "import": "./dist/js/_generated/schema.js",
+      "require": "./dist/js/_generated/schema.js"
     },
     "./metadata": {
       "types": "./dist/js/_generated/metadata.d.ts",

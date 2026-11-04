@@ -652,7 +652,7 @@ const pynect = workspace({
   bin: { pynect: 'dist/js/cli.mjs' },
   deps: [
     '@msgpack/msgpack@catalog:',
-    'loqkit@workspace:*',
+    'async-mutex@catalog:',
     'optionkit@workspace:*',
     'pyfig@workspace:*',
     'smol-toml@catalog:',
@@ -681,20 +681,15 @@ pynect.addFields({
       import: './dist/js/index.js',
       require: './dist/js/index.js',
     },
-    './types': {
-      types: './dist/js/types/index.d.ts',
-      import: './dist/js/types/index.js',
-      require: './dist/js/types/index.js',
-    },
     './websocket': {
       types: './dist/js/websocket.d.ts',
       import: './dist/js/websocket.js',
       require: './dist/js/websocket.js',
     },
     './schema': {
-      types: './dist/js/schema.d.ts',
-      import: './dist/js/schema.js',
-      require: './dist/js/schema.js',
+      types: './dist/js/_generated/schema.d.ts',
+      import: './dist/js/_generated/schema.js',
+      require: './dist/js/_generated/schema.js',
     },
   },
   files: ['dist/', 'README.md', 'SECURITY.md', 'LICENSE'],
@@ -705,9 +700,9 @@ pynect.addFields({
 });
 new PynectPythonPackage(pynect);
 for (const artifact of [
-  'src/js/_generated/pynect.schema.json',
+  'example/app/src/generated/example-python.ts',
+  'src/js/_generated/codegen.ts',
   'src/js/_generated/protocol.ts',
-  'src/js/_generated/schema-types.ts',
   'src/js/_generated/schema.ts',
 ] as const) {
   pynect.addGitIgnore(`!/${artifact}`);
@@ -715,10 +710,19 @@ for (const artifact of [
 }
 pynect.compileTask.reset();
 pynect.compileTask.execArgs(['bun', 'src/js/generate-schema.ts']);
+pynect.compileTask.execArgs([
+  'bun',
+  'src/js/cli.mts',
+  'codegen',
+  'generate',
+  '--root',
+  'example/python',
+]);
 pynect.compileTask.execArgs(['bun', 'src/js/build.js']);
 configureTestsAndTypecheck(pynect, [
   ['tsc', '--noEmit', '-p', 'tsconfig.json'],
   ['tsc', '--noEmit', '-p', 'tests/tsconfig.json'],
+  ['tsc', '--noEmit', '-p', 'example/app/tsconfig.json'],
   ['bun', 'src/js/generate-schema.ts', '--check'],
   ['uv', 'run', '--locked', 'ruff', 'check', 'src/py', 'tests/py'],
   ['uv', 'run', '--locked', 'ruff', 'format', '--check', 'src/py', 'tests/py'],

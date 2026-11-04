@@ -3,6 +3,7 @@ import path from 'node:path';
 import { parse as parseToml } from 'smol-toml';
 import { pyfig } from 'pyfig';
 import { z } from 'zod';
+import type { CodegenRequest } from './_generated/codegen';
 import { workerOptionsSchema } from './_generated/schema';
 import { resolvePythonPath } from './utils/pyfig';
 import { resolvePythonPackage } from './utils/python-package';
@@ -38,14 +39,6 @@ const configSchema = codegenOptionsSchema.omit({ root: true, config: true, modul
 export type CodegenOptions = z.input<typeof codegenOptionsSchema>;
 export type SetupDevOptions = z.input<typeof setupDevOptionsSchema>;
 
-interface PythonRequest {
-  readonly root: string;
-  readonly modules: Readonly<Record<string, string>>;
-  readonly className: string;
-  readonly out: string;
-  readonly bridge: Readonly<Record<string, unknown>>;
-}
-
 export async function generateBindings(input: CodegenOptions): Promise<string> {
   const options = codegenOptionsSchema.parse(input);
   const root = path.resolve(options.root);
@@ -62,7 +55,7 @@ export async function generateBindings(input: CodegenOptions): Promise<string> {
     'project', 'with', 'withEditable', 'withRequirements', 'uvArgs',
     'validatePydantic', 'autoClose', 'startupTimeoutMs', 'callTimeoutMs',
   ].flatMap(key => merged[key] === undefined ? [] : [[key, merged[key]]]));
-  const request: PythonRequest = { root, modules, className, out, bridge };
+  const request = { root, modules, className, out, bridge } satisfies CodegenRequest;
   return runPython(request);
 }
 
@@ -142,7 +135,7 @@ function deriveClassName(modules: Record<string, string>): string {
   return name.endsWith('Python') ? name : `${name}Python`;
 }
 
-async function runPython(request: PythonRequest): Promise<string> {
+async function runPython(request: CodegenRequest): Promise<string> {
   const environment = await pyfig({ cwd: request.root });
   const pythonPath = await resolvePythonPath(environment);
   const worker = resolvePythonPackage(__dirname);

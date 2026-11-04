@@ -1,6 +1,5 @@
 import { fileURLToPath } from 'node:url';
 import { ExamplePython } from './generated/example-python.ts';
-import { createVenv } from 'pynect';
 
 const pythonProject = fileURLToPath(new URL('../../python', import.meta.url));
 await using python = new ExamplePython({

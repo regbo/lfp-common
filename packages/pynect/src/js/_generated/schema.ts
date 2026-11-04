@@ -1,11 +1,52 @@
-// Generated from pynect_worker.models. Do not edit directly.
+// Generated from pynect_worker Pydantic models. Do not edit directly.
 
 import { z } from 'zod';
-import type { ServerOptions, WorkerOptions } from './schema-types';
 
-export type { ServerOptions, WorkerOptions } from './schema-types';
+/**
+ * Behavior shared by local IPC workers and remote sessions.
+ */
+export interface WorkerOptions {
+  /**
+   * Validate annotated Python arguments with Pydantic.
+   */
+  validatePydantic?: boolean;
+}
+/**
+ * Loopback-first WebSocket server configuration.
+ *
+ * This interface was referenced by `WorkerOptions`'s JSON-Schema
+ * via the `definition` "ServerOptions".
+ */
+export interface ServerOptions {
+  /**
+   * Interface on which the proxy-facing server listens.
+   */
+  host?: string;
+  /**
+   * Maximum MessagePack payload size for one RPC frame.
+   */
+  maxFrameBytes?: number;
+  /**
+   * Public module names mapped to importable Python module names.
+   */
+  modules?: {
+    [k: string]: string;
+  };
+  /**
+   * Absolute WebSocket URL path accepted by the server.
+   */
+  path?: string;
+  /**
+   * Listening port; zero asks the operating system to choose one.
+   */
+  port?: number;
+  /**
+   * Validate annotated Python arguments with Pydantic.
+   */
+  validatePydantic?: boolean;
+}
 
-export const workerOptionsJsonSchema = {
+const workerOptionsJsonSchema = {
   "additionalProperties": false,
   "description": "Behavior shared by local IPC workers and remote sessions.",
   "properties": {
@@ -19,7 +60,7 @@ export const workerOptionsJsonSchema = {
   "title": "WorkerOptions",
   "type": "object"
 } as const;
-export const serverOptionsJsonSchema = {
+const serverOptionsJsonSchema = {
   "additionalProperties": false,
   "description": "Loopback-first WebSocket server configuration.",
   "properties": {

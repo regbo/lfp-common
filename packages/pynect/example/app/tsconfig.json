@@ -8,6 +8,9 @@
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
+    "paths": {
+      "pynect": ["../../../src/js/index.ts"]
+    },
     "types": ["node"]
   },
   "include": ["src/**/*.ts"]

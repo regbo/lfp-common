@@ -23,12 +23,6 @@ server_app = App(
 FlatServerOptions = Annotated[ServerOptions | None, Parameter(name="*")]
 
 
-def _serve(options: ServerOptions) -> None:
-    from .server import run_server
-
-    run_server(options)
-
-
 @app.command
 def ipc() -> None:
     """Run the private local IPC worker from its environment configuration."""
@@ -39,17 +33,13 @@ def ipc() -> None:
 
 
 @app.command
+@server_app.default
 def serve(options: FlatServerOptions = None) -> None:
     """Serve isolated Pynect sessions over binary WebSockets."""
 
-    _serve(options or ServerOptions())
+    from .server import run_server
 
-
-@server_app.default
-def serve_default(options: FlatServerOptions = None) -> None:
-    """Serve isolated Pynect sessions over binary WebSockets."""
-
-    _serve(options or ServerOptions())
+    run_server(options or ServerOptions())
 
 
 def main() -> None:

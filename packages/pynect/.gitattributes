@@ -8,13 +8,13 @@
 /.projen/files.json linguist-generated
 /.projen/tasks.json linguist-generated
 /bun.lockb linguist-generated
+/example/app/src/generated/example-python.ts linguist-generated
 /LICENSE linguist-generated
 /package.json linguist-generated
 /pyproject.toml linguist-generated
+/src/js/_generated/codegen.ts linguist-generated
 /src/js/_generated/metadata.ts linguist-generated
 /src/js/_generated/protocol.ts linguist-generated
-/src/js/_generated/pynect.schema.json linguist-generated
-/src/js/_generated/schema-types.ts linguist-generated
 /src/js/_generated/schema.ts linguist-generated
 /src/py/pynect_worker/_generated/__init__.py linguist-generated
 /src/py/pynect_worker/_generated/metadata.py linguist-generated

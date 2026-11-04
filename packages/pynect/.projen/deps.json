@@ -26,8 +26,8 @@
       "type": "runtime"
     },
     {
-      "name": "loqkit",
-      "version": "workspace:*",
+      "name": "async-mutex",
+      "version": "catalog:",
       "type": "runtime"
     },
     {

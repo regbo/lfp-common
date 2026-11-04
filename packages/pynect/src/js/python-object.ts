@@ -1,10 +1,10 @@
 import type { RpcClient } from './rpc-client';
 import { RPC_OPERATION, type RpcOperation } from './protocol';
 
-export const PYTHON_REFERENCE = Symbol('pynect.pythonReference');
+const PYTHON_REFERENCE = Symbol('pynect.pythonReference');
 const PYTHON_KWARGS = Symbol('pynect.pythonKwargs');
 
-export interface PythonReference {
+interface PythonReference {
   readonly client: RpcClient;
   readonly id: number;
   readonly path: readonly string[];
@@ -17,7 +17,7 @@ export interface PythonKeywordArguments<
   readonly value: Values;
 }
 
-export interface PythonObjectMethods {
+interface PythonObjectMethods {
   readonly $id: number;
   $call(args?: readonly unknown[], kwargs?: Readonly<Record<string, unknown>>): Promise<unknown>;
   $dir(): Promise<string[]>;
@@ -32,8 +32,6 @@ export type PythonObject = PythonObjectMethods &
   ((...args: unknown[]) => Promise<unknown>) &
   AsyncIterable<unknown> &
   Record<string, any>;
-
-export type PythonModule = PythonObject;
 
 interface ProxyLifetime {
   finalizerToken?: object;

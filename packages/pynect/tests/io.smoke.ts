@@ -9,7 +9,6 @@ import { pyfig } from 'pyfig';
 import {
   createVenv,
   kwargs,
-  type PythonModule,
   type PythonObject,
 } from '../src/js';
 
@@ -181,7 +180,7 @@ describe('Pynect I/O smoke benchmarks', () => {
 
 async function measurePynect(
   moduleName: string,
-  operation: (module: PythonModule) => Promise<string>,
+  operation: (module: PythonObject) => Promise<string>,
 ): Promise<PynectMeasurement> {
   const venv = createVenv({
     autoClose: false,
@@ -206,7 +205,7 @@ async function measurePynect(
   }
 }
 
-async function readUrl(urllib: PythonModule, url: string): Promise<string> {
+async function readUrl(urllib: PythonObject, url: string): Promise<string> {
   const response = await urllib.urlopen(url, kwargs({ timeout: 5 })) as PythonObject;
   try {
     const value = await response.read();
@@ -218,7 +217,7 @@ async function readUrl(urllib: PythonModule, url: string): Promise<string> {
   }
 }
 
-async function readFile(pathlib: PythonModule, filename: string): Promise<string> {
+async function readFile(pathlib: PythonObject, filename: string): Promise<string> {
   const file = await pathlib.Path(filename) as PythonObject;
   try {
     const value = await file.read_text(kwargs({ encoding: 'utf-8' }));

@@ -1,4 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
+import { Mutex } from 'async-mutex';
 import type { PythonContext } from 'pyfig';
 import {
   resolveVenvOptions,
@@ -13,15 +14,12 @@ import {
   untrackProcessLifecycle,
 } from './process-lifecycle';
 import { RPC_OPERATION } from './protocol';
-import type { PythonModule } from './python-object';
+import type { PythonObject } from './python-object';
 import { PythonWorker, startPythonWorker } from './python-worker';
 import { RpcClient } from './rpc-client';
 import { SocketRpcTransport } from './transport/socket-rpc';
-import { withLock } from './utils/lock';
 
-export interface PynectModules {}
-
-export interface VenvInfo {
+interface VenvInfo {
   readonly environment: PythonContext;
   readonly modules: Readonly<Record<string, string>>;
   readonly project: string | false | undefined;
@@ -34,8 +32,9 @@ interface StartedVenv {
 }
 
 /** A lazily started, uv-backed Python environment and object bridge. */
-export class PythonVenv<Modules extends object = PynectModules> implements AsyncDisposable {
+export class PythonVenv<Modules extends object = object> implements AsyncDisposable {
   readonly #options: ResolvedVenvOptions;
+  readonly #mutex = new Mutex();
   #closeRequested = false;
   #pendingSignal: TerminationSignal | undefined;
   #runtime: StartedVenv | undefined;
@@ -56,7 +55,7 @@ export class PythonVenv<Modules extends object = PynectModules> implements Async
   }
 
   import<Name extends keyof Modules & string>(name: Name): Promise<Modules[Name]>;
-  import(name: string): Promise<PythonModule>;
+  import(name: string): Promise<PythonObject>;
   async import(name: string): Promise<unknown> {
     if (!name.trim()) throw new TypeError('Python module name cannot be empty.');
     const runtime = await this.#start();
@@ -82,31 +81,28 @@ export class PythonVenv<Modules extends object = PynectModules> implements Async
 
   async #close(signal?: TerminationSignal): Promise<void> {
     this.#closeRequested = true;
-    await withLock(
-      this,
-      venv => venv.#state !== 'closed',
-      async venv => {
-        venv.#state = 'closed';
-        const runtime = venv.#runtime;
-        if (!runtime) {
-          untrackProcessLifecycle(venv);
-          return;
+    await this.#mutex.runExclusive(async () => {
+      if (this.#state === 'closed') return;
+      this.#state = 'closed';
+      const runtime = this.#runtime;
+      if (!runtime) {
+        untrackProcessLifecycle(this);
+        return;
+      }
+      try {
+        if (
+          signal && runtime.worker.child.exitCode === null &&
+          runtime.worker.child.signalCode === null
+        ) {
+          this.#signalChild(runtime.worker.child, signal);
         }
-        try {
-          if (
-            signal && runtime.worker.child.exitCode === null &&
-            runtime.worker.child.signalCode === null
-          ) {
-            venv.#signalChild(runtime.worker.child, signal);
-          }
-          await runtime.client.close();
-          await runtime.worker.close(runtime.client.pythonPid);
-        } finally {
-          untrackProcessLifecycle(venv);
-          venv.#runtime = undefined;
-        }
-      },
-    );
+        await runtime.client.close();
+        await runtime.worker.close(runtime.client.pythonPid);
+      } finally {
+        untrackProcessLifecycle(this);
+        this.#runtime = undefined;
+      }
+    });
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
@@ -131,26 +127,23 @@ export class PythonVenv<Modules extends object = PynectModules> implements Async
     }
     if (this.#runtime) return Promise.resolve(this.#runtime);
     this.#trackStart();
-    return withLock(
-      this,
-      venv => venv.#state !== 'closed',
-      async venv => {
-        if (venv.#runtime) return venv.#runtime;
-        venv.#trackStart();
-        try {
-          venv.#assertStartupAllowed();
-          const runtime = await venv.#startRuntime();
-          venv.#runtime = runtime;
-          venv.#state = 'started';
-          venv.#watchRuntime(runtime);
-          return runtime;
-        } catch (error) {
-          venv.#state = venv.#closeRequested ? 'closed' : undefined;
-          untrackProcessLifecycle(venv);
-          throw error;
-        }
-      },
-    ).then(runtime => {
+    return this.#mutex.runExclusive(async () => {
+      if (this.#state === 'closed') return undefined;
+      if (this.#runtime) return this.#runtime;
+      this.#trackStart();
+      try {
+        this.#assertStartupAllowed();
+        const runtime = await this.#startRuntime();
+        this.#runtime = runtime;
+        this.#state = 'started';
+        this.#watchRuntime(runtime);
+        return runtime;
+      } catch (error) {
+        this.#state = this.#closeRequested ? 'closed' : undefined;
+        untrackProcessLifecycle(this);
+        throw error;
+      }
+    }).then(runtime => {
       if (!runtime) throw new VenvClosedError();
       return runtime;
     });
@@ -234,7 +227,7 @@ export class PythonVenv<Modules extends object = PynectModules> implements Async
 }
 
 /** Create a lazy Venv. No Python or uv process starts until the first operation. */
-export function createVenv<Modules extends object = PynectModules>(
+export function createVenv<Modules extends object = object>(
   options: CreateVenvOptions = {},
 ): PythonVenv<Modules> {
   return new PythonVenv<Modules>(options);

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { createVenv, createVenvOptionsSchema, PythonVenv, kwargs } from '../src/js';
-import { serverOptionsSchema } from '../src/js/schema';
+import { serverOptionsSchema } from '../src/js/_generated/schema';
 
 describe('public API', () => {
   test('validates Venv options through the public schema', () => {
