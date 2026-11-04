@@ -30,6 +30,9 @@ app = "server:app"
 Starlette ASGI application containing the Chanx routes. It defaults to
 `server:app`.
 
+The [`example`](example) directory contains a complete model-catalog project
+with generated TypeScript plus local IPC and remote WebSocket clients.
+
 ## Write the API in Python
 
 ```py

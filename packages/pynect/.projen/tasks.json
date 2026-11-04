@@ -36,7 +36,8 @@
             "ruff",
             "check",
             "src/py",
-            "tests/py"
+            "tests/py",
+            "example"
           ]
         }
       ]
@@ -45,6 +46,15 @@
       "name": "compile",
       "description": "Only compile",
       "steps": [
+        {
+          "execArgs": [
+            "bun",
+            "src/js/cli.ts",
+            "generate",
+            "--root",
+            "example"
+          ]
+        },
         {
           "execArgs": [
             "bun",
@@ -74,7 +84,8 @@
             "ruff",
             "format",
             "src/py",
-            "tests/py"
+            "tests/py",
+            "example"
           ]
         }
       ]
@@ -91,7 +102,8 @@
             "format",
             "--check",
             "src/py",
-            "tests/py"
+            "tests/py",
+            "example"
           ]
         }
       ]
@@ -138,6 +150,12 @@
         },
         {
           "execArgs": [
+            "bun",
+            "example/local.ts"
+          ]
+        },
+        {
+          "execArgs": [
             "uv",
             "run",
             "--locked",
@@ -178,13 +196,22 @@
         },
         {
           "execArgs": [
+            "tsc",
+            "--noEmit",
+            "-p",
+            "example/tsconfig.json"
+          ]
+        },
+        {
+          "execArgs": [
             "uv",
             "run",
             "--locked",
             "ruff",
             "check",
             "src/py",
-            "tests/py"
+            "tests/py",
+            "example"
           ]
         },
         {
@@ -196,7 +223,8 @@
             "format",
             "--check",
             "src/py",
-            "tests/py"
+            "tests/py",
+            "example"
           ]
         }
       ]

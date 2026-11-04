@@ -15,6 +15,8 @@
 - `src/js/server.ts`: starts, reuses, and disposes local IPC servers.
 - `src/js/utils/python-package.ts`: locates the bundled wheel or editable Python
   adapter during development.
+- `example/`: runnable Python-owned model catalog with one generated Chanx
+  client shared by local IPC and remote WebSocket entrypoints.
 
 ## Python
 

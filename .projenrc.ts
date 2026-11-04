@@ -684,24 +684,45 @@ pynect.addFields({
 });
 new PynectPythonPackage(pynect);
 configureScriptTypes(pynect);
+new javascript.TypescriptConfig(pynect, {
+  fileName: 'example/tsconfig.json',
+  extends: javascript.TypescriptConfigExtends.fromTypescriptConfigs([pynect.tsconfig!]),
+  compilerOptions: {
+    allowImportingTsExtensions: true,
+    noEmit: true,
+    rootDir: '..',
+  },
+  include: ['**/*.ts'],
+  exclude: ['node_modules'],
+});
+pynect.gitattributes.addAttributes('/example/_generated/**', 'linguist-generated');
+pynect.addScripts({
+  'example:generate': 'bun src/js/cli.ts generate --root example',
+  'example:local': 'bun example/local.ts',
+  'example:remote': 'bun example/remote.ts',
+  'example:serve': 'uv run --project example uvicorn --app-dir example server:app --host 127.0.0.1 --port 7777',
+});
 pynect.compileTask.reset();
+pynect.compileTask.execArgs(['bun', 'src/js/cli.ts', 'generate', '--root', 'example']);
 pynect.compileTask.execArgs(['bun', 'scripts/build.ts']);
 configureTestsAndTypecheck(pynect, [
   ['tsc', '--noEmit', '-p', 'tsconfig.json'],
   ['tsc', '--noEmit', '-p', 'scripts/tsconfig.json'],
   ['tsc', '--noEmit', '-p', 'tests/tsconfig.json'],
-  ['uv', 'run', '--locked', 'ruff', 'check', 'src/py', 'tests/py'],
-  ['uv', 'run', '--locked', 'ruff', 'format', '--check', 'src/py', 'tests/py'],
+  ['tsc', '--noEmit', '-p', 'example/tsconfig.json'],
+  ['uv', 'run', '--locked', 'ruff', 'check', 'src/py', 'tests/py', 'example'],
+  ['uv', 'run', '--locked', 'ruff', 'format', '--check', 'src/py', 'tests/py', 'example'],
 ]);
+pynect.testTask.execArgs(['bun', 'example/local.ts']);
 pynect.testTask.execArgs(['uv', 'run', '--locked', 'python', '-m', 'pytest']);
 pynect.addTask('check:python', {
-  execArgs: ['uv', 'run', '--locked', 'ruff', 'check', 'src/py', 'tests/py'],
+  execArgs: ['uv', 'run', '--locked', 'ruff', 'check', 'src/py', 'tests/py', 'example'],
 });
 pynect.addTask('format:python', {
-  execArgs: ['uv', 'run', '--locked', 'ruff', 'format', 'src/py', 'tests/py'],
+  execArgs: ['uv', 'run', '--locked', 'ruff', 'format', 'src/py', 'tests/py', 'example'],
 });
 pynect.addTask('format:python:check', {
-  execArgs: ['uv', 'run', '--locked', 'ruff', 'format', '--check', 'src/py', 'tests/py'],
+  execArgs: ['uv', 'run', '--locked', 'ruff', 'format', '--check', 'src/py', 'tests/py', 'example'],
 });
 
 const WORKSPACE_FILTER = './packages/*';
