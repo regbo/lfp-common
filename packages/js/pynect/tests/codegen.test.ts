@@ -32,7 +32,8 @@ describe('Chanx code generation', () => {
     expect(readFileSync(path.join(output, 'channels.ts'), 'utf8')).toContain('catalog');
     expect(readFileSync(path.join(output, 'schemas.ts'), 'utf8')).toContain('PingRequest');
     const channels = readFileSync(path.join(output, 'channels.ts'), 'utf8');
-    expect(channels).toContain("streamActions: ['watch'] as const");
+    expect(channels).toContain("'watch'");
+    expect(channels).toContain("'sync_watch'");
     const index = readFileSync(path.join(output, 'index.ts'), 'utf8');
     expect(index).toContain("export { createPynectClient } from 'pynect';");
     expect(index).not.toMatch(/\bcreateClient\b/u);

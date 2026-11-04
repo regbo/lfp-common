@@ -3,17 +3,16 @@ import random
 from collections.abc import AsyncIterator
 from typing import Literal
 
-from chanx.core.decorators import channel
+from chanx.core.decorators import channel, ws_handler
 from chanx.fast_channels import asyncapi_docs, asyncapi_spec_json
 from chanx.fast_channels.type_defs import AsyncAPIConfig
-from chanx.fast_channels.websocket import AsyncJsonWebsocketConsumer
 from chanx.messages.base import BaseMessage
 from coolname import generate_slug
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
-from pynect_worker import ws_handler
+from pynect_worker import AsyncJsonWebsocketConsumer
 
 Provider = Literal["anthropic", "openai"]
 PROVIDERS: tuple[Provider, ...] = ("anthropic", "openai")

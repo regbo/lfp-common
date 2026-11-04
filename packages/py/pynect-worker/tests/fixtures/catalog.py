@@ -1,13 +1,12 @@
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from typing import Literal
 
-from chanx.core.decorators import channel
-from chanx.fast_channels.websocket import AsyncJsonWebsocketConsumer
+from chanx.core.decorators import channel, ws_handler
 from chanx.messages.base import BaseMessage
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-from pynect_worker import ws_handler
+from pynect_worker import AsyncJsonWebsocketConsumer
 
 
 class PingPayload(BaseModel):
@@ -29,6 +28,11 @@ class WatchRequest(BaseMessage):
     payload: PingPayload
 
 
+class SyncWatchRequest(BaseMessage):
+    action: Literal["sync_watch"] = "sync_watch"
+    payload: PingPayload
+
+
 class WatchResponse(BaseMessage):
     action: Literal["watched"] = "watched"
     payload: PingPayload
@@ -42,6 +46,11 @@ class CatalogConsumer(AsyncJsonWebsocketConsumer):
 
     @ws_handler
     async def watch(self, message: WatchRequest) -> AsyncIterator[WatchResponse]:
+        yield WatchResponse(payload=message.payload)
+
+    # Chanx types handlers as async; Pynect adapts synchronous callables.
+    @ws_handler  # type: ignore
+    def sync_watch(self, message: SyncWatchRequest) -> Iterator[WatchResponse]:
         yield WatchResponse(payload=message.payload)
 
 

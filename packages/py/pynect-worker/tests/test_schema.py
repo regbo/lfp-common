@@ -15,3 +15,6 @@ def test_export_schema_writes_chanx_asyncapi(tmp_path: Path) -> None:
     assert "PingRequest" in schema["components"]["schemas"]
     assert schema["operations"]["watch"]["x-pynect-stream"] is True
     assert len(schema["operations"]["watch"]["reply"]["messages"]) == 1
+    assert schema["operations"]["sync_watch"]["x-pynect-stream"] is True
+    assert len(schema["operations"]["sync_watch"]["reply"]["messages"]) == 1
+    assert "x-pynect-stream" not in schema["operations"]["ping"]

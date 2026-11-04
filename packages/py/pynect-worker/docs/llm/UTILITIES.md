@@ -1,7 +1,9 @@
 # Utility map
 
-- `src/pynect_worker/handlers.py`: detects iterator return annotations, forwards
-  yielded messages, and records stream operations for schema export.
+- `src/pynect_worker/websocket.py`: adapts iterator-annotated Chanx handlers
+  before Chanx registers a consumer class.
+- `src/pynect_worker/handlers.py`: forwards yielded messages, records stream
+  operations for schema export, and retains the deprecated decorator adapter.
 - `src/pynect_worker/schema.py`: exports Chanx AsyncAPI without starting an HTTP
   listener and marks iterator operations with `x-pynect-stream`.
 - `src/pynect_worker/ipc.py`: adapts newline-delimited local streams to ASGI

@@ -42,12 +42,11 @@ with generated TypeScript plus local IPC and remote WebSocket clients.
 from collections.abc import AsyncIterator
 from typing import Literal
 
-from chanx.core.decorators import channel
-from chanx.fast_channels.websocket import AsyncJsonWebsocketConsumer
+from chanx.core.decorators import channel, ws_handler
 from chanx.messages.base import BaseMessage
 from fastapi import FastAPI
 from pydantic import BaseModel
-from pynect_worker import ws_handler
+from pynect_worker import AsyncJsonWebsocketConsumer
 
 
 class GreetPayload(BaseModel):
@@ -87,10 +86,20 @@ app = FastAPI(title="Greeter", version="1.0.0")
 app.router.add_websocket_route("/ws/greeter", Greeter.as_asgi())
 ```
 
-Annotate a handler with `AsyncIterator[Response]` and yield messages to make it
-a stream. Pynect forwards each yield, emits Chanx's protocol-level `complete`
-frame when the iterator exits normally, and types the corresponding request as
-an async iterator. Application messages do not need a completion model or flag:
+Annotate a handler with `Iterator[Response]` or `AsyncIterator[Response]` and
+yield messages to make it a stream. Pynect supports synchronous handlers too,
+forwards each yield, emits Chanx's protocol-level `complete` frame when the
+iterator exits normally, and types the corresponding request as an async
+iterator. Application messages do not need a completion model or flag:
+
+Chanx currently types handlers as async-only. On synchronous handlers, use
+`@ws_handler  # type: ignore`; Pynect adapts them at runtime.
+
+Returning early completes the stream normally. Iterator failures close server
+iterator resources and surface as `ChanxRequestError`; ending iteration on the
+client releases its listeners and logical shared connection. Chanx does not
+currently expose per-request cancellation, so a client-side `break` cannot
+remotely interrupt a server handler that is still producing values.
 
 ```ts
 import { createPynectClient, greeter } from './_generated/model-catalog/index.js';

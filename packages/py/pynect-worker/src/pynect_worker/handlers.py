@@ -1,6 +1,7 @@
-"""Chanx handler decorators with iterator-aware streaming."""
+"""Iterator adaptation shared by Pynect consumers and legacy decorators."""
 
 import inspect
+import warnings
 from collections.abc import AsyncGenerator, AsyncIterator, Generator, Iterator
 from functools import wraps
 from types import UnionType
@@ -15,23 +16,50 @@ _STREAM_OPERATIONS: set[tuple[str, str]] = set()
 
 
 def ws_handler(func: Any = None, **options: Any) -> Any:
-    """Decorate a Chanx handler, forwarding annotated iterators automatically."""
+    """Decorate a Chanx handler with the pre-0.9 Pynect streaming adapter."""
+
+    warnings.warn(
+        "pynect_worker.ws_handler is deprecated; import ws_handler from chanx.core.decorators "
+        "and subclass pynect_worker.AsyncJsonWebsocketConsumer instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
 
     def decorate(handler: Any) -> Any:
-        item_type = _stream_item_type(get_type_hints(handler).get("return"))
-        if item_type is None:
-            return chanx_ws_handler(handler, **options)
+        return _adapt_handler(chanx_ws_handler(handler, **options))
 
-        output_type = options.get("output_type") or item_type
-        _validate_output_type(output_type, handler.__name__)
+    return decorate if func is None else decorate(func)
 
-        @wraps(handler)
-        async def forward_stream(*args: Any, **kwargs: Any) -> None:
-            result = handler(*args, **kwargs)
-            if inspect.isawaitable(result):
-                result = await result
 
-            consumer = args[0]
+def _adapt_handler(handler: Any) -> Any:
+    """Adapt synchronous and iterator-annotated Chanx handlers."""
+    handler_info = getattr(handler, "_ws_handler_info", None)
+    if handler_info is None or handler_info.get("x_pynect_stream"):
+        return handler
+
+    original = inspect.unwrap(handler)
+    item_type = _stream_item_type(get_type_hints(original).get("return"))
+    if item_type is None:
+        return _adapt_sync_handler(handler, original, handler_info)
+
+    declared_output_type = handler_info.get("output_type")
+    output_type = (
+        item_type if _stream_item_type(declared_output_type) is not None else declared_output_type or item_type
+    )
+    _validate_output_type(output_type, original.__name__)
+    handler_info["output_type"] = output_type
+    handler_info["x_pynect_stream"] = True
+    _STREAM_OPERATIONS.add((handler_info["action"], handler_info["input_type"].__name__))
+
+    @wraps(original)
+    async def forward_stream(*args: Any, **kwargs: Any) -> None:
+        result = original(*args, **kwargs)
+        if inspect.isawaitable(result):
+            result = await result
+
+        consumer = args[0]
+        completed = False
+        try:
             if isinstance(result, AsyncIterator):
                 async for message in result:
                     await consumer.send_message(message)
@@ -40,22 +68,39 @@ def ws_handler(func: Any = None, **options: Any) -> Any:
                     await consumer.send_message(message)
             else:
                 raise TypeError(
-                    f"Streaming handler {handler.__name__} returned {type(result).__name__}, expected an iterator."
+                    f"Streaming handler {original.__name__} returned {type(result).__name__}, expected an iterator."
                 )
+            completed = True
+        finally:
+            await _close_iterator(result)
 
-            if not consumer.should_send_completion:
-                await consumer.send_message(CompleteMessage())
+        if completed and not consumer.should_send_completion:
+            await consumer.send_message(CompleteMessage())
 
-        decorated = chanx_ws_handler(
-            forward_stream,
-            **{**options, "output_type": output_type},
-        )
-        handler_info = decorated._ws_handler_info  # type: ignore[attr-defined]
-        handler_info["x_pynect_stream"] = True
-        _STREAM_OPERATIONS.add((handler_info["action"], handler_info["input_type"].__name__))
-        return decorated
+    forward_stream._ws_handler_info = handler_info  # type: ignore[attr-defined]
+    return forward_stream
 
-    return decorate if func is None else decorate(func)
+
+def _adapt_sync_handler(handler: Any, original: Any, handler_info: Any) -> Any:
+    """Wrap a synchronous handler so Chanx can await it normally."""
+    if inspect.iscoroutinefunction(original):
+        return handler
+
+    @wraps(original)
+    async def call_sync(*args: Any, **kwargs: Any) -> Any:
+        result = original(*args, **kwargs)
+        return await result if inspect.isawaitable(result) else result
+
+    call_sync._ws_handler_info = handler_info  # type: ignore[attr-defined]
+    return call_sync
+
+
+async def _close_iterator(iterator: Any) -> None:
+    """Deterministically release iterator resources after completion or failure."""
+    if close_async := getattr(iterator, "aclose", None):
+        await close_async()
+    elif close := getattr(iterator, "close", None):
+        close()
 
 
 def stream_operations() -> frozenset[tuple[str, str]]:

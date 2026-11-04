@@ -84,7 +84,8 @@ export function createPynectClient(options: ClientOptions = {}): PynectClient {
   } as unknown as PynectClient;
 }
 
-async function* requestStream(
+/** @internal Exported for focused protocol lifecycle tests. */
+export async function* requestStream(
   connection: ChannelConnection<ChanxMessage, ChanxMessage, any>,
   message: ChanxMessage,
   options?: RequestOptions,
