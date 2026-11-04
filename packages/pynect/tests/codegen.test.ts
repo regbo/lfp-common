@@ -28,16 +28,15 @@ describe('Chanx code generation', () => {
     expect(result.channels).toBe(1);
     expect(existsSync(path.join(output, 'asyncapi.json'))).toBe(true);
     expect(existsSync(path.join(output, 'index.ts'))).toBe(true);
-    expect(existsSync(path.join(output, 'streams.ts'))).toBe(true);
+    expect(existsSync(path.join(output, 'streams.ts'))).toBe(false);
     expect(readFileSync(path.join(output, 'channels.ts'), 'utf8')).toContain('catalog');
     expect(readFileSync(path.join(output, 'schemas.ts'), 'utf8')).toContain('PingRequest');
     const channels = readFileSync(path.join(output, 'channels.ts'), 'utf8');
     expect(channels).toContain("streamActions: ['watch'] as const");
-    const streams = readFileSync(path.join(output, 'streams.ts'), 'utf8');
-    expect(streams).toContain("export { createPynectClient as createClient } from 'pynect';");
-    expect(readFileSync(path.join(output, 'index.ts'), 'utf8')).toContain(
-      "export * from './streams.js';",
-    );
+    const index = readFileSync(path.join(output, 'index.ts'), 'utf8');
+    expect(index).toContain("export { createPynectClient } from 'pynect';");
+    expect(index).not.toMatch(/\bcreateClient\b/u);
+    expect(index).not.toContain("./streams.js");
 
     const schema = JSON.parse(readFileSync(path.join(output, 'asyncapi.json'), 'utf8'));
     expect(schema.operations.watch['x-pynect-stream']).toBe(true);

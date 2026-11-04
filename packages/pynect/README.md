@@ -93,9 +93,9 @@ frame when the iterator exits normally, and types the corresponding request as
 an async iterator. Application messages do not need a completion model or flag:
 
 ```ts
-import { createClient, greeter } from './_generated/model-catalog/index.js';
+import { createPynectClient, greeter } from './_generated/model-catalog/index.js';
 
-const connection = createClient(clientOptions).connect(greeter);
+const connection = createPynectClient(clientOptions).connect(greeter);
 const result = await connection.request({
   action: 'greet_many',
   payload: { name: 'Ada, Grace' },
@@ -107,7 +107,7 @@ for await (const response of result) {
 ```
 
 Pynect records iterator actions on the generated channel descriptor. Its
-generated `createClient()` uses that metadata so TypeScript infers normal
+generated `createPynectClient()` uses that metadata so TypeScript infers normal
 actions as `Promise<Response>` and iterator actions as
 `AsyncIterable<Response>` through the same `connection.request()` method. The
 request needs only its action and payload. Concurrent streams use Chanx request
@@ -127,7 +127,6 @@ _generated/model-catalog/
   channels.ts
   index.ts
   schemas.ts
-  streams.ts
 ```
 
 Set `out` under `[tool.pynect]` when the TypeScript project lives elsewhere:
@@ -148,9 +147,9 @@ configured uv project. Optional `python`, `uv`, `debug`, `validation`, and
 Generated modules are standard `@chanx-js/client` descriptors:
 
 ```ts
-import { createClient, greeter } from './_generated/model-catalog/index.js';
+import { createPynectClient, greeter } from './_generated/model-catalog/index.js';
 
-const client = createClient({ baseUrl: 'wss://api.example.com' });
+const client = createPynectClient({ baseUrl: 'wss://api.example.com' });
 const connection = client.connect(greeter);
 const response = await connection.request({
   action: 'greet',
@@ -165,10 +164,10 @@ options to Chanx:
 
 ```ts
 import { startIpcServer } from 'pynect';
-import { createClient, greeter } from './_generated/model-catalog/index.js';
+import { createPynectClient, greeter } from './_generated/model-catalog/index.js';
 
 await using server = await startIpcServer({ root: '../python' });
-const client = createClient(server.clientOptions);
+const client = createPynectClient(server.clientOptions);
 const connection = client.connect(greeter);
 ```
 

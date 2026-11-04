@@ -1,13 +1,13 @@
 import type { ClientOptions } from '@chanx-js/client';
 import {
-  createClient,
+  createPynectClient,
   models,
   type Model,
   type ModelFilters,
 } from './_generated/model-catalog/index.js';
 
 export function connectModelCatalog(options: ClientOptions) {
-  return createClient(options).connect(models);
+  return createPynectClient(options).connect(models);
 }
 
 export type ModelCatalogConnection = ReturnType<typeof connectModelCatalog>;
