@@ -16,7 +16,7 @@ import {
   generatedPackageVersionPaths,
   readManifest,
   sharedVersion,
-  uvWorkspacePaths,
+  uvProjectPaths,
   workspacePath,
 } from './workspaces.ts';
 
@@ -32,7 +32,7 @@ const dryRun = args.has('--dry-run');
 const initial = args.has('--initial');
 const remote = 'origin';
 const releaseBranch = 'main';
-const uvProjects = await uvWorkspacePaths();
+const uvProjects = await uvProjectPaths();
 const generatedVersionFiles = (await Promise.all(WORKSPACES.map(async workspace =>
   (await generatedPackageVersionPaths(workspacePath(workspace)))
     .map(file => `${workspace.path}/${file}`)

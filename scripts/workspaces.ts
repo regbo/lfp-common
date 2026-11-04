@@ -35,16 +35,22 @@ export async function generatedPackageVersionPaths(directory: string): Promise<r
   );
 }
 
-export async function uvWorkspacePaths(): Promise<readonly string[]> {
-  const projects = await Promise.all(WORKSPACES.map(async workspace => {
-    const directory = workspacePath(workspace);
-    const [hasProject, hasLockfile] = await Promise.all([
-      Bun.file(path.join(directory, 'pyproject.toml')).exists(),
-      Bun.file(path.join(directory, 'uv.lock')).exists(),
-    ]);
-    return hasProject && hasLockfile ? workspace.path : undefined;
-  }));
-  return projects.filter((project): project is string => project !== undefined);
+export async function uvProjectPaths(): Promise<readonly string[]> {
+  const projectFiles = new Bun.Glob('packages/*/**/pyproject.toml');
+  const projects: string[] = [];
+  for await (const projectFile of projectFiles.scan({
+    cwd: ROOT,
+    followSymlinks: false,
+    onlyFiles: true,
+  })) {
+    const project = path.dirname(projectFile);
+    const segments = project.split(/[\\/]/u);
+    if (segments.includes('node_modules') || segments.includes('.venv')) continue;
+    if (await Bun.file(path.join(ROOT, project, 'uv.lock')).exists()) {
+      projects.push(project.split(path.sep).join('/'));
+    }
+  }
+  return projects.sort();
 }
 
 export async function sharedVersion(): Promise<string> {

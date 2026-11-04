@@ -131,7 +131,6 @@ async def ipc_server(app: Any, ipc_path: str) -> AsyncIterator[str]:
             for server in servers:
                 server.close()
     else:
-
         socket_path = Path(ipc_path)
         await remove_stale_socket(socket_path)
         server = await asyncio.start_unix_server(
