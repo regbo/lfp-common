@@ -12,8 +12,10 @@ import {
 } from './release-lib.ts';
 import {
   ROOT,
+  PYTHON_DISTRIBUTIONS,
   WORKSPACES,
   generatedPackageVersionPaths,
+  pypiVersionUrl,
   readManifest,
   sharedVersion,
   uvProjectPaths,
@@ -37,12 +39,17 @@ const generatedVersionFiles = (await Promise.all(WORKSPACES.map(async workspace 
   (await generatedPackageVersionPaths(workspacePath(workspace)))
     .map(file => `${workspace.path}/${file}`)
 ))).flat();
+const generatedPythonVersionFiles = (await Promise.all(PYTHON_DISTRIBUTIONS.map(async project =>
+  (await generatedPackageVersionPaths(path.join(ROOT, project.path)))
+    .map(file => `${project.path}/${file}`)
+))).flat();
 const versionFiles = [
   '.projenrc.ts',
   'package.json',
   'bun.lock',
   ...WORKSPACES.map(workspace => `${workspace.path}/package.json`),
   ...generatedVersionFiles,
+  ...generatedPythonVersionFiles,
   ...uvProjects.map(project => `${project}/uv.lock`),
 ] as const;
 const snapshots = new Map<string, { readonly content: Buffer; readonly mode: number }>();
@@ -109,6 +116,17 @@ try {
       );
     }
   }
+  for (const project of PYTHON_DISTRIBUTIONS) {
+    const response = await fetch(pypiVersionUrl(project.name, plan.nextVersion), {
+      redirect: 'error',
+    });
+    if (response.ok) throw new Error(`${project.name}==${plan.nextVersion} already exists on PyPI.`);
+    if (response.status !== 404) {
+      throw new Error(
+        `Could not verify ${project.name}==${plan.nextVersion} on PyPI: HTTP ${response.status}.`,
+      );
+    }
+  }
 
   console.log(
     `${dryRun ? 'Dry run' : 'Release'}: ${plan.currentVersion ?? 'initial'} -> ${plan.nextVersion} (${tag}).`,
@@ -118,9 +136,9 @@ try {
     versionChanged = true;
   }
 
-  await runBun(['run', 'projen'], {
+  await runBun(['.projenrc.ts'], {
     cwd: ROOT,
-    env: { PROJEN_DISABLE_POST: '1' },
+    env: { PROJEN_DISABLE_POST: 'true' },
     inherit: true,
   });
   await runBun(['install'], { cwd: ROOT, inherit: true });

@@ -38,8 +38,9 @@ jspm_packages/
 *.tgz
 coverage/
 dist/
-packages/*/dist/
-packages/*/release/
+packages/js/*/dist/
+packages/js/*/release/
+packages/py/*/dist/
 !/tsconfig.base.json
 !/tsconfig.projen.json
 !/tsconfig.json

@@ -1,8 +1,10 @@
 import { githubRepositoryFromRemote, registryVersionUrl } from './release-lib.ts';
 import {
   ROOT,
+  PYTHON_DISTRIBUTIONS,
   WORKSPACES,
   readManifest,
+  pypiVersionUrl,
   sharedVersion,
   workspacePath,
 } from './workspaces.ts';
@@ -30,4 +32,15 @@ for (const workspace of WORKSPACES) {
   }
 }
 
-console.log(`Release validated: ${tag} for ${WORKSPACES.length} packages.`);
+for (const project of PYTHON_DISTRIBUTIONS) {
+  const response = await fetch(pypiVersionUrl(project.name, version), { redirect: 'error' });
+  if (response.ok) throw new Error(`${project.name}==${version} is already published on PyPI.`);
+  if (response.status !== 404) {
+    throw new Error(`Could not verify ${project.name}==${version} on PyPI: HTTP ${response.status}.`);
+  }
+}
+
+console.log(
+  `Release validated: ${tag} for ${WORKSPACES.length} npm and ` +
+  `${PYTHON_DISTRIBUTIONS.length} PyPI package(s).`,
+);

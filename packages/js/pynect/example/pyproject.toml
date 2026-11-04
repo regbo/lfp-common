@@ -1,0 +1,22 @@
+[project]
+name = "pynect-model-catalog-example"
+version = "0.1.0"
+description = "Minimal Python-owned Chanx API consumed from TypeScript"
+requires-python = ">=3.11"
+dependencies = [
+  "chanx[fast_channels]>=2.13.0,<3",
+  "coolname>=5,<6",
+  "pynect-worker",
+  "uvicorn[standard]>=0.40,<1",
+]
+
+[tool.pynect]
+name = "model-catalog"
+app = "server:app"
+out = "_generated/model-catalog"
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+pynect-worker = { path = "../../../py/pynect-worker", editable = true }

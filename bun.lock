@@ -15,7 +15,7 @@
         "typescript": "catalog:",
       },
     },
-    "packages/loqkit": {
+    "packages/js/loqkit": {
       "name": "loqkit",
       "version": "0.8.8",
       "dependencies": {
@@ -36,7 +36,7 @@
         "fs-ext": "catalog:",
       },
     },
-    "packages/optionkit": {
+    "packages/js/optionkit": {
       "name": "optionkit",
       "version": "0.8.8",
       "dependencies": {
@@ -61,7 +61,7 @@
         "zod",
       ],
     },
-    "packages/pyfig": {
+    "packages/js/pyfig": {
       "name": "pyfig",
       "version": "0.8.8",
       "bin": {
@@ -84,11 +84,11 @@
         "typescript": "catalog:",
       },
     },
-    "packages/pynect": {
+    "packages/js/pynect": {
       "name": "pynect",
       "version": "0.8.8",
       "bin": {
-        "pynect": "dist/js/cli.js",
+        "pynect": "dist/cli.js",
       },
       "dependencies": {
         "@chanx-js/client": "catalog:",
@@ -212,7 +212,7 @@
 
     "js-tokens": ["js-tokens@4.0.0", "", {}, "sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ=="],
 
-    "loqkit": ["loqkit@workspace:packages/loqkit"],
+    "loqkit": ["loqkit@workspace:packages/js/loqkit"],
 
     "lru-cache": ["lru-cache@11.5.3", "", {}, "sha512-U4N8FgzmWxc8k1VH8Kr6lQg18U7Fjvby6wXHVRX/ZZ7IwWbRMgrRbP0Wrb5q5NVinryp4SQampHKdvtecItxUg=="],
 
@@ -228,7 +228,7 @@
 
     "ohash": ["ohash@2.0.12", "", {}, "sha512-65S/5gk9YSsaRjcyf7Nfa6h/d3E8/1gslpXfI4W7Dxn/oap8IKRuNT5VXkLQ1YFKIEg4apRY4Pj6aiwFzrDdmw=="],
 
-    "optionkit": ["optionkit@workspace:packages/optionkit"],
+    "optionkit": ["optionkit@workspace:packages/js/optionkit"],
 
     "package-manager-detector": ["package-manager-detector@1.9.0", "", {}, "sha512-zAMfbta9nPA8AKkA4WdmNAT8R8s6Dk0/xwPsqNnRidMFcLo1YkLuPDTgs2f64XdzS8vbLNnoJ+uUIkgbz7oRHA=="],
 
@@ -246,9 +246,9 @@
 
     "proper-lockfile": ["proper-lockfile@4.1.2", "", { "dependencies": { "graceful-fs": "^4.2.4", "retry": "^0.12.0", "signal-exit": "^3.0.2" } }, "sha512-TjNPblN4BwAWMXU8s9AEz4JmQxnD1NNL7bNOY/AKUzyamc379FWASUhc/K1pL2noVb+XmZKLL68cjzLsiOAMaA=="],
 
-    "pyfig": ["pyfig@workspace:packages/pyfig"],
+    "pyfig": ["pyfig@workspace:packages/js/pyfig"],
 
-    "pynect": ["pynect@workspace:packages/pynect"],
+    "pynect": ["pynect@workspace:packages/js/pynect"],
 
     "read-package-up": ["read-package-up@12.0.0", "", { "dependencies": { "find-up-simple": "^1.0.1", "read-pkg": "^10.0.0", "type-fest": "^5.2.0" } }, "sha512-Q5hMVBYur/eQNWDdbF4/Wqqr9Bjvtrw2kjGxxBbKLbx8bVCL8gcArjTy8zDUuLGQicftpMuU0riQNcAsbtOVsw=="],
 

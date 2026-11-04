@@ -35,10 +35,12 @@
         {
           "execArgs": [
             "bun",
+            "node_modules/pacwich/bin/cli.js",
             "run",
-            "--filter",
-            "./packages/*",
-            "compile"
+            "compile",
+            "--dep-order",
+            "--parallel=false",
+            "--output-style=plain"
           ]
         }
       ]
@@ -82,7 +84,7 @@
             "bun",
             "run",
             "--filter",
-            "./packages/*",
+            "./packages/js/*",
             "pack:release"
           ]
         }
@@ -161,8 +163,20 @@
             "bun",
             "run",
             "--filter",
-            "./packages/*",
+            "./packages/js/*",
             "test"
+          ]
+        },
+        {
+          "execArgs": [
+            "uv",
+            "run",
+            "--directory",
+            "packages/py/pynect-worker",
+            "--locked",
+            "python",
+            "-m",
+            "pytest"
           ]
         }
       ]
@@ -204,8 +218,35 @@
             "bun",
             "run",
             "--filter",
-            "./packages/*",
+            "./packages/js/*",
             "typecheck"
+          ]
+        },
+        {
+          "execArgs": [
+            "uv",
+            "run",
+            "--directory",
+            "packages/py/pynect-worker",
+            "--locked",
+            "ruff",
+            "check",
+            "src",
+            "tests"
+          ]
+        },
+        {
+          "execArgs": [
+            "uv",
+            "run",
+            "--directory",
+            "packages/py/pynect-worker",
+            "--locked",
+            "ruff",
+            "format",
+            "--check",
+            "src",
+            "tests"
           ]
         }
       ]

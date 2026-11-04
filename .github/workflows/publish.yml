@@ -113,7 +113,7 @@ jobs:
       matrix:
         include:
           - distribution: pynect-worker
-            project_directory: packages/pynect
+            project_directory: packages/py/pynect-worker
             environment: pypi
             artifact: pynect-worker
   release:

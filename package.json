@@ -49,7 +49,7 @@
   "packageManager": "bun@1.4.4",
   "workspaces": {
     "packages": [
-      "packages/*"
+      "packages/js/*"
     ],
     "catalog": {
       "@antfu/install-pkg": "^2.1.0",
