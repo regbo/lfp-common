@@ -75,6 +75,13 @@ class Greeter(AsyncJsonWebsocketConsumer):
     async def greet(self, message: GreetRequest) -> GreetResponse:
         return GreetResponse(payload=f"Hello {message.payload.name}")
 
+    @ws_handler
+    async def greet_many(
+        self, message: GreetManyRequest
+    ) -> AsyncIterator[GreetResponse]:
+        for name in message.payload.name.split(","):
+            yield GreetResponse(payload=f"Hello {name.strip()}")
+
 
 app = FastAPI(title="Greeter", version="1.0.0")
 app.router.add_websocket_route("/ws/greeter", Greeter.as_asgi())
@@ -82,17 +89,8 @@ app.router.add_websocket_route("/ws/greeter", Greeter.as_asgi())
 
 Annotate a handler with `AsyncIterator[Response]` and yield messages to make it
 a stream. Pynect forwards each yield, emits Chanx's protocol-level `complete`
-frame when the iterator exits normally, and generates a TypeScript async
-iterator. Application messages do not need a completion model or flag:
-
-```py
-@ws_handler
-async def greet_many(
-    self, message: GreetManyRequest
-) -> AsyncIterator[GreetResponse]:
-    for name in message.payload.name.split(","):
-        yield GreetResponse(payload=f"Hello {name.strip()}")
-```
+frame when the iterator exits normally, and types the corresponding request as
+an async iterator. Application messages do not need a completion model or flag:
 
 ```ts
 import { createClient, greeter } from './_generated/model-catalog/index.js';
@@ -108,11 +106,12 @@ for await (const response of result) {
 }
 ```
 
-The generated `createClient()` wraps Chanx with stream metadata. TypeScript
-infers normal actions as `Promise<Response>` and iterator actions as
-`AsyncIterable<Response>` through the same `connection.request()` method.
-Concurrent streams use Chanx request refs for correlation and share one
-physical socket; the business payload stays unchanged.
+Pynect records iterator actions on the generated channel descriptor. Its
+generated `createClient()` uses that metadata so TypeScript infers normal
+actions as `Promise<Response>` and iterator actions as
+`AsyncIterable<Response>` through the same `connection.request()` method. The
+request needs only its action and payload. Concurrent streams use Chanx request
+refs for correlation and share one physical socket.
 
 ## Generate TypeScript
 

@@ -18,9 +18,13 @@ export type ModelsReplies = {
 };
 
 /** Read the model catalog */
-export const models = defineChannel<ModelsToServer, ModelsToClient, ModelsReplies>()({
+const modelsChannel = defineChannel<ModelsToServer, ModelsToClient, ModelsReplies>()({
   name: "models",
   address: "/ws/models",
+});
+
+export const models = Object.assign(modelsChannel, {
+  streamActions: ['list_models_stream'] as const,
 });
 
 export const channels = {

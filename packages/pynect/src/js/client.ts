@@ -16,77 +16,38 @@ import {
 } from '@chanx-js/client';
 
 type AnyChannel = ChannelDescriptor<any, any, any, any>;
-type AnyStreamMap = Readonly<Record<string, readonly string[]>>;
-
-export interface PynectStreamDefinition<
-  Descriptor extends AnyChannel = AnyChannel,
-  Streams extends AnyStreamMap = AnyStreamMap,
-> {
-  readonly descriptor: Descriptor;
-  readonly streams: Streams;
-}
 
 type ActionOf<Descriptor extends AnyChannel> = ToServerOf<Descriptor>['action'];
-
-type StreamActionsForDefinition<Definition, Descriptor> =
-  Definition extends PynectStreamDefinition<infer DefinedDescriptor, infer Streams>
-    ? Descriptor extends DefinedDescriptor ? Extract<keyof Streams, string> : never
-    : never;
-
-type StreamActionsFor<
-  Definitions extends readonly PynectStreamDefinition[],
-  Descriptor,
-> = StreamActionsForDefinition<Definitions[number], Descriptor>;
+type StreamActionsOf<Descriptor extends AnyChannel> = Descriptor extends {
+  readonly streamActions: readonly (infer Action)[];
+} ? Extract<Action, ActionOf<Descriptor>> : never;
 
 type RequestResult<
   Descriptor extends AnyChannel,
-  StreamActions extends string,
   Action extends ActionOf<Descriptor>,
-> = Action extends StreamActions
+> = Action extends StreamActionsOf<Descriptor>
   ? AsyncIterableIterator<ReplyOf<RepliesOf<Descriptor>, Action>>
   : Promise<ReplyOf<RepliesOf<Descriptor>, Action>>;
 
-export type PynectConnection<
-  Descriptor extends AnyChannel,
-  StreamActions extends string = never,
-> = Omit<
+export type PynectConnection<Descriptor extends AnyChannel> = Omit<
   ChannelConnection<ToServerOf<Descriptor>, ToClientOf<Descriptor>, RepliesOf<Descriptor>>,
   'request'
 > & {
   request<Action extends ActionOf<Descriptor>>(
     message: ToServerOf<Descriptor> & { readonly action: Action },
     options?: RequestOptions,
-  ): RequestResult<Descriptor, StreamActions, Action>;
+  ): RequestResult<Descriptor, Action>;
 };
 
-export type PynectClient<Definitions extends readonly PynectStreamDefinition[]> = Omit<
-  ChanxClient,
-  'connect'
-> & {
+export type PynectClient = Omit<ChanxClient, 'connect'> & {
   connect<Descriptor extends AnyChannel>(
     descriptor: Descriptor,
     options?: ConnectOptions<AddressOf<Descriptor>>,
-  ): PynectConnection<Descriptor, StreamActionsFor<Definitions, Descriptor>>;
+  ): PynectConnection<Descriptor>;
 };
 
-/** Associate generated stream actions and their accepted response actions with a channel. */
-export function defineStreamActions<
-  Descriptor extends AnyChannel,
-  const Streams extends AnyStreamMap,
->(
-  descriptor: Descriptor,
-  streams: Streams,
-): PynectStreamDefinition<Descriptor, Streams> {
-  return Object.freeze({ descriptor, streams });
-}
-
 /** Wrap Chanx so streamable request actions return ref-correlated async iterators. */
-export function createPynectClient<
-  const Definitions extends readonly PynectStreamDefinition[],
->(
-  options: ClientOptions = {},
-  definitions: Definitions,
-): PynectClient<Definitions> {
+export function createPynectClient(options: ClientOptions = {}): PynectClient {
   const client = createChanxClient(options);
   return {
     ...client,
@@ -94,17 +55,16 @@ export function createPynectClient<
       descriptor: Descriptor,
       connectOptions: ConnectOptions<AddressOf<Descriptor>> = {},
     ) {
-      const definition = definitions.find(candidate => candidate.descriptor === descriptor);
-      if (!definition) return client.connect(descriptor, connectOptions);
-
+      const streamActions = new Set(
+        (descriptor as Descriptor & { readonly streamActions?: readonly string[] }).streamActions,
+      );
       const sharedOptions = { ...connectOptions, share: true };
       const connection = client.connect(descriptor, sharedOptions);
       return new Proxy(connection, {
         get(target, property) {
           if (property === 'request') {
             return (message: ChanxMessage, requestOptions?: RequestOptions) => {
-              const responseActions = definition.streams[message.action];
-              if (!responseActions) {
+              if (!streamActions.has(message.action)) {
                 const runtimeConnection = target as unknown as ChannelConnection<
                   ChanxMessage,
                   ChanxMessage,
@@ -113,12 +73,7 @@ export function createPynectClient<
                 return runtimeConnection.request(message, requestOptions);
               }
               const streamConnection = client.connect(descriptor, sharedOptions);
-              return requestStream(
-                streamConnection,
-                message,
-                new Set(responseActions),
-                requestOptions,
-              );
+              return requestStream(streamConnection, message, requestOptions);
             };
           }
           const value: unknown = Reflect.get(target, property, target);
@@ -126,16 +81,15 @@ export function createPynectClient<
         },
       });
     },
-  } as unknown as PynectClient<Definitions>;
+  } as unknown as PynectClient;
 }
 
 async function* requestStream(
   connection: ChannelConnection<ChanxMessage, ChanxMessage, any>,
   message: ChanxMessage,
-  responseActions: ReadonlySet<string>,
   options?: RequestOptions,
 ): AsyncGenerator<ChanxMessage> {
-  const responses = connection.stream();
+  const responses = createResponseStream(connection);
   let failure: ChanxRequestError | undefined;
   const stopComplete = connection.onComplete(() => { responses.close(); });
   const stopError = connection.onError(frame => {
@@ -145,10 +99,8 @@ async function* requestStream(
   try {
     const first = await connection.request(message, options) as ChanxMessage;
     if (first.action === 'complete') return;
-    if (responseActions.has(first.action)) yield first;
-    for await (const response of responses) {
-      if (responseActions.has(response.action)) yield response;
-    }
+    yield first;
+    for await (const response of responses) yield response;
     if (failure) throw failure;
   } finally {
     stopComplete();
@@ -156,4 +108,42 @@ async function* requestStream(
     responses.close();
     connection.close();
   }
+}
+
+/** Queue only ref-correlated replies; uncorrelated broadcasts may use the same action. */
+function createResponseStream(
+  connection: ChannelConnection<ChanxMessage, ChanxMessage, any>,
+): AsyncIterableIterator<ChanxMessage> & { close(): void } {
+  const queue: ChanxMessage[] = [];
+  const waiting: Array<(result: IteratorResult<ChanxMessage>) => void> = [];
+  let finished = false;
+  const stop = connection.onAny((message, envelope) => {
+    if (envelope.ref === undefined) return;
+    const next = waiting.shift();
+    if (next) next({ value: message, done: false });
+    else queue.push(message);
+  });
+  const close = (): void => {
+    if (finished) return;
+    finished = true;
+    stop();
+    while (waiting.length > 0) waiting.shift()?.({ value: undefined, done: true });
+  };
+  const stream: AsyncIterableIterator<ChanxMessage> & { close(): void } = {
+    close,
+    next() {
+      const message = queue.shift();
+      if (message) return Promise.resolve({ value: message, done: false });
+      if (finished) return Promise.resolve({ value: undefined, done: true });
+      return new Promise(resolve => { waiting.push(resolve); });
+    },
+    return() {
+      close();
+      return Promise.resolve({ value: undefined, done: true });
+    },
+    [Symbol.asyncIterator]() {
+      return stream;
+    },
+  };
+  return stream;
 }
