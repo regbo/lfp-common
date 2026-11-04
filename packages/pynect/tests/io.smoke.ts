@@ -11,7 +11,7 @@ import {
   kwargs,
   type PythonModule,
   type PythonObject,
-} from '../src';
+} from '../src/js';
 
 const WARM_RUNS = 5;
 const PAYLOAD = `pynect-smoke:${'0123456789abcdef'.repeat(256)}`;

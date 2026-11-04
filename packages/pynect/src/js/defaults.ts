@@ -1,0 +1,2 @@
+export const DEFAULT_CALL_TIMEOUT_MS = 0;
+export const DEFAULT_STARTUP_TIMEOUT_MS = 120_000;

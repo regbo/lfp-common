@@ -35,7 +35,8 @@
             "--locked",
             "ruff",
             "check",
-            "scripts"
+            "src/py",
+            "tests/py"
           ]
         }
       ]
@@ -47,7 +48,13 @@
         {
           "execArgs": [
             "bun",
-            "scripts/build-typescript.js"
+            "src/js/generate-schema.ts"
+          ]
+        },
+        {
+          "execArgs": [
+            "bun",
+            "src/js/build.js"
           ]
         }
       ]
@@ -72,7 +79,8 @@
             "--locked",
             "ruff",
             "format",
-            "scripts"
+            "src/py",
+            "tests/py"
           ]
         }
       ]
@@ -88,7 +96,8 @@
             "ruff",
             "format",
             "--check",
-            "scripts"
+            "src/py",
+            "tests/py"
           ]
         }
       ]
@@ -132,6 +141,14 @@
             "bun",
             "test"
           ]
+        },
+        {
+          "execArgs": [
+            "uv",
+            "run",
+            "--locked",
+            "pytest"
+          ]
         }
       ]
     },
@@ -170,12 +187,20 @@
         },
         {
           "execArgs": [
+            "bun",
+            "src/js/generate-schema.ts",
+            "--check"
+          ]
+        },
+        {
+          "execArgs": [
             "uv",
             "run",
             "--locked",
             "ruff",
             "check",
-            "scripts"
+            "src/py",
+            "tests/py"
           ]
         },
         {
@@ -186,7 +211,8 @@
             "ruff",
             "format",
             "--check",
-            "scripts"
+            "src/py",
+            "tests/py"
           ]
         }
       ]

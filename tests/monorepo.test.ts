@@ -5,6 +5,8 @@ import path from 'node:path';
 import {
   ROOT,
   WORKSPACES,
+  generatedMetadataPath,
+  generatedPackageVersionPaths,
   readManifest,
   workspacePath,
 } from '../scripts/workspaces.ts';
@@ -21,13 +23,18 @@ test('keeps one version, lockfile, catalog, and workspace protocol', async () =>
     expect(manifest.exports?.['./metadata']?.types).toEndWith('/_generated/metadata.d.ts');
     expect(manifest.exports?.['./metadata']?.import).toEndWith('/_generated/metadata.js');
 
-    const metadataPath = path.join(directory, 'src', '_generated', 'metadata.ts');
+    const metadataSource = await generatedMetadataPath(directory);
+    const metadataPath = path.join(directory, metadataSource);
     const metadata = await readFile(metadataPath, 'utf8');
     expect(metadata).toContain(`export const PACKAGE_NAME = ${JSON.stringify(workspace.name)} as const;`);
     expect(metadata).toContain(`export const PACKAGE_VERSION = ${JSON.stringify(root.version)} as const;`);
 
     const generatedFiles = await Bun.file(path.join(directory, '.projen/files.json')).json();
-    expect(generatedFiles.files).toContain('src/_generated/metadata.ts');
+    expect(generatedFiles.files).toContain(metadataSource);
+    for (const versionFile of await generatedPackageVersionPaths(directory)) {
+      const content = await readFile(path.join(directory, versionFile), 'utf8');
+      expect(content).toContain(root.version);
+    }
 
     for (const section of [
       manifest.dependencies,

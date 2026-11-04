@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { PACKAGE_VERSION } from '../src/_generated/metadata.ts';
+import { PACKAGE_VERSION } from '../src/js/_generated/metadata.ts';
 
 describe('CLI', () => {
   let projectRoot = '';
@@ -52,7 +52,7 @@ function runCli(
   env: NodeJS.ProcessEnv = {},
 ): Promise<{ code: number | null; stderr: string; stdout: string }> {
   return new Promise((resolve, reject) => {
-    const cli = path.join(import.meta.dir, '..', 'src', 'cli.mts');
+    const cli = path.join(import.meta.dir, '..', 'src', 'js', 'cli.mts');
     const child = spawn(process.execPath, [cli, ...args], {
       env: { ...process.env, ...env },
       stdio: ['ignore', 'pipe', 'pipe'],

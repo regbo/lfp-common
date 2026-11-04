@@ -1,33 +1,46 @@
 # Utility map
 
-- `src/config.ts`: the single normalizer for public `CreateVenvOptions`; resolves
-  paths, validates timeouts and raw uv arguments, and constructs Pyfig options.
-- `src/cli.mts`: the Optionkit-backed `pynect` command tree. Keep CLI schema
-  adaptation and lazy Fireargs loading centralized in Optionkit.
-- `src/codegen.ts`: the Zod codegen contract, Node-side configuration loader,
-  editor setup, and private JSON request client for the Python inspection engine.
-- `src/protocol.ts`: typed message kinds, RPC operations, and wire-value tags used
-  by every TypeScript protocol caller. Keep its values aligned with the enums in
-  `scripts/pynect_worker.py`.
-- `src/rpc-client.ts`: framed MessagePack transport, handshake validation, callback
-  dispatch, value encoding, and remote-reference lifetime management.
-- `src/python-object.ts`: the proxy surface for Python objects, calls, properties,
-  keyword arguments, async iteration, and explicit release.
-- `src/python-venv.ts`: lazy Pyfig/uv environment startup, worker process lifecycle,
-  module aliases, and automatic process shutdown.
-- `src/transport/local-ipc.ts`: one-client Unix socket or Windows named-pipe server.
-- `src/utils/python-script.ts`: source-tree and bundled Python script resolution.
-- `src/utils/timing.ts`: shared promise timeout behavior for connection and RPC
-  handshakes.
-- `scripts/pynect_worker.py`: the Python side of the typed protocol, object registry,
-  callback re-entry, optional Pydantic validation, and serialization.
-- `scripts/pynect_codegen.py`: private Python annotation inspection and TypeScript
-  rendering engine. It accepts exactly one JSON request from `src/codegen.ts`.
-- `scripts/build-typescript.js`: clean TypeScript build entrypoint.
-- `scripts/release.ts`: verified tag-driven npm release entrypoint.
+## JavaScript
 
-Do not add raw RPC operation strings outside the protocol modules. Extend both
-protocol definitions and cover the cross-language path in `tests/bridge.test.ts`.
+- `src/js/config.ts`: normalizes local `CreateVenvOptions`; its shared worker
+  fields come from the generated Pydantic schema adapter.
+- `src/js/cli.mts`: Optionkit-backed npm CLI for code generation.
+- `src/js/codegen.ts`: Node-side codegen configuration, editor setup, and the
+  private request client for Python inspection.
+- `src/js/protocol.ts`: public protocol seam backed by generated constants.
+- `src/js/rpc-client.ts`: transport-neutral handshake, calls, callbacks, value
+  encoding, and remote-reference lifetime management.
+- `src/js/python-object.ts`: proxy behavior for calls, properties, keyword
+  arguments, async iteration, and explicit release.
+- `src/js/python-worker.ts`: uv-backed local worker launcher. It installs the
+  bundled wheel, or the editable package during development.
+- `src/js/transport/local-ipc.ts`: private Unix socket or Windows named-pipe
+  listener used only by local Venvs.
+- `src/js/transport/websocket-rpc.ts`: browser-compatible binary WebSocket
+  client; it never imports local IPC, uv, or Node process utilities.
+- `src/js/generate-schema.ts`: Pydantic JSON Schema to TypeScript, Zod, and
+  protocol generation with a CI check mode.
+- `src/js/utils/python-package.ts`: resolves the packaged worker wheel or
+  editable source distribution.
 
-Keep codegen options, configuration, and setup in `src/codegen.ts`. Keep the
-Python engine private and free of CLI/configuration dependencies.
+## Python
+
+- `src/py/pynect_worker/models.py`: source of truth for shared configuration,
+  protocol enums, defaults, and limits.
+- `src/py/pynect_worker/connection.py`: abstract message connection plus local
+  Unix socket and Windows named-pipe framing.
+- `src/py/pynect_worker/framing.py`: shared length-prefixed MessagePack codec.
+- `src/py/pynect_worker/bridge.py`: per-session object registry, callback
+  re-entry, Pydantic validation, operations, and serialization.
+- `src/py/pynect_worker/server.py`: direct multi-client WebSocket server with a
+  shared executor, per-client bridge state, default-deny module exposure, and
+  latched process shutdown.
+- `src/py/pynect_worker/cli.py`: Cyclopts worker and server commands generated
+  from Pydantic models.
+- `src/py/pynect_worker/schema.py`: canonical JSON Schema emitter.
+- `src/py/pynect_worker/codegen.py`: Python annotation inspection and TypeScript
+  rendering engine. It accepts one JSON request from `src/js/codegen.ts`.
+
+Do not add raw operation strings or option defaults outside the model and
+generated protocol modules. Remote servers must keep `modules` default-deny;
+WebSocket disconnects must never signal the shared Python process.

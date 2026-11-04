@@ -16,6 +16,25 @@ export function readManifest(directory: string) {
   return Bun.file(path.join(directory, 'package.json')).json();
 }
 
+export async function generatedMetadataPath(directory: string): Promise<string> {
+  const matches = (await generatedPackageVersionPaths(directory)).filter(file =>
+    file.endsWith('/_generated/metadata.ts')
+  );
+  if (matches.length !== 1) {
+    throw new Error(`Expected one generated metadata module in ${directory}, found ${matches.length}.`);
+  }
+  return matches[0]!;
+}
+
+export async function generatedPackageVersionPaths(directory: string): Promise<readonly string[]> {
+  const inventory = await Bun.file(path.join(directory, '.projen', 'files.json')).json() as {
+    readonly files?: readonly string[];
+  };
+  return (inventory.files ?? []).filter(file =>
+    file === 'pyproject.toml' || /\/_generated\/metadata\.(?:py|ts)$/u.test(file)
+  );
+}
+
 export async function sharedVersion(): Promise<string> {
   const version = (await readManifest(ROOT)).version;
   if (typeof version !== 'string') throw new Error('Root package.json has no version.');

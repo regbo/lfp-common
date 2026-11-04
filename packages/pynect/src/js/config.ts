@@ -1,9 +1,8 @@
 import path from 'node:path';
 import { pyfigOptionsSchema } from 'pyfig';
 import { z } from 'zod';
-
-const DEFAULT_STARTUP_TIMEOUT_MS = 120_000;
-const DEFAULT_CALL_TIMEOUT_MS = 0;
+import { workerOptionsSchema } from './_generated/schema';
+import { DEFAULT_CALL_TIMEOUT_MS, DEFAULT_STARTUP_TIMEOUT_MS } from './defaults';
 
 const pyfigShape = pyfigOptionsSchema.unwrap().omit({
   cwd: true,
@@ -12,6 +11,7 @@ const pyfigShape = pyfigOptionsSchema.unwrap().omit({
 
 export const createVenvOptionsSchema = z.object({
   ...pyfigShape,
+  ...workerOptionsSchema.shape,
   cwd: z.string()
     .describe("Working directory used by uv and added to Python's import path.")
     .optional(),
@@ -31,13 +31,10 @@ export const createVenvOptionsSchema = z.object({
     .describe('Requirements, pylock, or inline-metadata files passed to --with-requirements.')
     .optional(),
   modules: z.record(z.string(), z.string())
-    .describe('Public import aliases mapped to their Python module names.')
+    .describe('Public module names mapped to their Python import names.')
     .optional(),
   uvArgs: z.array(z.string())
     .describe('Additional uv run options inserted before the Python command.')
-    .optional(),
-  validatePydantic: z.boolean()
-    .describe('Validate annotated arguments through Pydantic when Pydantic is available.')
     .optional(),
   autoClose: z.boolean()
     .describe('Let the host exit naturally and terminate the Python child during shutdown.')

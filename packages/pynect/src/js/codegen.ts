@@ -3,12 +3,14 @@ import path from 'node:path';
 import { parse as parseToml } from 'smol-toml';
 import { pyfig } from 'pyfig';
 import { z } from 'zod';
+import { workerOptionsSchema } from './_generated/schema';
 import { resolvePythonPath } from './utils/pyfig';
-import { resolvePythonScript } from './utils/python-script';
+import { resolvePythonPackage } from './utils/python-package';
 
 const moduleConfigSchema = z.union([z.array(z.string()), z.record(z.string(), z.string())]);
 
 export const codegenOptionsSchema = z.object({
+  ...workerOptionsSchema.shape,
   root: z.string().default('.').describe('Python project root.'),
   config: z.string().optional().describe('Standalone codegen configuration file.'),
   module: z.array(z.string()).optional().describe('Python module or alias=module mapping.'),
@@ -19,7 +21,6 @@ export const codegenOptionsSchema = z.object({
   withEditable: z.array(z.string()).optional().describe('Additional editable uv requirements.'),
   withRequirements: z.array(z.string()).optional().describe('Requirements or lock files.'),
   uvArgs: z.array(z.string()).optional().describe('Additional uv run arguments.'),
-  validatePydantic: z.boolean().optional().describe('Validate arguments with Pydantic.'),
   autoClose: z.boolean().optional().describe('Allow the host to exit while Python is running.'),
   startupTimeoutMs: z.number().int().positive().optional().describe('Worker startup timeout.'),
   callTimeoutMs: z.number().int().nonnegative().optional().describe('Default RPC timeout.'),
@@ -144,9 +145,11 @@ function deriveClassName(modules: Record<string, string>): string {
 async function runPython(request: PythonRequest): Promise<string> {
   const environment = await pyfig({ cwd: request.root });
   const pythonPath = await resolvePythonPath(environment);
-  const script = resolvePythonScript(__dirname, 'pynect_codegen.py');
+  const worker = resolvePythonPackage(__dirname);
   const child = await environment.uv.spawn(
-    'run', '--no-project', '--python', pythonPath, script, JSON.stringify(request),
+    'run', '--no-project', '--python', pythonPath,
+    worker.editable ? '--with-editable' : '--with', worker.requirement,
+    '--', 'python', '-m', 'pynect_worker.codegen', JSON.stringify(request),
     {
       cwd: request.root,
       env: process.env,

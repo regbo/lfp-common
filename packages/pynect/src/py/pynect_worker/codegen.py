@@ -1,11 +1,7 @@
-# /// script
-# requires-python = ">=3.10"
-# dependencies = []
-# ///
-
 from __future__ import annotations
 
 import collections.abc
+import contextlib
 import datetime as dt
 import importlib
 import inspect
@@ -19,6 +15,10 @@ import uuid
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
+
+from cyclopts import App
+
+codegen_app = App(name="pynect-codegen", help="Generate Pynect TypeScript bindings from a JSON request.")
 
 
 class BridgeSettings(typing.NamedTuple):
@@ -70,9 +70,7 @@ def annotation_to_typescript(annotation: Any) -> str:
     origin = typing.get_origin(annotation)
     arguments = typing.get_args(annotation)
     if origin in {typing.Union, types.UnionType}:
-        return " | ".join(
-            dict.fromkeys(annotation_to_typescript(item) for item in arguments)
-        )
+        return " | ".join(dict.fromkeys(annotation_to_typescript(item) for item in arguments))
     if origin is typing.Literal:
         return " | ".join(json.dumps(item) for item in arguments)
     if origin in {list, set, frozenset, collections.abc.Sequence, collections.abc.Set}:
@@ -84,14 +82,8 @@ def annotation_to_typescript(annotation: Any) -> str:
         return f"readonly [{', '.join(annotation_to_typescript(item) for item in arguments)}]"
     if origin in {dict, collections.abc.Mapping}:
         key = annotation_to_typescript(arguments[0]) if arguments else "string"
-        value = (
-            annotation_to_typescript(arguments[1]) if len(arguments) > 1 else "unknown"
-        )
-        return (
-            f"Readonly<Record<string, {value}>>"
-            if key == "string"
-            else f"ReadonlyMap<{key}, {value}>"
-        )
+        value = annotation_to_typescript(arguments[1]) if len(arguments) > 1 else "unknown"
+        return f"Readonly<Record<string, {value}>>" if key == "string" else f"ReadonlyMap<{key}, {value}>"
     if origin in {collections.abc.Iterable, collections.abc.Iterator}:
         item = annotation_to_typescript(arguments[0]) if arguments else "unknown"
         return f"AsyncIterable<{item}>"
@@ -107,8 +99,7 @@ def annotation_to_typescript(annotation: Any) -> str:
             parameters = "...args: unknown[]"
         elif isinstance(parameter_annotations, (list, tuple)):
             parameters = ", ".join(
-                f"arg{index}: {annotation_to_typescript(item)}"
-                for index, item in enumerate(parameter_annotations)
+                f"arg{index}: {annotation_to_typescript(item)}" for index, item in enumerate(parameter_annotations)
             )
         else:
             parameters = "...args: unknown[]"
@@ -146,17 +137,13 @@ def callable_signature(function: Any, *, skip_receiver: bool = False) -> str:
         elif parameter.kind is inspect.Parameter.VAR_KEYWORD:
             keyword_fields.append(f"readonly [name: string]: {value_type}")
         elif parameter.kind is inspect.Parameter.KEYWORD_ONLY:
-            keyword_fields.append(
-                f"readonly {property_name(parameter.name)}{'?' if optional else ''}: {value_type}"
-            )
+            keyword_fields.append(f"readonly {property_name(parameter.name)}{'?' if optional else ''}: {value_type}")
         else:
             parameters.append(f"{name}{'?' if optional else ''}: {value_type}")
 
     if keyword_fields and not has_varargs:
         keyword_shape = "; ".join(keyword_fields)
-        parameters.append(
-            f"keywordArguments?: PythonKeywordArguments<{{ {keyword_shape} }}>"
-        )
+        parameters.append(f"keywordArguments?: PythonKeywordArguments<{{ {keyword_shape} }}>")
     result = annotation_to_typescript(hints.get("return", signature.return_annotation))
     return f"({', '.join(parameters)}) => Promise<{result}>"
 
@@ -170,32 +157,20 @@ def inspect_module(alias: str, import_name: str) -> tuple[str, list[str]]:
     for name, value in sorted(vars(module).items()):
         if name.startswith("_"):
             continue
-        if (
-            inspect.isfunction(value)
-            and getattr(value, "__module__", None) == module.__name__
-        ):
-            members.append(
-                f"  readonly {property_name(name)}: {callable_signature(value)};"
-            )
-        elif (
-            inspect.isclass(value)
-            and getattr(value, "__module__", None) == module.__name__
-        ):
+        if inspect.isfunction(value) and getattr(value, "__module__", None) == module.__name__:
+            members.append(f"  readonly {property_name(name)}: {callable_signature(value)};")
+        elif inspect.isclass(value) and getattr(value, "__module__", None) == module.__name__:
             class_name = typescript_identifier(value.__name__)
             if typing.is_typeddict(value):
                 declarations.append(render_typed_dict_interface(class_name, value))
             else:
                 declarations.append(render_class_interface(class_name, value))
                 constructor = callable_signature(value.__init__, skip_receiver=True)
-                members.append(
-                    f"  readonly {property_name(name)}: {replace_promise_result(constructor, class_name)};"
-                )
+                members.append(f"  readonly {property_name(name)}: {replace_promise_result(constructor, class_name)};")
 
     if not members:
         members.append("  readonly [name: string]: unknown;")
-    declarations.append(
-        f"export interface {module_interface} {{\n" + "\n".join(members) + "\n}"
-    )
+    declarations.append(f"export interface {module_interface} {{\n" + "\n".join(members) + "\n}")
     return module_interface, declarations
 
 
@@ -216,22 +191,14 @@ def render_typed_dict_interface(class_name: str, value: type[Any]) -> str:
 def render_class_interface(class_name: str, value: type[Any]) -> str:
     members: list[str] = []
     annotations = getattr(value, "__annotations__", {})
-    try:
+    with contextlib.suppress(NameError, TypeError):
         annotations = typing.get_type_hints(value, include_extras=True)
-    except (NameError, TypeError):
-        pass
     for name, annotation in sorted(annotations.items()):
         if not name.startswith("_"):
-            members.append(
-                f"  readonly {property_name(name)}: Promise<{annotation_to_typescript(annotation)}>;"
-            )
-    for name, function in sorted(
-        inspect.getmembers(value, predicate=inspect.isfunction)
-    ):
+            members.append(f"  readonly {property_name(name)}: Promise<{annotation_to_typescript(annotation)}>;")
+    for name, function in sorted(inspect.getmembers(value, predicate=inspect.isfunction)):
         if not name.startswith("_"):
-            members.append(
-                f"  readonly {property_name(name)}: {callable_signature(function, skip_receiver=True)};"
-            )
+            members.append(f"  readonly {property_name(name)}: {callable_signature(function, skip_receiver=True)};")
     members.extend(
         [
             "  $release(): Promise<void>;",
@@ -253,8 +220,7 @@ def render(settings: GeneratorSettings) -> str:
     defaults = bridge_defaults(settings)
 
     module_map = "\n".join(
-        f"  readonly {property_name(alias)}: {module_type};"
-        for alias, module_type in module_types.items()
+        f"  readonly {property_name(alias)}: {module_type};" for alias, module_type in module_types.items()
     )
     getters = "\n\n".join(
         f"  get {typescript_identifier(alias)}(): Promise<{module_type}> {{\n"
@@ -266,7 +232,7 @@ def render(settings: GeneratorSettings) -> str:
     serialized_defaults = json.dumps(defaults, indent=2).replace("\n", "\n  ")
 
     sections = [
-        "// Generated by pynect_codegen.py. Do not edit by hand.",
+        "// Generated by pynect-worker codegen. Do not edit by hand.",
         "import { createVenv, type CreateVenvOptions, type PythonKeywordArguments, type PythonVenv } from 'pynect';",
         *declarations,
         f"export interface {settings.class_name}Modules {{\n{module_map}\n}}",
@@ -304,18 +270,14 @@ def bridge_defaults(settings: GeneratorSettings) -> dict[str, Any]:
         "startupTimeoutMs": bridge.startup_timeout_ms,
         "validatePydantic": bridge.validate_pydantic,
     }
-    defaults.update(
-        (name, value) for name, value in optional_values.items() if value is not None
-    )
+    defaults.update((name, value) for name, value in optional_values.items() if value is not None)
     sequence_values = {
         "uvArgs": bridge.uv_args,
         "with": bridge.with_values,
         "withEditable": bridge.with_editable,
         "withRequirements": bridge.with_requirements,
     }
-    defaults.update(
-        (name, list(value)) for name, value in sequence_values.items() if value
-    )
+    defaults.update((name, list(value)) for name, value in sequence_values.items() if value)
     return defaults
 
 
@@ -382,9 +344,7 @@ def pascal_case(value: str) -> str:
 def string_sequence(value: Any, name: str) -> tuple[str, ...]:
     if value is None:
         return ()
-    if not isinstance(value, list) or not all(
-        isinstance(item, str) and item for item in value
-    ):
+    if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
         raise TypeError(f"bridge.{name} must be an array of non-empty strings")
     return tuple(value)
 
@@ -443,10 +403,7 @@ def parse_settings(argument: str) -> tuple[Path, GeneratorSettings]:
     if not isinstance(modules_value, dict) or not modules_value:
         raise TypeError("modules must be a non-empty object mapping aliases to imports")
     if not all(
-        isinstance(alias, str)
-        and alias
-        and isinstance(import_name, str)
-        and import_name
+        isinstance(alias, str) and alias and isinstance(import_name, str) and import_name
         for alias, import_name in modules_value.items()
     ):
         raise ValueError("module aliases and import names must be non-empty strings")
@@ -477,16 +434,12 @@ def parse_settings(argument: str) -> tuple[Path, GeneratorSettings]:
     }
     unknown_bridge = bridge.keys() - bridge_keys
     if unknown_bridge:
-        raise ValueError(
-            f"unknown bridge field(s): {', '.join(sorted(unknown_bridge))}"
-        )
+        raise ValueError(f"unknown bridge field(s): {', '.join(sorted(unknown_bridge))}")
 
     settings = GeneratorSettings(
         bridge=BridgeSettings(
             auto_close=optional_bool(bridge.get("autoClose"), "autoClose"),
-            call_timeout_ms=timeout_value(
-                bridge.get("callTimeoutMs"), "callTimeoutMs", allow_zero=True
-            ),
+            call_timeout_ms=timeout_value(bridge.get("callTimeoutMs"), "callTimeoutMs", allow_zero=True),
             project=project_value(bridge.get("project")),
             startup_timeout_ms=timeout_value(
                 bridge.get("startupTimeoutMs"),
@@ -494,13 +447,9 @@ def parse_settings(argument: str) -> tuple[Path, GeneratorSettings]:
                 allow_zero=False,
             ),
             uv_args=string_sequence(bridge.get("uvArgs"), "uvArgs"),
-            validate_pydantic=optional_bool(
-                bridge.get("validatePydantic"), "validatePydantic"
-            ),
+            validate_pydantic=optional_bool(bridge.get("validatePydantic"), "validatePydantic"),
             with_editable=string_sequence(bridge.get("withEditable"), "withEditable"),
-            with_requirements=string_sequence(
-                bridge.get("withRequirements"), "withRequirements"
-            ),
+            with_requirements=string_sequence(bridge.get("withRequirements"), "withRequirements"),
             with_values=string_sequence(bridge.get("with"), "with"),
         ),
         class_name=class_name,
@@ -536,11 +485,16 @@ def add_import_path(path: Path) -> None:
         sys.path.insert(0, value)
 
 
-def main() -> None:
-    if len(sys.argv) != 2:
-        raise SystemExit("usage: python pynect_codegen.py '<single JSON argument>'")
-    root, settings = parse_settings(sys.argv[1])
+@codegen_app.default
+def run(request: str) -> None:
+    """Generate bindings from one JSON request."""
+
+    root, settings = parse_settings(request)
     print(generate(root, settings))
+
+
+def main() -> None:
+    codegen_app()
 
 
 if __name__ == "__main__":

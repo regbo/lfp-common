@@ -1,18 +1,23 @@
-import { decode, encode } from '@msgpack/msgpack';
-import type { Socket } from 'node:net';
 import { PythonError, VenvClosedError, type RemotePythonError } from './errors';
 import {
   isWireValueType,
   MESSAGE_KIND,
+  PROTOCOL_VERSION,
   RPC_OPERATION,
   WIRE_VALUE_TYPE,
   type RpcOperation,
 } from './protocol';
 import { createPythonObject, getPythonReference } from './python-object';
+import {
+  decodeRpcFrame,
+  encodeRpcFrame,
+  MAX_LOCAL_RPC_FRAME_BYTES,
+  RpcFrameDecoder,
+} from './rpc-frame';
+import type { RpcTransport } from './transport/rpc-transport';
 import { withTimeout } from './utils/timing';
+import { isRecord } from './utils/validation';
 
-const PROTOCOL_VERSION = 2;
-const MAX_FRAME_BYTES = 256 * 1024 * 1024;
 const WIRE_TYPE = '__pynect_wire_type__';
 
 interface PendingRequest {
@@ -38,16 +43,16 @@ const referenceFinalizer = new FinalizationRegistry<FinalizedReference>(({ clien
 });
 
 export class RpcClient {
-  readonly #socket: Socket;
-  readonly #token: string;
+  readonly #transport: RpcTransport;
+  readonly #token: string | undefined;
   readonly #callTimeoutMs: number;
   readonly #autoUnref: boolean;
+  readonly #frames: RpcFrameDecoder;
   readonly #pending = new Map<number, PendingRequest>();
   readonly #callbacks = new Map<number, CallbackEntry>();
   readonly #callbackIds = new WeakMap<JavaScriptCallback, number>();
   #nextRequestId = 1;
   #nextCallbackId = 1;
-  #buffer: Buffer<ArrayBufferLike> = Buffer.alloc(0);
   #closed = false;
   #helloSettled = false;
   #pythonPid = 0;
@@ -56,38 +61,42 @@ export class RpcClient {
   #rejectHello!: (error: unknown) => void;
 
   private constructor(
-    socket: Socket,
-    token: string,
+    transport: RpcTransport,
+    token: string | undefined,
     callTimeoutMs: number,
     autoUnref: boolean,
+    maxFrameBytes: number,
   ) {
-    this.#socket = socket;
+    this.#transport = transport;
     this.#token = token;
     this.#callTimeoutMs = callTimeoutMs;
     this.#autoUnref = autoUnref;
+    this.#frames = new RpcFrameDecoder(maxFrameBytes);
     this.#hello = new Promise<void>((resolve, reject) => {
       this.#resolveHello = resolve;
       this.#rejectHello = reject;
     });
-    socket.on('data', data => this.#receive(
-      typeof data === 'string' ? Buffer.from(data) : data,
-    ));
-    socket.once('error', error => this.#fail(error));
-    socket.once('close', () => this.#fail(new VenvClosedError('Python worker disconnected.')));
+    transport.setHandlers({
+      close: () => this.#fail(new VenvClosedError('Python worker disconnected.')),
+      data: data => this.#receive(data),
+      error: error => this.#fail(error),
+    });
   }
 
   static async connect(options: {
     readonly autoUnref: boolean;
     readonly callTimeoutMs: number;
-    readonly socket: Socket;
+    readonly maxFrameBytes?: number;
     readonly timeoutMs: number;
-    readonly token: string;
+    readonly token?: string;
+    readonly transport: RpcTransport;
   }): Promise<RpcClient> {
     const client = new RpcClient(
-      options.socket,
+      options.transport,
       options.token,
       options.callTimeoutMs,
       options.autoUnref,
+      options.maxFrameBytes ?? MAX_LOCAL_RPC_FRAME_BYTES,
     );
     try {
       await withTimeout(client.#hello, options.timeoutMs, 'Python worker handshake timed out.');
@@ -95,7 +104,7 @@ export class RpcClient {
       client.forceClose(error instanceof Error ? error : new Error(String(error)));
       throw error;
     }
-    if (options.autoUnref) options.socket.unref();
+    if (options.autoUnref) options.transport.unref();
     return client;
   }
 
@@ -114,7 +123,7 @@ export class RpcClient {
   ): Promise<unknown> {
     if (this.#closed) return Promise.reject(new VenvClosedError());
     const id = this.#nextRequestId++;
-    if (this.#autoUnref) this.#socket.ref();
+    if (this.#autoUnref) this.#transport.ref();
     const promise = new Promise<unknown>((resolve, reject) => {
       const timer = this.#callTimeoutMs > 0
         ? setTimeout(() => {
@@ -188,8 +197,8 @@ export class RpcClient {
       // The owning Venv terminates an unresponsive child after this transport closes.
     }
     this.#closed = true;
-    this.#socket.end();
-    this.#socket.destroy();
+    this.#transport.close();
+    this.#transport.destroy();
     this.#callbacks.clear();
     this.#fail(new VenvClosedError());
   }
@@ -197,27 +206,17 @@ export class RpcClient {
   forceClose(error = new VenvClosedError()): void {
     if (this.#closed) return;
     this.#closed = true;
-    this.#socket.destroy();
+    this.#transport.destroy();
     this.#fail(error);
   }
 
-  #receive(data: Buffer): void {
-    this.#buffer = this.#buffer.length === 0 ? data : Buffer.concat([this.#buffer, data]);
-    while (this.#buffer.length >= 4) {
-      const length = this.#buffer.readUInt32BE(0);
-      if (length > MAX_FRAME_BYTES) {
-        this.#fail(new Error(`Python worker sent an oversized ${length}-byte frame.`));
-        return;
+  #receive(data: Uint8Array): void {
+    try {
+      for (const frame of this.#frames.push(data)) {
+        this.#handleMessage(decodeRpcFrame(frame));
       }
-      if (this.#buffer.length < length + 4) return;
-      const payload = this.#buffer.subarray(4, length + 4);
-      this.#buffer = this.#buffer.subarray(length + 4);
-      try {
-        this.#handleMessage(decode(payload, { useBigInt64: true }));
-      } catch (error) {
-        this.#fail(error instanceof Error ? error : new Error(String(error)));
-        return;
-      }
+    } catch (error) {
+      this.#fail(error instanceof Error ? error : new Error(String(error)));
     }
   }
 
@@ -247,7 +246,8 @@ export class RpcClient {
     if (this.#helloSettled) throw new Error('Python worker sent more than one handshake.');
     this.#helloSettled = true;
     if (
-      message['protocol'] !== PROTOCOL_VERSION || message['token'] !== this.#token ||
+      message['protocol'] !== PROTOCOL_VERSION ||
+      (this.#token !== undefined && message['token'] !== this.#token) ||
       typeof message['pid'] !== 'number' || !Number.isInteger(message['pid']) || message['pid'] <= 0
     ) {
       const error = new Error('Python worker handshake validation failed.');
@@ -280,7 +280,7 @@ export class RpcClient {
       throw new TypeError('Python callback request is malformed.');
     }
     const callback = this.#callbacks.get(callbackId)?.callback;
-    this.#socket.ref();
+    this.#transport.ref();
     try {
       if (!callback) throw new Error(`JavaScript callback ${callbackId} is unavailable.`);
       const argsValue = this.#decodeValue(message['args']);
@@ -452,16 +452,7 @@ export class RpcClient {
 
   async #send(message: Readonly<Record<string, unknown>>): Promise<void> {
     if (this.#closed) throw new VenvClosedError();
-    const payload = Buffer.from(encode(message, { useBigInt64: true }));
-    if (payload.length > MAX_FRAME_BYTES) {
-      throw new RangeError(`RPC frame exceeds ${MAX_FRAME_BYTES} bytes.`);
-    }
-    const frame = Buffer.allocUnsafe(payload.length + 4);
-    frame.writeUInt32BE(payload.length, 0);
-    payload.copy(frame, 4);
-    await new Promise<void>((resolve, reject) => {
-      this.#socket.write(frame, error => error ? reject(error) : resolve());
-    });
+    await this.#transport.send(encodeRpcFrame(message, this.#frames.maxFrameBytes));
   }
 
   #rejectPending(id: number, error: unknown): void {
@@ -499,17 +490,13 @@ export class RpcClient {
       pending.reject(failure);
     }
     this.#callbacks.clear();
-    this.#buffer = Buffer.alloc(0);
-    if (!this.#socket.destroyed) this.#socket.destroy();
+    this.#frames.reset();
+    if (!this.#transport.closed) this.#transport.destroy();
   }
 
   #unrefWhenIdle(): void {
-    if (this.#autoUnref && this.#pending.size === 0 && !this.#closed) this.#socket.unref();
+    if (this.#autoUnref && this.#pending.size === 0 && !this.#closed) this.#transport.unref();
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function normalizeRemoteError(value: unknown): RemotePythonError {

@@ -1,6 +1,6 @@
 {
   "name": "pynect",
-  "description": "Lazy uv-backed Python environments with object proxies for Node.js and Bun.",
+  "description": "Local IPC and remote WebSocket object proxies for Python, Node.js, Bun, and browsers.",
   "repository": {
     "type": "git",
     "url": "https://github.com/regbo/lfp-js.git",
@@ -35,6 +35,7 @@
   "devDependencies": {
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
+    "json-schema-to-typescript": "catalog:",
     "typescript": "catalog:"
   },
   "dependencies": {
@@ -53,7 +54,8 @@
     "pydantic",
     "python",
     "typescript",
-    "uv"
+    "uv",
+    "websocket"
   ],
   "engines": {
     "node": "^22.11.0 || >=24.10.0 <=26.x",
@@ -83,6 +85,16 @@
       "types": "./dist/js/types/index.d.ts",
       "import": "./dist/js/types/index.js",
       "require": "./dist/js/types/index.js"
+    },
+    "./websocket": {
+      "types": "./dist/js/websocket.d.ts",
+      "import": "./dist/js/websocket.js",
+      "require": "./dist/js/websocket.js"
+    },
+    "./schema": {
+      "types": "./dist/js/schema.d.ts",
+      "import": "./dist/js/schema.js",
+      "require": "./dist/js/schema.js"
     },
     "./metadata": {
       "types": "./dist/js/_generated/metadata.d.ts",

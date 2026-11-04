@@ -7,6 +7,7 @@ import {
   TextFile,
   github,
   javascript,
+  python,
   typescript,
 } from 'projen';
 
@@ -61,6 +62,7 @@ const CATALOG = {
   'fflate': '^0.8.3',
   'fireargs': '^0.6.2',
   'fs-ext': '^2.1.1',
+  'json-schema-to-typescript': '^16.0.0',
   'ohash': '^2.0.12',
   'pacwich': '^0.7.3',
   'proper-lockfile': '^4.1.2',
@@ -245,6 +247,96 @@ class PackageMetadata extends Component {
         this.#options.libdir,
         this.#options.requirePath,
       ),
+    });
+  }
+}
+
+/** Synthesize the Python distribution that shares Pynect's package directory. */
+class PynectPythonPackage extends Component {
+  constructor(project: typescript.TypeScriptProject) {
+    super(project);
+
+    new python.PyprojectTomlFile(project, {
+      project: {
+        name: 'pynect-worker',
+        version: VERSION,
+        description: 'Python worker and WebSocket server for Pynect',
+        readme: 'README.md',
+        requiresPython: '>=3.11',
+        license: 'MIT',
+        authors: [{ name: 'Reggie Bowser and NodePyX contributors' }],
+        classifiers: [
+          'Development Status :: 4 - Beta',
+          'Environment :: Console',
+          'Programming Language :: Python :: 3',
+          'Programming Language :: Python :: 3.11',
+          'Programming Language :: Python :: 3.12',
+          'Programming Language :: Python :: 3.13',
+          'Programming Language :: Python :: 3.14',
+          'Typing :: Typed',
+        ],
+        urls: {
+          Homepage: `${GITHUB_URL}/tree/main/packages/pynect#readme`,
+          Repository: REPOSITORY,
+          Issues: BUGS_URL,
+        },
+        dependencies: [
+          'cyclopts>=5.3,<6',
+          'msgpack>=1.1,<2',
+          'pydantic>=2.12,<3',
+        ],
+        optionalDependencies: {
+          server: ['websockets>=17,<18'],
+        },
+        scripts: {
+          'pynect-worker': 'pynect_worker.cli:main',
+          'pynect-server': 'pynect_worker.cli:server_main',
+        },
+      },
+      dependencyGroups: {
+        dev: [
+          'pytest>=9,<10',
+          'ruff>=0.17,<1',
+          'websockets>=17,<18',
+        ],
+      },
+      buildSystem: {
+        requires: ['uv_build>=0.10.7,<0.11'],
+        buildBackend: 'uv_build',
+      },
+      tool: {
+        uv: {
+          'build-backend': {
+            'module-name': 'pynect_worker',
+            'module-root': 'src/py',
+          },
+        },
+        pytest: {
+          ini_options: { testpaths: ['tests/py'] },
+        },
+        ruff: {
+          exclude: ['src/py/pynect_worker/_generated'],
+          'line-length': 120,
+          'target-version': 'py311',
+          src: ['src/py', 'tests/py'],
+          lint: { select: ['E', 'F', 'I', 'UP', 'B', 'SIM'] },
+        },
+      },
+    });
+
+    new TextFile(project, 'src/py/pynect_worker/_generated/__init__.py', {
+      committed: true,
+      readonly: true,
+      lines: ['"""Generated package metadata."""'],
+    });
+    new TextFile(project, 'src/py/pynect_worker/_generated/metadata.py', {
+      committed: true,
+      readonly: true,
+      lines: [
+        '"""Package identity synthesized from the shared Projen configuration."""',
+        `PACKAGE_NAME = ${JSON.stringify('pynect-worker')}`,
+        `PACKAGE_VERSION = ${JSON.stringify(VERSION)}`,
+      ],
     });
   }
 }
@@ -547,8 +639,8 @@ pyfig.addScripts({ pyfig: 'bun ./src/cli.ts' });
 
 const pynect = workspace({
   name: 'pynect',
-  description: 'Lazy uv-backed Python environments with object proxies for Node.js and Bun.',
-  srcdir: 'src',
+  description: 'Local IPC and remote WebSocket object proxies for Python, Node.js, Bun, and browsers.',
+  srcdir: 'src/js',
   libdir: 'dist/js',
   authorName: 'Reggie Bowser and NodePyX contributors',
   tsconfig: {
@@ -566,7 +658,18 @@ const pynect = workspace({
     'smol-toml@catalog:',
     'zod@catalog:',
   ],
-  keywords: ['python', 'nodejs', 'bun', 'typescript', 'pydantic', 'uv', 'ipc', 'named-pipe'],
+  devDeps: ['json-schema-to-typescript@catalog:'],
+  keywords: [
+    'python',
+    'nodejs',
+    'bun',
+    'typescript',
+    'pydantic',
+    'uv',
+    'ipc',
+    'named-pipe',
+    'websocket',
+  ],
 });
 pynect.addFields({
   main: 'dist/js/index.js',
@@ -583,6 +686,16 @@ pynect.addFields({
       import: './dist/js/types/index.js',
       require: './dist/js/types/index.js',
     },
+    './websocket': {
+      types: './dist/js/websocket.d.ts',
+      import: './dist/js/websocket.js',
+      require: './dist/js/websocket.js',
+    },
+    './schema': {
+      types: './dist/js/schema.d.ts',
+      import: './dist/js/schema.js',
+      require: './dist/js/schema.js',
+    },
   },
   files: ['dist/', 'README.md', 'SECURITY.md', 'LICENSE'],
   engines: {
@@ -590,22 +703,35 @@ pynect.addFields({
     bun: '>=1.2.0',
   },
 });
+new PynectPythonPackage(pynect);
+for (const artifact of [
+  'src/js/_generated/pynect.schema.json',
+  'src/js/_generated/protocol.ts',
+  'src/js/_generated/schema-types.ts',
+  'src/js/_generated/schema.ts',
+] as const) {
+  pynect.addGitIgnore(`!/${artifact}`);
+  pynect.gitattributes.addAttributes(`/${artifact}`, 'linguist-generated');
+}
 pynect.compileTask.reset();
-pynect.compileTask.execArgs(['bun', 'scripts/build-typescript.js']);
+pynect.compileTask.execArgs(['bun', 'src/js/generate-schema.ts']);
+pynect.compileTask.execArgs(['bun', 'src/js/build.js']);
 configureTestsAndTypecheck(pynect, [
   ['tsc', '--noEmit', '-p', 'tsconfig.json'],
   ['tsc', '--noEmit', '-p', 'tests/tsconfig.json'],
-  ['uv', 'run', '--locked', 'ruff', 'check', 'scripts'],
-  ['uv', 'run', '--locked', 'ruff', 'format', '--check', 'scripts'],
+  ['bun', 'src/js/generate-schema.ts', '--check'],
+  ['uv', 'run', '--locked', 'ruff', 'check', 'src/py', 'tests/py'],
+  ['uv', 'run', '--locked', 'ruff', 'format', '--check', 'src/py', 'tests/py'],
 ]);
+pynect.testTask.execArgs(['uv', 'run', '--locked', 'pytest']);
 pynect.addTask('check:python', {
-  execArgs: ['uv', 'run', '--locked', 'ruff', 'check', 'scripts'],
+  execArgs: ['uv', 'run', '--locked', 'ruff', 'check', 'src/py', 'tests/py'],
 });
 pynect.addTask('format:python', {
-  execArgs: ['uv', 'run', '--locked', 'ruff', 'format', 'scripts'],
+  execArgs: ['uv', 'run', '--locked', 'ruff', 'format', 'src/py', 'tests/py'],
 });
 pynect.addTask('format:python:check', {
-  execArgs: ['uv', 'run', '--locked', 'ruff', 'format', '--check', 'scripts'],
+  execArgs: ['uv', 'run', '--locked', 'ruff', 'format', '--check', 'src/py', 'tests/py'],
 });
 pynect.addTask('test:smoke', {
   description: 'Run opt-in Pynect I/O and startup smoke benchmarks.',
@@ -683,7 +809,7 @@ new TextFile(root, 'README.md', {
     '| [`loqkit`](packages/loqkit) | Typed memoization and layered locks. |',
     '| [`optionkit`](packages/optionkit) | Zod-backed CLI configuration. |',
     '| [`pyfig`](packages/pyfig) | uv bootstrap and Python execution. |',
-    '| [`pynect`](packages/pynect) | Lazy Python environments and object proxies. |',
+    '| [`pynect`](packages/pynect) | Local and remote Python object proxies plus the `pynect-worker` Python distribution. |',
     '',
     'All packages use the version declared in `.projenrc.ts`, external versions come from its Bun catalog, and sibling packages use `workspace:*`.',
     'Every workspace publishes its generated `PACKAGE_NAME` and `PACKAGE_VERSION` constants from the `./metadata` subpath.',
@@ -699,6 +825,7 @@ new TextFile(root, 'docs/llm/UTILITIES.md', {
     '- `scripts/process.ts`: shell-free child-process execution shared by release tooling.',
     '- `ReadonlyGeneratedFiles`: Projen mixin that makes every synthesized file read-only across the project tree.',
     '- `PackageMetadata`: emits tracked, read-only `_generated/metadata.ts` modules and merges public `./metadata` package exports.',
+    '- `PynectPythonPackage`: synthesizes the shared uv/uv_build Python distribution and read-only Python metadata.',
     '- `scripts/workspaces.ts`: Pacwich-backed workspace discovery and shared-version validation.',
     '- `scripts/release-lib.ts`: pure SemVer, tag, GitHub remote, and identity helpers.',
     '- `scripts/release.ts`: local fixed-version release transaction.',

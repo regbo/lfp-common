@@ -13,8 +13,10 @@ import {
 import {
   ROOT,
   WORKSPACES,
+  generatedPackageVersionPaths,
   readManifest,
   sharedVersion,
+  workspacePath,
 } from './workspaces.ts';
 
 const args = new Set(process.argv.slice(2));
@@ -29,14 +31,16 @@ const dryRun = args.has('--dry-run');
 const initial = args.has('--initial');
 const remote = 'origin';
 const releaseBranch = 'main';
+const generatedVersionFiles = (await Promise.all(WORKSPACES.map(async workspace =>
+  (await generatedPackageVersionPaths(workspacePath(workspace)))
+    .map(file => `${workspace.path}/${file}`)
+))).flat();
 const versionFiles = [
   '.projenrc.ts',
   'package.json',
   'bun.lock',
-  ...WORKSPACES.flatMap(workspace => [
-    `${workspace.path}/package.json`,
-    `${workspace.path}/src/_generated/metadata.ts`,
-  ]),
+  ...WORKSPACES.map(workspace => `${workspace.path}/package.json`),
+  ...generatedVersionFiles,
 ] as const;
 const snapshots = new Map<string, { readonly content: Buffer; readonly mode: number }>();
 for (const filename of versionFiles) {

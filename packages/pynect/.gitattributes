@@ -10,6 +10,13 @@
 /bun.lockb linguist-generated
 /LICENSE linguist-generated
 /package.json linguist-generated
-/src/_generated/metadata.ts linguist-generated
+/pyproject.toml linguist-generated
+/src/js/_generated/metadata.ts linguist-generated
+/src/js/_generated/protocol.ts linguist-generated
+/src/js/_generated/pynect.schema.json linguist-generated
+/src/js/_generated/schema-types.ts linguist-generated
+/src/js/_generated/schema.ts linguist-generated
+/src/py/pynect_worker/_generated/__init__.py linguist-generated
+/src/py/pynect_worker/_generated/metadata.py linguist-generated
 /tests/tsconfig.json linguist-generated linguist-language=JSON-with-Comments
 /tsconfig.json linguist-generated linguist-language=JSON-with-Comments

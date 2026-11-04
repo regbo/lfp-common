@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import contextlib
 import dataclasses
 import datetime as dt
 import enum
@@ -9,56 +10,18 @@ import importlib
 import importlib.util
 import inspect
 import os
-import socket
 import sys
 import threading
-import time
 import traceback
 import weakref
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, get_type_hints
 
-import msgpack
+from .connection import FramedConnection, RpcConnection
+from .models import PROTOCOL_VERSION, MessageKind, Operation, WireValueType
 
-PROTOCOL_VERSION = 2
-MAX_FRAME_BYTES = 256 * 1024 * 1024
 WIRE_TYPE = "__pynect_wire_type__"
-
-
-class MessageKind(str, enum.Enum):
-    CALLBACK = "callback"
-    CALLBACK_RELEASE = "callback_release"
-    CALLBACK_RESULT = "callback_result"
-    HELLO = "hello"
-    NOTIFY = "notify"
-    REQUEST = "request"
-    RESPONSE = "response"
-
-
-class Operation(str, enum.Enum):
-    CALL = "call"
-    DIR = "dir"
-    GET = "get"
-    IMPORT = "import"
-    ITER = "iter"
-    NEXT = "next"
-    RELEASE = "release"
-    REPR = "repr"
-    SET = "set"
-    SHUTDOWN = "shutdown"
-    VALUE = "value"
-
-
-class WireValueType(str, enum.Enum):
-    CALLBACK = "callback"
-    DATE = "date"
-    DATETIME = "datetime"
-    MAP = "map"
-    REFERENCE = "reference"
-    SET = "set"
-    TIME = "time"
-    UNDEFINED = "undefined"
 
 
 class JavaScriptError(RuntimeError):
@@ -83,9 +46,7 @@ class ObjectRegistry:
             try:
                 return self._objects[object_id]
             except KeyError as error:
-                raise ReferenceError(
-                    f"Python object #{object_id} has been released"
-                ) from error
+                raise ReferenceError(f"Python object #{object_id} has been released") from error
 
     def release(self, object_id: int) -> None:
         with self._lock:
@@ -98,21 +59,34 @@ class ObjectRegistry:
 
 class AsyncRuntime:
     def __init__(self) -> None:
-        self._loop = asyncio.new_event_loop()
-        self._ready = threading.Event()
-        self._thread = threading.Thread(
-            target=self._run,
-            name="pynect-asyncio",
-            daemon=True,
-        )
-        self._thread.start()
-        if not self._ready.wait(timeout=5):
-            raise RuntimeError("Could not start the Python asyncio runtime")
+        self._lock = threading.Lock()
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._thread: threading.Thread | None = None
+        self._closed = False
 
     def _run(self) -> None:
-        asyncio.set_event_loop(self._loop)
-        self._ready.set()
-        self._loop.run_forever()
+        loop = self._loop
+        if loop is None:
+            return
+        asyncio.set_event_loop(loop)
+        loop.run_forever()
+
+    def _ensure_started(self) -> asyncio.AbstractEventLoop:
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("The Pynect asyncio runtime is closed")
+            if self._loop is not None:
+                return self._loop
+            loop = asyncio.new_event_loop()
+            self._loop = loop
+            thread = threading.Thread(
+                target=self._run,
+                name="pynect-asyncio",
+                daemon=True,
+            )
+            self._thread = thread
+            thread.start()
+            return loop
 
     def resolve(self, value: Any) -> Any:
         if not inspect.isawaitable(value):
@@ -121,13 +95,39 @@ class AsyncRuntime:
         async def await_value() -> Any:
             return await value
 
-        return asyncio.run_coroutine_threadsafe(await_value(), self._loop).result()
+        return asyncio.run_coroutine_threadsafe(
+            await_value(),
+            self._ensure_started(),
+        ).result()
 
     def close(self) -> None:
-        self._loop.call_soon_threadsafe(self._loop.stop)
-        self._thread.join(timeout=2)
-        if not self._loop.is_closed():
-            self._loop.close()
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            loop = self._loop
+            thread = self._thread
+            self._loop = None
+            self._thread = None
+        if loop is None:
+            return
+        with contextlib.suppress(Exception):
+            asyncio.run_coroutine_threadsafe(self._cancel_pending(), loop).result(timeout=2)
+        loop.call_soon_threadsafe(loop.stop)
+        if thread is not None:
+            thread.join(timeout=2)
+        if not loop.is_closed():
+            loop.close()
+
+    @staticmethod
+    async def _cancel_pending() -> None:
+        current = asyncio.current_task()
+        tasks = [task for task in asyncio.all_tasks() if task is not current]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        await asyncio.get_running_loop().shutdown_asyncgens()
 
 
 class PydanticValidator:
@@ -164,13 +164,9 @@ class PydanticValidator:
             if annotation is inspect.Parameter.empty:
                 continue
             if parameter.kind is inspect.Parameter.VAR_POSITIONAL:
-                bound.arguments[name] = tuple(
-                    self._validate(annotation, item) for item in value
-                )
+                bound.arguments[name] = tuple(self._validate(annotation, item) for item in value)
             elif parameter.kind is inspect.Parameter.VAR_KEYWORD:
-                bound.arguments[name] = {
-                    key: self._validate(annotation, item) for key, item in value.items()
-                }
+                bound.arguments[name] = {key: self._validate(annotation, item) for key, item in value.items()}
             else:
                 bound.arguments[name] = self._validate(annotation, value)
         return list(bound.args), dict(bound.kwargs)
@@ -181,131 +177,6 @@ class PydanticValidator:
             return type_adapter(annotation).validate_python(value)
         parse_obj_as = getattr(self._pydantic, "parse_obj_as", None)
         return parse_obj_as(annotation, value) if parse_obj_as else value
-
-
-class FramedConnection:
-    def __init__(self, endpoint: str) -> None:
-        self._write_lock = threading.Lock()
-        self._socket: socket.socket | None = None
-        self._pipe_handle: int | None = None
-        if os.name == "nt":
-            self._pipe_handle = self._open_windows_pipe(endpoint)
-        else:
-            connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            connection.connect(endpoint)
-            self._socket = connection
-
-    @staticmethod
-    def _open_windows_pipe(endpoint: str) -> int:
-        import _winapi
-
-        deadline = time.monotonic() + 10
-        while True:
-            try:
-                _winapi.WaitNamedPipe(endpoint, 1000)
-                return _winapi.CreateFile(
-                    endpoint,
-                    _winapi.GENERIC_READ | _winapi.GENERIC_WRITE,
-                    0,
-                    _winapi.NULL,
-                    _winapi.OPEN_EXISTING,
-                    _winapi.FILE_FLAG_OVERLAPPED,
-                    _winapi.NULL,
-                )
-            except OSError as error:
-                if time.monotonic() >= deadline:
-                    raise
-                if error.winerror not in {
-                    _winapi.ERROR_PIPE_BUSY,
-                    _winapi.ERROR_SEM_TIMEOUT,
-                }:
-                    raise
-                time.sleep(0.025)
-
-    def read(self) -> dict[str, Any] | None:
-        header = self._read_exact(4)
-        if header is None:
-            return None
-        length = int.from_bytes(header, "big")
-        if length > MAX_FRAME_BYTES:
-            raise ValueError(f"RPC frame exceeds {MAX_FRAME_BYTES} bytes")
-        payload = self._read_exact(length)
-        if payload is None:
-            raise EOFError("IPC connection closed inside a frame")
-        value = msgpack.unpackb(payload, raw=False, strict_map_key=False)
-        if not isinstance(value, dict):
-            raise TypeError("RPC message must be a map")
-        return value
-
-    def write(self, message: dict[str, Any]) -> None:
-        payload = msgpack.packb(message, use_bin_type=True)
-        if len(payload) > MAX_FRAME_BYTES:
-            raise ValueError(f"RPC frame exceeds {MAX_FRAME_BYTES} bytes")
-        frame = len(payload).to_bytes(4, "big") + payload
-        with self._write_lock:
-            if self._pipe_handle is not None:
-                self._write_windows(frame)
-                return
-            if self._socket is not None:
-                self._socket.sendall(frame)
-                return
-            raise EOFError("IPC connection is closed")
-
-    def _read_exact(self, length: int) -> bytes | None:
-        chunks: list[bytes] = []
-        remaining = length
-        while remaining:
-            chunk = (
-                self._socket.recv(remaining)
-                if self._socket is not None
-                else self._read_windows(remaining)
-            )
-            if not chunk:
-                if not chunks:
-                    return None
-                raise EOFError("IPC connection closed during read")
-            chunks.append(bytes(chunk))
-            remaining -= len(chunk)
-        return b"".join(chunks)
-
-    def _read_windows(self, length: int) -> bytes:
-        import _winapi
-
-        try:
-            overlapped, _ = _winapi.ReadFile(
-                self._pipe_handle,
-                length,
-                overlapped=True,
-            )
-            overlapped.GetOverlappedResult(True)
-            return bytes(overlapped.getbuffer())
-        except OSError as error:
-            if error.winerror == _winapi.ERROR_BROKEN_PIPE:
-                return b""
-            raise
-
-    def _write_windows(self, value: bytes) -> None:
-        import _winapi
-
-        overlapped, _ = _winapi.WriteFile(
-            self._pipe_handle,
-            value,
-            overlapped=True,
-        )
-        written, error = overlapped.GetOverlappedResult(True)
-        if error:
-            raise OSError(error, "Windows named pipe write failed")
-        if written != len(value):
-            raise EOFError("Windows named pipe closed during write")
-
-    def close(self) -> None:
-        if self._socket is not None:
-            self._socket.close()
-        if self._pipe_handle is not None:
-            import _winapi
-
-            _winapi.CloseHandle(self._pipe_handle)
-            self._pipe_handle = None
 
 
 @dataclasses.dataclass
@@ -331,12 +202,15 @@ class JavaScriptCallback:
 class Bridge:
     def __init__(
         self,
-        connection: FramedConnection,
-        token: str,
+        connection: RpcConnection,
+        token: str | None,
         validate_pydantic: bool,
+        modules: Mapping[str, str] | None = None,
+        executor: concurrent.futures.Executor | None = None,
     ) -> None:
         self.connection = connection
         self.token = token
+        self.modules = None if modules is None else dict(modules)
         self.registry = ObjectRegistry()
         self.async_runtime = AsyncRuntime()
         self.validator = PydanticValidator(validate_pydantic)
@@ -344,21 +218,21 @@ class Bridge:
         self._callback_lock = threading.Lock()
         self._next_callback_id = 1
         self._pending_callbacks: dict[int, PendingCallback] = {}
-        worker_count = min(32, (os.cpu_count() or 1) + 4)
-        self._executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=worker_count,
-            thread_name_prefix="pynect-call",
+        self._owns_executor = executor is None
+        worker_count = min(8, (os.cpu_count() or 1) + 4)
+        self._executor = executor or concurrent.futures.ThreadPoolExecutor(
+            max_workers=worker_count, thread_name_prefix="pynect-call"
         )
 
     def run(self) -> None:
-        self.connection.write(
-            {
-                "kind": MessageKind.HELLO.value,
-                "pid": os.getpid(),
-                "protocol": PROTOCOL_VERSION,
-                "token": self.token,
-            }
-        )
+        hello: dict[str, Any] = {
+            "kind": MessageKind.HELLO.value,
+            "pid": os.getpid(),
+            "protocol": PROTOCOL_VERSION,
+        }
+        if self.token is not None:
+            hello["token"] = self.token
+        self.connection.write(hello)
         try:
             while not self._stopped.is_set():
                 message = self.connection.read()
@@ -379,7 +253,8 @@ class Bridge:
                     },
                 }
                 callback.event.set()
-            self._executor.shutdown(wait=False, cancel_futures=True)
+            if self._owns_executor:
+                self._executor.shutdown(wait=False, cancel_futures=True)
             self.async_runtime.close()
             self.registry.clear()
             self.connection.close()
@@ -407,9 +282,7 @@ class Bridge:
 
     def _handle_request(self, message: dict[str, Any]) -> None:
         request_id = message.get("id")
-        expects_response = (
-            parse_message_kind(message.get("kind")) is MessageKind.REQUEST
-        )
+        expects_response = parse_message_kind(message.get("kind")) is MessageKind.REQUEST
         try:
             payload = decode_wire(message.get("payload", {}), self)
             if not isinstance(payload, dict):
@@ -442,7 +315,17 @@ class Bridge:
 
     def _operate(self, operation: Operation, payload: dict[str, Any]) -> Any:
         if operation is Operation.IMPORT:
-            return import_python_module(str(payload["name"]))
+            public_name = str(payload["name"])
+            if self.modules is None:
+                module_name = public_name
+            else:
+                try:
+                    module_name = self.modules[public_name]
+                except KeyError as error:
+                    raise PermissionError(
+                        f'Python module "{public_name}" is not exposed by this Pynect server.'
+                    ) from error
+            return import_python_module(module_name)
         target = self.registry.get(int(payload["target"]))
         path = [str(part) for part in payload.get("path", [])]
         value = resolve_path(target, path)
@@ -466,10 +349,7 @@ class Bridge:
             return iterator
         if operation is Operation.NEXT:
             try:
-                if hasattr(value, "__anext__"):
-                    item = self.async_runtime.resolve(value.__anext__())
-                else:
-                    item = next(value)
+                item = self.async_runtime.resolve(value.__anext__()) if hasattr(value, "__anext__") else next(value)
                 return {"done": False, "value": item}
             except (StopIteration, StopAsyncIteration):
                 return {"done": True, "value": None}
@@ -490,15 +370,13 @@ class Bridge:
     def release_callback(self, callback_id: int) -> None:
         if self._stopped.is_set():
             return
-        try:
+        with contextlib.suppress(EOFError, OSError):
             self.connection.write(
                 {
                     "callback": callback_id,
                     "kind": MessageKind.CALLBACK_RELEASE.value,
                 }
             )
-        except (EOFError, OSError):
-            pass
 
     def invoke_callback(
         self,
@@ -559,11 +437,7 @@ def parse_operation(value: Any) -> Operation:
 
 def import_python_module(name: str) -> Any:
     candidate = Path(name)
-    if (
-        candidate.suffix == ".py"
-        or candidate.is_absolute()
-        or any(separator in name for separator in ("/", "\\"))
-    ):
+    if candidate.suffix == ".py" or candidate.is_absolute() or any(separator in name for separator in ("/", "\\")):
         source = candidate if candidate.is_absolute() else Path.cwd() / candidate
         source = source.resolve()
         module_name = f"pynect_file_{abs(hash(source))}"
@@ -615,14 +489,11 @@ def encode_wire(value: Any, bridge: Bridge, seen: set[int] | None = None) -> Any
             }
         if isinstance(value, Mapping):
             if all(isinstance(key, str) for key in value) and WIRE_TYPE not in value:
-                return {
-                    key: encode_wire(item, bridge, seen) for key, item in value.items()
-                }
+                return {key: encode_wire(item, bridge, seen) for key, item in value.items()}
             return {
                 WIRE_TYPE: WireValueType.MAP.value,
                 "value": [
-                    [encode_wire(key, bridge, seen), encode_wire(item, bridge, seen)]
-                    for key, item in value.items()
+                    [encode_wire(key, bridge, seen), encode_wire(item, bridge, seen)] for key, item in value.items()
                 ],
             }
         return python_reference(value, bridge)
@@ -665,10 +536,7 @@ def decode_wire(value: Any, bridge: Bridge) -> Any:
     if wire_type is WireValueType.SET:
         return {decode_wire(item, bridge) for item in value.get("value", [])}
     if wire_type is WireValueType.MAP:
-        return {
-            decode_wire(entry[0], bridge): decode_wire(entry[1], bridge)
-            for entry in value.get("value", [])
-        }
+        return {decode_wire(entry[0], bridge): decode_wire(entry[1], bridge) for entry in value.get("value", [])}
     raise AssertionError(f"Unhandled wire value type: {wire_type}")
 
 
@@ -697,11 +565,7 @@ def force_value(value: Any, seen: set[int] | None = None) -> Any:
         if isinstance(value, Mapping):
             return {key: force_value(item, seen) for key, item in value.items()}
         if hasattr(value, "__dict__"):
-            return {
-                key: force_value(item, seen)
-                for key, item in vars(value).items()
-                if not key.startswith("_")
-            }
+            return {key: force_value(item, seen) for key, item in vars(value).items() if not key.startswith("_")}
     finally:
         seen.remove(identity)
     raise TypeError(f"{type(value).__name__} cannot be copied by value")

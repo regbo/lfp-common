@@ -11,6 +11,11 @@
       "type": "build"
     },
     {
+      "name": "json-schema-to-typescript",
+      "version": "catalog:",
+      "type": "build"
+    },
+    {
       "name": "typescript",
       "version": "catalog:",
       "type": "build"

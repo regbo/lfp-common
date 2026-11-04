@@ -96,11 +96,10 @@ Callbacks may be asynchronous and may call back into the same Python Venv. Reque
 
 ## Pydantic
 
-`validatePydantic` defaults to `true`. When Pydantic is installed in the selected environment, Pynect binds a callable's signature and validates deserialized annotated arguments through Pydantic before invoking it. Pydantic models returned from Python are serialized with their configured Pydantic serializers.
+`validatePydantic` defaults to `true`. The packaged worker includes Pydantic, binds a callable's signature, and validates deserialized annotated arguments before invoking it. Pydantic models returned from Python are serialized with their configured serializers.
 
 ```ts
 const python = createVenv({
-  with: ['pydantic>=2,<3'],
   validatePydantic: true,
 });
 ```
@@ -246,9 +245,75 @@ Important options are:
 
 Python and uv selection options such as `python`, `uv`, and `debug` are passed to Pyfig.
 
+## WebSocket transport
+
+The separately installable `pynect-worker` Python distribution serves the same
+protocol directly. Its `server` extra installs WebSocket support, while the
+package remains compatible with Python 3.11:
+
+```sh
+uvx --from 'pynect-worker[server]' pynect-server \
+  --host 127.0.0.1 \
+  --port 8000 \
+  --path /pynect \
+  --modules.names name_generator
+```
+
+`pynect-worker serve` exposes the same command. The Python CLI is built from the
+canonical Pydantic `ServerOptions` model with Cyclopts, so its help, validation,
+JSON Schema, and JavaScript configuration use the same field definitions.
+
+The browser-compatible client entrypoint contains no Node.js, uv, or local IPC
+imports:
+
+```ts
+import { connectVenv } from 'pynect/websocket';
+
+await using python = connectVenv({
+  url: 'wss://app.example.com/pynect',
+});
+
+const names = await python.import('names');
+console.log(await names.generate_name());
+```
+
+The proxy must support WebSocket upgrades, preserve the `pynect.v2` subprotocol,
+and preserve binary messages. Keep the listener private unless an equivalent
+network boundary is provided; authentication and TLS deliberately belong to the
+proxy.
+
+One Python server process handles multiple clients. Every connection gets an
+isolated object registry and callback state, but not another Python process or
+uv environment. A WebSocket disconnect closes only that session and never
+forwards a signal. SIGINT or SIGTERM stops the server as a whole; a termination
+request received during startup is latched and replayed after the listener is
+created.
+
+Only names in the server's `modules` map can be imported. The map is empty by
+default, so a new server exposes nothing. Keys are the public names clients use
+and values are import names or Python file paths.
+
+Server options are `host`, `port`, `path`, `modules`, `maxFrameBytes`, and
+`validatePydantic`. Client options are `url`, `maxFrameBytes`,
+`startupTimeoutMs`, `callTimeoutMs`, and `autoClose`.
+
+## Python package
+
+Projen synthesizes `pyproject.toml` beside the npm manifest and uv builds both a
+wheel and source archive with `uv_build`. JavaScript sources live under
+`src/js`; Python sources live under `src/py`. The npm archive includes the exact
+worker wheel under `dist/py`, so local IPC installs that wheel into the selected
+uv environment instead of copying private scripts.
+
+The Pydantic models in `pynect_worker.models` are the source of truth for shared
+worker and server options. `src/js/generate-schema.ts` emits tracked JSON Schema,
+TypeScript interfaces, Zod adapters, and protocol constants. CI checks those
+generated files for drift. JavaScript tools can import the schemas and generated
+types from `pynect/schema`.
+
 ## Transport and lifecycle
 
-Messages are length-prefixed MessagePack frames. One connection multiplexes calls, responses, callback requests, releases, and shutdown. Windows uses overlapped named-pipe reads and writes so a blocked read does not prevent a callback response or nested call. Python stdout and stderr remain attached to the host rather than carrying protocol traffic.
+Messages are length-prefixed MessagePack frames. One connection multiplexes calls, responses, callback requests, releases, and shutdown. The WebSocket transport preserves those frames as binary messages and defaults to an 8 MiB frame limit. Windows local IPC uses overlapped named-pipe reads and writes so a blocked read does not prevent a callback response or nested call. Python stdout and stderr remain attached to the host rather than carrying protocol traffic.
 
 Remote objects, completed iterators, and JavaScript callback leases are released
 as soon as their cross-runtime ownership ends. Explicit `$release()` and

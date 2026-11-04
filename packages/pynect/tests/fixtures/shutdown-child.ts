@@ -1,4 +1,4 @@
-import { createVenv } from '../../src';
+import { createVenv } from '../../src/js';
 
 const mode = process.argv[2];
 const venv = createVenv({ project: false });
