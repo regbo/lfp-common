@@ -1,8 +1,9 @@
 import asyncio
 import json
+import os
 from typing import Any
 
-from pynect_worker.ipc import handle_connection
+from pynect_worker.ipc import handle_connection, process_is_alive, wait_for_process_exit
 
 
 def test_handle_connection_translates_lines_to_asgi_websocket() -> None:
@@ -44,3 +45,8 @@ def test_handle_connection_translates_lines_to_asgi_websocket() -> None:
         await server.wait_closed()
 
     asyncio.run(exercise())
+
+
+def test_parent_process_monitor_returns_for_missing_process() -> None:
+    assert process_is_alive(os.getpid())
+    asyncio.run(wait_for_process_exit(2_147_483_647))

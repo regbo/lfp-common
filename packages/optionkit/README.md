@@ -53,6 +53,11 @@ const program = f.program({ name: 'app' }).router({ serve, status });
 await program.parseAsync(process.argv);
 ```
 
+Optionkit disables Fireargs' buffered `--json` option by default. Opt in on a
+command with `f.command({ jsonOption: {} })` when its validated output should be
+serialized after the handler completes. Streaming commands can instead expose
+their own incremental format without an automatic trailing JSON value.
+
 ### Package version
 
 Pass the CLI package's generated version to validate it as SemVer and add

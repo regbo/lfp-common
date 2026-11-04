@@ -1,13 +1,14 @@
 import { createClient, type ClientOptions } from '@chanx-js/client';
 import {
   models,
+  type Model,
   type ModelFilters,
 } from './_generated/model-catalog/index.js';
 
 export async function listModels(
   options: ClientOptions,
   filters: ModelFilters = {},
-): Promise<void> {
+): Promise<Model[]> {
   const connection = createClient(options).connect(models);
   try {
     await connection.ready({ timeout: 5_000 });
@@ -16,16 +17,16 @@ export async function listModels(
       action: 'list_models',
       payload: filters,
     });
-    console.table(result.payload);
+    return result.payload;
   } finally {
     connection.terminate(1000, 'Example complete');
   }
 }
 
-export async function listModelsStream(
+export async function* listModelsStream(
   options: ClientOptions,
   filters: ModelFilters = {},
-): Promise<void> {
+): AsyncGenerator<Model, number> {
   const connection = createClient(options).connect(models);
   try {
     await connection.ready({ timeout: 5_000 });
@@ -38,14 +39,13 @@ export async function listModelsStream(
 
       for await (const response of responses) {
         if (response.action === 'models_complete') {
-          const suffix = response.payload === 1 ? '' : 's';
-          console.log(`Received ${response.payload} streamed model${suffix}`);
-          break;
+          return response.payload;
         }
         if (response.action === 'model') {
-          console.table([response.payload]);
+          yield response.payload;
         }
       }
+      return 0;
     } finally {
       responses.close();
     }

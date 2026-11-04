@@ -5,6 +5,11 @@ const options = {
 };
 
 console.log('Immediate list_models response');
-await listModels(options);
+console.table(await listModels(options));
 console.log('Delayed list_models_stream responses');
-await listModelsStream(options);
+let streamed = 0;
+for await (const model of listModelsStream(options)) {
+  streamed += 1;
+  console.table([model]);
+}
+console.log(`Received ${streamed} streamed models`);

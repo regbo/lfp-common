@@ -6,10 +6,14 @@ from typing import Literal
 from chanx.core.decorators import channel, ws_handler
 from chanx.fast_channels.websocket import AsyncJsonWebsocketConsumer
 from chanx.messages.base import BaseMessage
+from coolname import generate_slug
 from fastapi import FastAPI
 from pydantic import BaseModel
 
 Provider = Literal["anthropic", "openai"]
+PROVIDERS: tuple[Provider, ...] = ("anthropic", "openai")
+CONTEXT_WINDOWS = (8_192, 32_768, 128_000, 200_000, 400_000)
+MODEL_COUNT = 8
 
 
 class Model(BaseModel):
@@ -48,10 +52,21 @@ class ListModelsStreamComplete(BaseMessage):
     payload: int
 
 
-CATALOG = [
-    Model(id="claude-sonnet", provider="anthropic", context_window=200_000),
-    Model(id="gpt-5-mini", provider="openai", context_window=400_000),
-]
+def generate_catalog(count: int = MODEL_COUNT) -> list[Model]:
+    models: list[Model] = []
+    for _ in range(count):
+        provider = random.choice(PROVIDERS)
+        models.append(
+            Model(
+                id=f"{provider}-{generate_slug(3)}",
+                provider=provider,
+                context_window=random.choice(CONTEXT_WINDOWS),
+            )
+        )
+    return models
+
+
+CATALOG = generate_catalog()
 
 
 def filter_models(filters: ModelFilters) -> list[Model]:
@@ -68,7 +83,7 @@ async def generate_models(
     filters: ModelFilters,
 ) -> AsyncIterator[ListModelsStreamResponse]:
     for model in filter_models(filters):
-        await asyncio.sleep(random.uniform(0.05, 0.2))
+        await asyncio.sleep(random.uniform(0.5, 2))
         yield ListModelsStreamResponse(payload=model)
 
 

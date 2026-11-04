@@ -93,6 +93,7 @@ export async function startIpcServer(
     env: {
       PYNECT_APP: project.app,
       PYNECT_IPC_PATH: ipcPath,
+      PYNECT_PARENT_PID: String(process.pid),
       PYTHONUNBUFFERED: '1',
     },
     stdio: ['ignore', 'pipe', 'pipe'],

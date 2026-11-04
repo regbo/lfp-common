@@ -36,6 +36,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     .command({
       name: 'resolve',
       description: 'Resolve uv and the requested Python through uv.',
+      jsonOption: {},
     })
     .input(createInput())
     .output(output)

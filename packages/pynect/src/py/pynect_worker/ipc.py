@@ -1,6 +1,7 @@
 """Expose any Chanx ASGI app over newline-delimited local IPC."""
 
 import asyncio
+import ctypes
 import json
 import os
 from collections.abc import AsyncIterator
@@ -9,6 +10,10 @@ from pathlib import Path
 from typing import Any
 
 from pynect_worker._app import load_object
+
+PARENT_POLL_INTERVAL_SECONDS = 0.5
+WINDOWS_SYNCHRONIZE = 0x00100000
+WINDOWS_WAIT_TIMEOUT = 0x00000102
 
 
 async def handle_connection(
@@ -139,21 +144,63 @@ async def ipc_server(app: Any, ipc_path: str) -> AsyncIterator[str]:
         socket_path.unlink(missing_ok=True)
 
 
-async def serve(app_target: str, ipc_path: str) -> None:
+def process_is_alive(pid: int) -> bool:
+    """Return whether a process is still addressable by this user."""
+    if os.name == "nt":
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        open_process = kernel32.OpenProcess
+        open_process.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
+        open_process.restype = ctypes.c_void_p
+        wait_for_single_object = kernel32.WaitForSingleObject
+        wait_for_single_object.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+        wait_for_single_object.restype = ctypes.c_ulong
+        close_handle = kernel32.CloseHandle
+        close_handle.argtypes = [ctypes.c_void_p]
+        close_handle.restype = ctypes.c_int
+
+        handle = open_process(WINDOWS_SYNCHRONIZE, False, pid)
+        if not handle:
+            return False
+        try:
+            return wait_for_single_object(handle, 0) == WINDOWS_WAIT_TIMEOUT
+        finally:
+            close_handle(handle)
+
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+async def wait_for_process_exit(pid: int) -> None:
+    """Wait until the owning JavaScript process exits."""
+    while process_is_alive(pid):
+        await asyncio.sleep(PARENT_POLL_INTERVAL_SECONDS)
+
+
+async def serve(app_target: str, ipc_path: str, parent_pid: int | None = None) -> None:
     """Import the configured app and serve until the process is interrupted."""
     app = load_object(app_target)
     async with ipc_server(app, ipc_path) as path:
         print(f"IPC server listening at {path}", flush=True)
-        await asyncio.Event().wait()
+        if parent_pid is None:
+            await asyncio.Event().wait()
+        else:
+            await wait_for_process_exit(parent_pid)
 
 
 def main() -> None:
     """Console entry point driven by the Node launcher environment."""
     app_target = os.environ.get("PYNECT_APP")
     ipc_path = os.environ.get("PYNECT_IPC_PATH")
+    parent_pid_value = os.environ.get("PYNECT_PARENT_PID")
     if not app_target:
         raise RuntimeError("PYNECT_APP is required")
     if not ipc_path:
         raise RuntimeError("PYNECT_IPC_PATH is required")
+    parent_pid = int(parent_pid_value) if parent_pid_value else None
+    if parent_pid is not None and parent_pid <= 0:
+        raise RuntimeError("PYNECT_PARENT_PID must be a positive integer")
     with suppress(KeyboardInterrupt):
-        asyncio.run(serve(app_target, ipc_path))
+        asyncio.run(serve(app_target, ipc_path, parent_pid))

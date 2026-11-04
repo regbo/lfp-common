@@ -5,6 +5,7 @@ description = "Minimal Python-owned Chanx API consumed from TypeScript"
 requires-python = ">=3.11"
 dependencies = [
   "chanx[fast_channels]>=2.14,<3",
+  "coolname>=5,<6",
   "uvicorn[standard]>=0.40,<1",
 ]
 

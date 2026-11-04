@@ -35,7 +35,14 @@ describe('optionkit', () => {
     expect(help).toContain('-d, --debug');
     expect(help).toContain('-c, --cwd <value>');
     expect(help).toContain('-e, --env <value>');
+    expect(help).not.toContain('--json');
     expect(kit.formatError(new Error('boom'))).toContain('Error: boom');
+
+    const jsonCommand = kit.f.command({ jsonOption: {} })
+      .input(kit.z.object({}))
+      .output(kit.z.object({ ok: kit.z.boolean() }))
+      .handler(() => ({ ok: true }));
+    expect(jsonCommand.helpInformation()).toContain('--json [value]');
   });
 
   test('omits ambiguous short flags and honors field overrides', async () => {

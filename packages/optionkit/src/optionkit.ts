@@ -656,7 +656,10 @@ function createAdapter(
             passThroughOptions: true,
             ...fireargsConfiguration,
           }
-        : fireargsConfiguration);
+        : {
+            jsonOption: false,
+            ...fireargsConfiguration,
+          });
       return {
         input<Input extends ObjectSchema>(schema: Input) {
           const commandInput = passThrough

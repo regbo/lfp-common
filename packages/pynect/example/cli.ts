@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 
-import { fileURLToPath } from 'node:url';
+import type { ClientOptions } from '@chanx-js/client';
 import { createOptionKit } from 'optionkit';
-import { ensureIpcServer } from '../src/js/index.js';
 import { listModels, listModelsStream } from './client.js';
+import { startExampleIpcServer } from './ipc-server.js';
 
 export async function main(argv: string[] = process.argv): Promise<void> {
   const { f, z } = await createOptionKit({
@@ -16,18 +16,53 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     provider: z.enum(['anthropic', 'openai']).optional()
       .describe('Only return models from this provider.'),
   }).readonly();
+  const modelSchema = z.object({
+    id: z.string(),
+    provider: z.enum(['anthropic', 'openai']),
+    context_window: z.number().int().positive(),
+  }).readonly();
+  const modelsSchema = z.array(modelSchema);
   const list = f.command({
     description: 'Return all matching models in one response.',
+    jsonOption: {},
   })
     .input(filtersSchema)
-    .output(z.void())
-    .handler(filters => withIpcServer(options => listModels(options, filters)));
+    .output(modelsSchema)
+    .render(models => { console.table(models); })
+    .handler((filters, context) => withIpcServer(
+      context.json,
+      options => listModels(options, filters),
+    ));
+  let suppressBufferedStreamOutput = false;
   const stream = f.command({
     description: 'Print matching models as the delayed stream yields them.',
+    jsonOption: {},
+    configureOutput: {
+      writeOut: (value: string) => {
+        if (!suppressBufferedStreamOutput) process.stdout.write(value);
+      },
+    },
   })
     .input(filtersSchema)
-    .output(z.void())
-    .handler(filters => withIpcServer(options => listModelsStream(options, filters)));
+    .output(modelsSchema)
+    .render(models => {
+      const suffix = models.length === 1 ? '' : 's';
+      return `Received ${models.length} streamed model${suffix}`;
+    })
+    .handler((filters, context) => {
+      // Fireargs normally serializes JSON after the handler; the stream already
+      // writes validated NDJSON incrementally, so suppress only that final copy.
+      suppressBufferedStreamOutput = context.json;
+      return withIpcServer(context.json, async options => {
+        const streamed = [];
+        for await (const model of listModelsStream(options, filters)) {
+          streamed.push(model);
+          if (context.json) process.stdout.write(`${JSON.stringify(model)}\n`);
+          else console.table([model]);
+        }
+        return streamed;
+      });
+    });
   const program = f.program({
     name: 'pynect-model-catalog',
     description: 'Call the Pynect model catalog example over local IPC.',
@@ -39,13 +74,14 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   await program.parseAsync(argv);
 }
 
-async function withIpcServer(
-  run: (options: Awaited<ReturnType<typeof ensureIpcServer>>['clientOptions']) => Promise<void>,
-): Promise<void> {
-  await using server = await ensureIpcServer({
-    root: fileURLToPath(new URL('.', import.meta.url)),
+async function withIpcServer<Result>(
+  json: boolean,
+  run: (options: ClientOptions) => Promise<Result>,
+): Promise<Result> {
+  await using server = await startExampleIpcServer({
+    stdout: json ? process.stderr : process.stdout,
   });
-  await run(server.clientOptions);
+  return await run(server.clientOptions);
 }
 
 void main().catch(error => {

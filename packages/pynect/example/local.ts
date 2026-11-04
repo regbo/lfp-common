@@ -1,11 +1,13 @@
-import { fileURLToPath } from 'node:url';
-import { ensureIpcServer } from '../src/js/index.js';
 import { listModels, listModelsStream } from './client.js';
+import { startExampleIpcServer } from './ipc-server.js';
 
-await using server = await ensureIpcServer({
-  root: fileURLToPath(new URL('.', import.meta.url)),
-});
+await using server = await startExampleIpcServer();
 console.log('Immediate list_models response');
-await listModels(server.clientOptions);
+console.table(await listModels(server.clientOptions));
 console.log('Delayed list_models_stream responses');
-await listModelsStream(server.clientOptions);
+let streamed = 0;
+for await (const model of listModelsStream(server.clientOptions)) {
+  streamed += 1;
+  console.table([model]);
+}
+console.log(`Received ${streamed} streamed models`);
