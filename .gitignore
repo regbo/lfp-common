@@ -44,4 +44,5 @@ packages/*/release/
 !/README.md
 !/docs/llm/UTILITIES.md
 !/.github/workflows/publish.yml
+!/.github/workflows/publish-pypi.yml
 !/.projenrc.ts

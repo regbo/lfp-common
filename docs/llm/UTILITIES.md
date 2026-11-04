@@ -10,5 +10,6 @@
 - `scripts/release-check.ts`: tag-workflow and registry preflight.
 - Bun runs each generated `pack:release` package script across the workspace.
 - Pacwich runs each generated `publish:release` package script in workspace dependency order.
+- `.github/workflows/publish-pypi.yml`: publishes `pynect-worker` with PyPI Trusted Publishing.
 
 Project metadata, dependency versions, TypeScript configuration, tasks, and GitHub workflows belong in `.projenrc.ts`.

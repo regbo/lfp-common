@@ -832,6 +832,7 @@ new TextFile(root, 'docs/llm/UTILITIES.md', {
     '- `scripts/release-check.ts`: tag-workflow and registry preflight.',
     '- Bun runs each generated `pack:release` package script across the workspace.',
     '- Pacwich runs each generated `publish:release` package script in workspace dependency order.',
+    '- `.github/workflows/publish-pypi.yml`: publishes `pynect-worker` with PyPI Trusted Publishing.',
     '',
     'Project metadata, dependency versions, TypeScript configuration, tasks, and GitHub workflows belong in `.projenrc.ts`.',
   ],
@@ -893,11 +894,74 @@ publish.addJob('publish', {
     {
       name: 'Create GitHub release',
       env: { GH_TOKEN: '${{ github.token }}' },
-      run: 'gh release create "${{ github.ref_name }}" dist/packages/*.tgz --verify-tag --generate-notes --title "${{ github.ref_name }}"',
+      run: 'gh release create "${{ github.ref_name }}" dist/packages/*.tgz packages/pynect/dist/py/* --verify-tag --generate-notes --title "${{ github.ref_name }}"',
     },
   ],
 });
 publish.file?.addOverride('permissions', { contents: 'none' });
+
+const publishPython = new github.GithubWorkflow(githubComponent, 'Publish Python', {
+  fileName: 'publish-pypi.yml',
+  limitConcurrency: true,
+  concurrencyOptions: {
+    group: 'publish-pypi-${{ github.ref }}',
+    cancelInProgress: false,
+  },
+});
+publishPython.on({
+  push: { tags: ['v*.*.*'] },
+  workflowDispatch: {
+    inputs: {
+      tag: {
+        description: 'Release tag to publish',
+        required: true,
+        type: 'string',
+      },
+    },
+  },
+});
+publishPython.addJob('publish', {
+  name: 'Publish pynect-worker',
+  runsOn: ['ubuntu-latest'],
+  if: `github.repository == '${GITHUB_REPOSITORY}'`,
+  environment: 'pypi',
+  timeoutMinutes: 10,
+  permissions: {
+    contents: github.workflows.JobPermission.READ,
+    idToken: github.workflows.JobPermission.WRITE,
+  },
+  steps: [
+    github.WorkflowSteps.checkout({
+      with: {
+        ref: "${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}",
+      },
+    }),
+    {
+      name: 'Setup uv',
+      uses: SETUP_UV_ACTION,
+      with: { version: 'latest-known' },
+    },
+    {
+      name: 'Validate the release tag',
+      env: {
+        RELEASE_TAG: "${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}",
+      },
+      run: [
+        'project_tag="v$(uv version --project packages/pynect --short)"',
+        'test "$project_tag" = "$RELEASE_TAG" || { echo "Expected $project_tag, received $RELEASE_TAG."; exit 1; }',
+      ].join('\n'),
+    },
+    {
+      name: 'Build the Python distribution',
+      run: 'uv build --project packages/pynect --out-dir packages/pynect/dist/py --no-sources',
+    },
+    {
+      name: 'Publish the Python distribution',
+      run: 'uv publish --trusted-publishing always packages/pynect/dist/py/*',
+    },
+  ],
+});
+publishPython.file?.addOverride('permissions', { contents: 'none' });
 
 function replaceBuildDependencies(
   project: javascript.NodeProject,
