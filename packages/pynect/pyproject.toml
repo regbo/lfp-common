@@ -2,7 +2,7 @@
 
 [project]
 name = "pynect-worker"
-version = "0.8.5"
+version = "0.8.6"
 description = "Python worker and WebSocket server for Pynect"
 readme = "README.md"
 requires-python = ">=3.11"
