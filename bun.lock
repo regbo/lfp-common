@@ -17,7 +17,7 @@
     },
     "packages/loqkit": {
       "name": "loqkit",
-      "version": "0.8.6",
+      "version": "0.8.7",
       "dependencies": {
         "async-mutex": "catalog:",
         "ohash": "catalog:",
@@ -38,7 +38,7 @@
     },
     "packages/optionkit": {
       "name": "optionkit",
-      "version": "0.8.6",
+      "version": "0.8.7",
       "dependencies": {
         "@antfu/install-pkg": "catalog:",
         "semver": "catalog:",
@@ -63,7 +63,7 @@
     },
     "packages/pyfig": {
       "name": "pyfig",
-      "version": "0.8.6",
+      "version": "0.8.7",
       "bin": {
         "pyfig": "./dist/cli.js",
       },
@@ -86,7 +86,7 @@
     },
     "packages/pynect": {
       "name": "pynect",
-      "version": "0.8.6",
+      "version": "0.8.7",
       "bin": {
         "pynect": "dist/js/cli.js",
       },

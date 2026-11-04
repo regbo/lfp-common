@@ -25,7 +25,7 @@
     "watch": "projen watch",
     "projen": "projen",
     "pack:release": "bun pm pack --ignore-scripts --destination ../../dist/packages --quiet",
-    "publish:release": "npm publish ../../dist/packages/pynect-0.8.6.tgz --access public --tag latest --provenance",
+    "publish:release": "npm publish ../../dist/packages/pynect-0.8.7.tgz --access public --tag latest --provenance",
     "example:cli": "bun example/cli.ts",
     "example:generate": "bun src/js/cli.ts generate --root example",
     "example:local": "bun example/local.ts",
@@ -74,7 +74,7 @@
     "provenance": true,
     "registry": "https://registry.npmjs.org"
   },
-  "version": "0.8.6",
+  "version": "0.8.7",
   "bugs": {
     "url": "https://github.com/regbo/lfp-common/issues"
   },
