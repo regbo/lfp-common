@@ -12,15 +12,21 @@ describe('Pyfig IPC server', () => {
       forwardedProcessSignals.map(signal => [signal, process.listenerCount(signal)]),
     );
     const stdout = new PassThrough();
+    const stderr = new PassThrough();
     let output = '';
+    let errorOutput = '';
     stdout.setEncoding('utf8');
+    stderr.setEncoding('utf8');
     stdout.on('data', chunk => { output += chunk; });
+    stderr.on('data', chunk => { errorOutput += chunk; });
     const name = `pynect-integration-${process.pid}-${Date.now()}`;
     const server = await startIpcServer({
       root: path.resolve(import.meta.dir, '..'),
       app: 'tests.fixtures.catalog:app',
+      debug: true,
       name,
       stdout,
+      stderr,
       startupTimeoutMs: 30_000,
     });
 
@@ -28,7 +34,7 @@ describe('Pyfig IPC server', () => {
     expect(server.pid).toBeNumber();
     expect(server.pid && isProcessAlive(server.pid)).toBe(true);
     expect(await canConnectIpc(server.path)).toBe(true);
-    expect(output).toContain('IPC server listening at');
+    expect(errorOutput).toContain('IPC server listening at');
     expect(output).not.toContain('#IPC_SERVER_PID#');
     for (const signal of forwardedProcessSignals) {
       expect(process.listenerCount(signal)).toBe((initialSignalListeners.get(signal) ?? 0) + 1);

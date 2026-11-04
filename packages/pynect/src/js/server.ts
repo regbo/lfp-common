@@ -16,6 +16,8 @@ import { captureServerPid } from './pid-handshake.js';
 import { OwnedProcessTree } from './process-signals.js';
 import { spawnWorker } from './python-runtime.js';
 
+// The PID marker is intentional stdout protocol output. Python worker status
+// and diagnostics use logging on stderr.
 const IPC_LAUNCHER = [
   'import os',
   'from pynect_worker.ipc import main',
@@ -109,6 +111,7 @@ export async function startIpcServer(
     env: {
       PYNECT_APP: project.app,
       PYNECT_IPC_PATH: ipcPath,
+      PYNECT_LOG_LEVEL: project.debug ? 'DEBUG' : 'INFO',
       PYNECT_PARENT_PID: String(process.pid),
       PYTHONUNBUFFERED: '1',
     },

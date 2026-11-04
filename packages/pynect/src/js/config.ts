@@ -28,7 +28,7 @@ export const projectOptionsSchema = z.object({
   name: z.string().trim().min(1).optional().describe('Project and IPC name override.'),
   python: z.string().trim().min(1).optional().describe('Python request passed to Pyfig.'),
   uv: z.string().trim().min(1).optional().describe('uv executable or version constraint.'),
-  debug: z.boolean().optional().describe('Write Pyfig diagnostics to stderr.'),
+  debug: z.boolean().optional().describe('Write Pyfig and Python worker diagnostics to stderr.'),
 }).readonly();
 
 export type ProjectOptions = z.input<typeof projectOptionsSchema>;

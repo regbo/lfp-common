@@ -8,7 +8,7 @@ describe('model catalog example CLI', () => {
     const models = JSON.parse(result.stdout) as Model[];
 
     expect(result.code).toBe(0);
-    expect(result.stderr).toContain('IPC server listening at');
+    expect(result.stderr).not.toContain('IPC server listening at');
     expectValidModels(models);
     expect(result.stdout.trimEnd().endsWith('null')).toBe(false);
   }, 60_000);
@@ -19,7 +19,7 @@ describe('model catalog example CLI', () => {
       .map(line => JSON.parse(line) as Model);
 
     expect(result.code).toBe(0);
-    expect(result.stderr).toContain('IPC server listening at');
+    expect(result.stderr).not.toContain('IPC server listening at');
     expectValidModels(models);
     expect(result.msAfterFirstOutput).toBeGreaterThan(2_000);
     expect(result.stdout.trimEnd().endsWith('null')).toBe(false);
@@ -34,7 +34,7 @@ describe('model catalog example CLI', () => {
     ]);
 
     expect(result.code).toBe(0);
-    expect(result.stderr).toContain('IPC server listening at');
+    expect(result.stderr).not.toContain('IPC server listening at');
     expect(result.stdout).toBe('');
   }, 60_000);
 });

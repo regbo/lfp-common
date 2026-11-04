@@ -3,6 +3,7 @@
 import asyncio
 import ctypes
 import json
+import logging
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
@@ -10,6 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from pynect_worker._app import load_object
+
+logger = logging.getLogger(__name__)
 
 PARENT_POLL_INTERVAL_SECONDS = 0.5
 WINDOWS_SYNCHRONIZE = 0x00100000
@@ -127,21 +130,21 @@ async def ipc_server(app: Any, ipc_path: str) -> AsyncIterator[str]:
         finally:
             for server in servers:
                 server.close()
-        return
+    else:
 
-    socket_path = Path(ipc_path)
-    await remove_stale_socket(socket_path)
-    server = await asyncio.start_unix_server(
-        lambda reader, writer: handle_connection(app, reader, writer),
-        path=socket_path,
-    )
-    socket_path.chmod(0o600)
-    try:
-        yield ipc_path
-    finally:
-        server.close()
-        await server.wait_closed()
-        socket_path.unlink(missing_ok=True)
+        socket_path = Path(ipc_path)
+        await remove_stale_socket(socket_path)
+        server = await asyncio.start_unix_server(
+            lambda reader, writer: handle_connection(app, reader, writer),
+            path=socket_path,
+        )
+        socket_path.chmod(0o600)
+        try:
+            yield ipc_path
+        finally:
+            server.close()
+            await server.wait_closed()
+            socket_path.unlink(missing_ok=True)
 
 
 def process_is_alive(pid: int) -> bool:
@@ -165,12 +168,12 @@ def process_is_alive(pid: int) -> bool:
             return wait_for_single_object(handle, 0) == WINDOWS_WAIT_TIMEOUT
         finally:
             close_handle(handle)
-
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    return True
+    else:
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        return True
 
 
 async def wait_for_process_exit(pid: int) -> None:
@@ -183,7 +186,7 @@ async def serve(app_target: str, ipc_path: str, parent_pid: int | None = None) -
     """Import the configured app and serve until the process is interrupted."""
     app = load_object(app_target)
     async with ipc_server(app, ipc_path) as path:
-        print(f"IPC server listening at {path}", flush=True)
+        logger.debug("IPC server listening at %s", path)
         if parent_pid is None:
             await asyncio.Event().wait()
         else:
@@ -192,6 +195,10 @@ async def serve(app_target: str, ipc_path: str, parent_pid: int | None = None) -
 
 def main() -> None:
     """Console entry point driven by the Node launcher environment."""
+    logging.basicConfig(
+        level=os.environ.get("PYNECT_LOG_LEVEL", "INFO"),
+        format="%(message)s",
+    )
     app_target = os.environ.get("PYNECT_APP")
     ipc_path = os.environ.get("PYNECT_IPC_PATH")
     parent_pid_value = os.environ.get("PYNECT_PARENT_PID")

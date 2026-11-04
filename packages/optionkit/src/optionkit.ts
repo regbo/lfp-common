@@ -240,6 +240,7 @@ export interface OptionKit {
   formatError: (error: unknown) => string;
 }
 
+
 const REQUIRED_CLI_DEPENDENCY_SPECIFIERS = [
   `fireargs@${catalog.fireargs}`,
   `zod@${catalog.zod}`,
