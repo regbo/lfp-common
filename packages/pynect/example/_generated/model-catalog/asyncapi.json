@@ -17,6 +17,9 @@
       "title": "models",
       "description": "Read the model catalog",
       "messages": {
+        "list_models_complete": {
+          "$ref": "#/components/messages/list_models_complete"
+        },
         "list_models_request": {
           "$ref": "#/components/messages/list_models_request"
         },
@@ -27,7 +30,7 @@
     }
   },
   "operations": {
-    "list_models": {
+    "list_models_stream": {
       "action": "receive",
       "channel": {
         "$ref": "#/channels/models"
@@ -46,6 +49,9 @@
         "messages": [
           {
             "$ref": "#/channels/models/messages/list_models_response"
+          },
+          {
+            "$ref": "#/channels/models/messages/list_models_complete"
           }
         ]
       }
@@ -53,6 +59,14 @@
   },
   "components": {
     "messages": {
+      "list_models_complete": {
+        "payload": {
+          "$ref": "#/components/schemas/ListModelsComplete"
+        },
+        "correlationId": {
+          "$ref": "#/components/correlationIds/ref"
+        }
+      },
       "list_models_request": {
         "payload": {
           "$ref": "#/components/schemas/ListModelsRequest"
@@ -71,6 +85,25 @@
       }
     },
     "schemas": {
+      "ListModelsComplete": {
+        "properties": {
+          "action": {
+            "const": "models_complete",
+            "default": "models_complete",
+            "title": "Action",
+            "type": "string"
+          },
+          "payload": {
+            "title": "Payload",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "payload"
+        ],
+        "title": "ListModelsComplete",
+        "type": "object"
+      },
       "ListModelsRequest": {
         "properties": {
           "action": {
@@ -98,11 +131,7 @@
             "type": "string"
           },
           "payload": {
-            "items": {
-              "$ref": "#/components/schemas/Model"
-            },
-            "title": "Payload",
-            "type": "array"
+            "$ref": "#/components/schemas/Model"
           }
         },
         "required": [

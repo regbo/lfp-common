@@ -3,7 +3,9 @@
 This is the smallest complete Pynect project. [`server.py`](server.py) owns the
 Pydantic messages, Chanx route, validation, and implementation. Pynect exports
 that app's AsyncAPI document and generates the TypeScript client in
-`_generated/model-catalog`.
+`_generated/model-catalog`. The Python source streams matching models from an
+async iterator with a short random delay, and [`client.ts`](client.ts) consumes
+the typed replies with `for await`.
 
 Run these commands from `packages/pynect`.
 

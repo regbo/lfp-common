@@ -1,3 +1,6 @@
+import asyncio
+import random
+from collections.abc import AsyncIterator
 from typing import Literal
 
 from chanx.core.decorators import channel, ws_handler
@@ -27,7 +30,12 @@ class ListModelsRequest(BaseMessage):
 
 class ListModelsResponse(BaseMessage):
     action: Literal["models"] = "models"
-    payload: list[Model]
+    payload: Model
+
+
+class ListModelsComplete(BaseMessage):
+    action: Literal["models_complete"] = "models_complete"
+    payload: int
 
 
 CATALOG = [
@@ -36,18 +44,25 @@ CATALOG = [
 ]
 
 
+async def iter_models(filters: ModelFilters) -> AsyncIterator[Model]:
+    query = filters.query.casefold() if filters.query else None
+    for model in CATALOG:
+        if (query is None or query in model.id.casefold()) and (
+            filters.provider is None or filters.provider == model.provider
+        ):
+            await asyncio.sleep(random.uniform(0.05, 0.2))
+            yield model
+
+
 @channel(name="models", description="Read the model catalog")
 class ModelsConsumer(AsyncJsonWebsocketConsumer):
-    @ws_handler
-    async def list_models(self, message: ListModelsRequest) -> ListModelsResponse:
-        query = message.payload.query.casefold() if message.payload.query else None
-        matches = [
-            model
-            for model in CATALOG
-            if (query is None or query in model.id.casefold())
-            and (message.payload.provider is None or message.payload.provider == model.provider)
-        ]
-        return ListModelsResponse(payload=matches)
+    @ws_handler(output_type=(ListModelsResponse, ListModelsComplete))
+    async def list_models_stream(self, message: ListModelsRequest) -> None:
+        count = 0
+        async for model in iter_models(message.payload):
+            count += 1
+            await self.send_message(ListModelsResponse(payload=model))
+        await self.send_message(ListModelsComplete(payload=count))
 
 
 app = FastAPI(title="Pynect model catalog", version="1.0.0")
