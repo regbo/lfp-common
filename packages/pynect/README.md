@@ -97,6 +97,11 @@ for await (const response of greetMany(clientOptions, { name: 'Ada, Grace' })) {
 }
 ```
 
+Generated streams use Chanx request refs for correlation. Concurrent stream
+calls get independent logical connections while sharing one physical socket;
+their yielded messages, errors, and completion frames cannot end one another's
+iterators. The business payload stays unchanged.
+
 ## Generate TypeScript
 
 ```sh
@@ -150,18 +155,29 @@ options to Chanx:
 
 ```ts
 import { createClient } from '@chanx-js/client';
-import { ensureIpcServer } from 'pynect';
+import { startIpcServer } from 'pynect';
 import { greeter } from './_generated/model-catalog/index.js';
 
-await using server = await ensureIpcServer({ root: '../python' });
+await using server = await startIpcServer({ root: '../python' });
 const client = createClient(server.clientOptions);
 const connection = client.connect(greeter);
 ```
 
-`ensureIpcServer()` reuses an existing project socket or starts one owned by the
-returned resource. The launcher prints and captures the real Python PID before
-forwarding the rest of stdout, so disposal terminates Python rather than merely
-signaling the intermediate uv process.
+`startIpcServer()` always starts a worker owned by the current process. The
+launcher captures the real Python PID, and the worker watches its parent PID,
+so it exits if the parent disappears. Use `await using` for scoped cleanup or
+call `await server.close()` explicitly. Both are safe to call more than once.
+
+For a long-lived command, wait without adding signal handlers:
+
+```ts
+const server = await startIpcServer({ root: '../python' });
+await server.wait();
+```
+
+The parent process keeps its normal signal behavior; Python shuts down when
+that parent exits. `ensureIpcServer()` remains available only when deliberately
+reusing an existing endpoint is desired.
 
 Run a long-lived local server from the command line with:
 

@@ -123,17 +123,14 @@ function referenceName(reference: string | undefined, context: string): string {
 
 function renderStream(stream: StreamSpec): string[] {
   const outputType = stream.responses.map(response => response.type).join(' | ');
-  const responseCases = stream.responses.map(response => [
-    `        case '${response.action}':`,
-    '          yield response;',
-    '          break;',
-  ]).flat();
+  const firstCases = renderResponseCases(stream, 'first', '      ');
+  const responseCases = renderResponseCases(stream, 'response', '        ');
   return [
     `export async function* ${stream.functionName}(`,
     '  options: ClientOptions,',
     `  payload: ${stream.requestType}['payload'],`,
     `): AsyncGenerator<${outputType}> {`,
-    `  const connection = createClient(options).connect(${stream.channel});`,
+    `  const connection = createClient(options).connect(${stream.channel}, { share: true });`,
     '  const responses = connection.stream();',
     '  let failure: ChanxRequestError | undefined;',
     '  const stopComplete = connection.onComplete(() => { responses.close(); });',
@@ -143,7 +140,11 @@ function renderStream(stream: StreamSpec): string[] {
     '  });',
     '  try {',
     '    await connection.ready({ timeout: 5_000 });',
-    `    connection.send({ action: '${stream.requestAction}', payload });`,
+    `    const first = await connection.request({ action: '${stream.requestAction}', payload });`,
+    "    if ((first as { readonly action: string }).action === 'complete') return;",
+    '    switch (first.action) {',
+    ...firstCases,
+    '    }',
     '    for await (const response of responses) {',
     '      switch (response.action) {',
     ...responseCases,
@@ -154,9 +155,21 @@ function renderStream(stream: StreamSpec): string[] {
     '    stopComplete();',
     '    stopError();',
     '    responses.close();',
-    "    connection.terminate(1000, 'Stream complete');",
+    '    connection.close();',
     '  }',
     '}',
     '',
   ];
+}
+
+function renderResponseCases(
+  stream: StreamSpec,
+  variable: string,
+  indent: string,
+): string[] {
+  return stream.responses.map(response => [
+    `${indent}case '${response.action}':`,
+    `${indent}  yield ${variable};`,
+    `${indent}  break;`,
+  ]).flat();
 }

@@ -24,6 +24,19 @@ describe('model catalog example CLI', () => {
     expect(result.msAfterFirstOutput).toBeGreaterThan(2_000);
     expect(result.stdout.trimEnd().endsWith('null')).toBe(false);
   }, 60_000);
+
+  test('list-models-stream completes without an element payload when no models match', async () => {
+    const result = await runExampleCli([
+      'list-models-stream',
+      '--query',
+      'this-model-does-not-exist',
+      '--json',
+    ]);
+
+    expect(result.code).toBe(0);
+    expect(result.stderr).toContain('IPC server listening at');
+    expect(result.stdout).toBe('');
+  }, 60_000);
 });
 
 interface Model {

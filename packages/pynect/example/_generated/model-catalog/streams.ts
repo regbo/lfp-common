@@ -9,7 +9,7 @@ export async function* listModelsStream(
   options: ClientOptions,
   payload: ListModelsStreamRequest['payload'],
 ): AsyncGenerator<ListModelsStreamResponse> {
-  const connection = createClient(options).connect(models);
+  const connection = createClient(options).connect(models, { share: true });
   const responses = connection.stream();
   let failure: ChanxRequestError | undefined;
   const stopComplete = connection.onComplete(() => { responses.close(); });
@@ -19,7 +19,13 @@ export async function* listModelsStream(
   });
   try {
     await connection.ready({ timeout: 5_000 });
-    connection.send({ action: 'list_models_stream', payload });
+    const first = await connection.request({ action: 'list_models_stream', payload });
+    if ((first as { readonly action: string }).action === 'complete') return;
+    switch (first.action) {
+      case 'model':
+        yield first;
+        break;
+    }
     for await (const response of responses) {
       switch (response.action) {
         case 'model':
@@ -32,6 +38,6 @@ export async function* listModelsStream(
     stopComplete();
     stopError();
     responses.close();
-    connection.terminate(1000, 'Stream complete');
+    connection.close();
   }
 }

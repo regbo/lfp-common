@@ -28,7 +28,10 @@ describe('Pyfig IPC server', () => {
     expect(output).not.toContain('#IPC_SERVER_PID#');
 
     const pid = server.pid!;
-    await server.close();
+    const exited = server.wait();
+    await Promise.all([server.close(), server.close()]);
+    await exited;
+    expect(server.child?.exitCode !== null || server.child?.signalCode !== null).toBe(true);
     expect(isProcessAlive(pid)).toBe(false);
   }, 60_000);
 
@@ -42,7 +45,7 @@ describe('Pyfig IPC server', () => {
         name: 'pynect-parent-lifecycle-${process.pid}-${Date.now()}',
       });
       console.log('${marker}' + JSON.stringify({ path: server.path, pid: server.pid }));
-      await new Promise(() => {});
+      await server.wait();
     `], {
       cwd: path.resolve(import.meta.dir, '..'),
       stdio: ['ignore', 'pipe', 'pipe'],

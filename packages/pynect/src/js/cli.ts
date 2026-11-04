@@ -27,7 +27,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     .render(output => output)
     .handler(async options => {
       const server = await startIpcServer(options);
-      await waitForShutdown(server);
+      await server.wait();
       return '';
     });
   const program = f.program({
@@ -36,23 +36,6 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   }).router({ generate, serve });
 
   await program.parseAsync(argv);
-}
-
-async function waitForShutdown(server: Awaited<ReturnType<typeof startIpcServer>>): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    let closing = false;
-    const close = (): void => {
-      if (closing) return;
-      closing = true;
-      void server.close().then(resolve, reject);
-    };
-    process.once('SIGINT', close);
-    process.once('SIGTERM', close);
-    void server.exited.then(() => resolve(), reject).finally(() => {
-      process.off('SIGINT', close);
-      process.off('SIGTERM', close);
-    });
-  });
 }
 
 void main().catch(error => {

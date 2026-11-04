@@ -31,9 +31,11 @@ describe('Chanx code generation', () => {
     expect(existsSync(path.join(output, 'streams.ts'))).toBe(true);
     expect(readFileSync(path.join(output, 'channels.ts'), 'utf8')).toContain('catalog');
     expect(readFileSync(path.join(output, 'schemas.ts'), 'utf8')).toContain('PingRequest');
-    expect(readFileSync(path.join(output, 'streams.ts'), 'utf8')).toContain(
-      'export async function* watch',
-    );
+    const streams = readFileSync(path.join(output, 'streams.ts'), 'utf8');
+    expect(streams).toContain('export async function* watch');
+    expect(streams).toContain('connect(catalog, { share: true })');
+    expect(streams).toContain('await connection.request');
+    expect(streams).toContain('connection.close()');
     expect(readFileSync(path.join(output, 'index.ts'), 'utf8')).toContain(
       "export * from './streams.js';",
     );

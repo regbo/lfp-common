@@ -42,7 +42,7 @@ export class IpcServer implements AsyncDisposable {
   readonly owned: boolean;
   readonly path: string;
   readonly pid: number | undefined;
-  #closed = false;
+  #closing: Promise<void> | undefined;
 
   constructor(options: {
     child?: ChildProcess;
@@ -59,9 +59,19 @@ export class IpcServer implements AsyncDisposable {
       : Promise.resolve(null);
   }
 
-  async close(): Promise<void> {
-    if (this.#closed || !this.owned) return;
-    this.#closed = true;
+  /** Wait until the Python worker exits without installing process signal handlers. */
+  wait(): Promise<number | null> {
+    return this.exited;
+  }
+
+  /** Stop an owned worker. Concurrent calls share the same shutdown operation. */
+  close(): Promise<void> {
+    if (!this.owned) return Promise.resolve();
+    this.#closing ??= this.#closeOwnedWorker();
+    return this.#closing;
+  }
+
+  async #closeOwnedWorker(): Promise<void> {
     if (this.pid !== undefined) await terminateProcess(this.pid);
     if (this.child && this.child.exitCode === null && this.child.signalCode === null) {
       this.child.kill();
@@ -74,7 +84,7 @@ export class IpcServer implements AsyncDisposable {
   }
 }
 
-/** Start a new Python IPC server and return its Chanx client options. */
+/** Start a parent-owned Python IPC server and return its Chanx client options. */
 export async function startIpcServer(
   input: StartIpcServerOptions = {},
 ): Promise<IpcServer> {
