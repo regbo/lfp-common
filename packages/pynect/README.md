@@ -59,6 +59,11 @@ class GreetRequest(BaseMessage):
     payload: GreetPayload
 
 
+class GreetManyRequest(BaseMessage):
+    action: Literal["greet_many"] = "greet_many"
+    payload: GreetPayload
+
+
 class GreetResponse(BaseMessage):
     action: Literal["greeted"] = "greeted"
     payload: str
@@ -83,24 +88,31 @@ iterator. Application messages do not need a completion model or flag:
 ```py
 @ws_handler
 async def greet_many(
-    self, message: GreetRequest
+    self, message: GreetManyRequest
 ) -> AsyncIterator[GreetResponse]:
     for name in message.payload.name.split(","):
         yield GreetResponse(payload=f"Hello {name.strip()}")
 ```
 
 ```ts
-import { greetMany } from './_generated/model-catalog/index.js';
+import { createClient, greeter } from './_generated/model-catalog/index.js';
 
-for await (const response of greetMany(clientOptions, { name: 'Ada, Grace' })) {
+const connection = createClient(clientOptions).connect(greeter);
+const result = await connection.request({
+  action: 'greet_many',
+  payload: { name: 'Ada, Grace' },
+});
+
+for await (const response of result) {
   console.log(response.payload);
 }
 ```
 
-Generated streams use Chanx request refs for correlation. Concurrent stream
-calls get independent logical connections while sharing one physical socket;
-their yielded messages, errors, and completion frames cannot end one another's
-iterators. The business payload stays unchanged.
+The generated `createClient()` wraps Chanx with stream metadata. TypeScript
+infers normal actions as `Promise<Response>` and iterator actions as
+`AsyncIterable<Response>` through the same `connection.request()` method.
+Concurrent streams use Chanx request refs for correlation and share one
+physical socket; the business payload stays unchanged.
 
 ## Generate TypeScript
 
@@ -137,8 +149,7 @@ configured uv project. Optional `python`, `uv`, `debug`, `validation`, and
 Generated modules are standard `@chanx-js/client` descriptors:
 
 ```ts
-import { createClient } from '@chanx-js/client';
-import { greeter } from './_generated/model-catalog/index.js';
+import { createClient, greeter } from './_generated/model-catalog/index.js';
 
 const client = createClient({ baseUrl: 'wss://api.example.com' });
 const connection = client.connect(greeter);
@@ -154,9 +165,8 @@ For a local process, start the same ASGI app through Pynect and pass its client
 options to Chanx:
 
 ```ts
-import { createClient } from '@chanx-js/client';
 import { startIpcServer } from 'pynect';
-import { greeter } from './_generated/model-catalog/index.js';
+import { createClient, greeter } from './_generated/model-catalog/index.js';
 
 await using server = await startIpcServer({ root: '../python' });
 const client = createClient(server.clientOptions);

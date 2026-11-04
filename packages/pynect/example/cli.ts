@@ -1,8 +1,12 @@
 #!/usr/bin/env bun
 
-import type { ClientOptions } from '@chanx-js/client';
 import { createOptionKit } from 'optionkit';
-import { listModels, listModelsStream } from './client.js';
+import {
+  connectModelCatalog,
+  listModels,
+  listModelsStream,
+  type ModelCatalogConnection,
+} from './client.js';
 import { startExampleIpcServer } from './ipc-server.js';
 
 export async function main(argv: string[] = process.argv): Promise<void> {
@@ -31,7 +35,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     .render(models => { console.table(models); })
     .handler((filters, context) => withIpcServer(
       context.json,
-      options => listModels(options, filters),
+      connection => listModels(connection, filters),
     ));
   let suppressBufferedStreamOutput = false;
   const stream = f.command({
@@ -53,9 +57,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       // Fireargs normally serializes JSON after the handler; the stream already
       // writes validated NDJSON incrementally, so suppress only that final copy.
       suppressBufferedStreamOutput = context.json;
-      return withIpcServer(context.json, async options => {
+      return withIpcServer(context.json, async connection => {
         const streamed = [];
-        for await (const model of listModelsStream(options, filters)) {
+        for await (const model of listModelsStream(connection, filters)) {
           streamed.push(model);
           if (context.json) process.stdout.write(`${JSON.stringify(model)}\n`);
           else console.table([model]);
@@ -76,12 +80,17 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 
 async function withIpcServer<Result>(
   json: boolean,
-  run: (options: ClientOptions) => Promise<Result>,
+  run: (connection: ModelCatalogConnection) => Promise<Result>,
 ): Promise<Result> {
   await using server = await startExampleIpcServer({
     stdout: json ? process.stderr : process.stdout,
   });
-  return await run(server.clientOptions);
+  const connection = connectModelCatalog(server.clientOptions);
+  try {
+    return await run(connection);
+  } finally {
+    connection.close();
+  }
 }
 
 void main().catch(error => {

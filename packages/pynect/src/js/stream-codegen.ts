@@ -13,13 +13,8 @@ interface StreamOperation extends OperationObject {
 
 interface StreamSpec {
   readonly channel: string;
-  readonly functionName: string;
   readonly requestAction: string;
-  readonly requestType: string;
-  readonly responses: ReadonlyArray<{
-    readonly action: string;
-    readonly type: string;
-  }>;
+  readonly responseActions: readonly string[];
 }
 
 /** Emit operation-specific async iterators for Python iterator handlers. */
@@ -46,20 +41,28 @@ export function renderStreamHelpers(document: AsyncAPIDocument): string {
     '// Regenerate with: pynect generate',
     '',
   ];
-  if (streams.length === 0) return `${header.join('\n')}export {};\n`;
+  if (streams.length === 0) {
+    return `${header.join('\n')}export { createClient } from '@chanx-js/client';\n`;
+  }
 
   const channels = [...new Set(streams.map(stream => stream.channel))].sort();
-  const types = [...new Set(streams.flatMap(stream => [
-    stream.requestType,
-    ...stream.responses.map(response => response.type),
-  ]))].sort();
   const imports = [
-    "import { ChanxRequestError, createClient, type ClientOptions } from '@chanx-js/client';",
+    "import type { ClientOptions } from '@chanx-js/client';",
+    "import { createPynectClient, defineStreamActions } from 'pynect';",
     `import { ${channels.join(', ')} } from './channels.js';`,
-    `import type { ${types.join(', ')} } from './schemas.js';`,
     '',
   ];
-  return `${[...header, ...imports, ...streams.flatMap(renderStream)].join('\n').trimEnd()}\n`;
+  return `${[
+    ...header,
+    ...imports,
+    'const streamDefinitions = [',
+    ...renderStreamDefinitions(streams),
+    '] as const;',
+    '',
+    'export function createClient(options: ClientOptions = {}) {',
+    '  return createPynectClient(options, streamDefinitions);',
+    '}',
+  ].join('\n').trimEnd()}\n`;
 }
 
 function streamSpecs(document: AsyncAPIDocument): StreamSpec[] {
@@ -82,17 +85,15 @@ function streamSpecs(document: AsyncAPIDocument): StreamSpec[] {
         message.$ref,
         `stream operation ${name} reply ${index + 1}`,
       );
-      return { action: messageAction(document, type), type };
+      return messageAction(document, type);
     });
     if (responses.length === 0) {
       throw new Error(`Streaming operation ${name} must declare at least one reply message.`);
     }
     return [{
       channel: camelCase(connection.name),
-      functionName: camelCase(name),
       requestAction: messageAction(document, requestType),
-      requestType,
-      responses,
+      responseActions: responses,
     }];
   });
 }
@@ -121,55 +122,18 @@ function referenceName(reference: string | undefined, context: string): string {
   return name;
 }
 
-function renderStream(stream: StreamSpec): string[] {
-  const outputType = stream.responses.map(response => response.type).join(' | ');
-  const firstCases = renderResponseCases(stream, 'first', '      ');
-  const responseCases = renderResponseCases(stream, 'response', '        ');
-  return [
-    `export async function* ${stream.functionName}(`,
-    '  options: ClientOptions,',
-    `  payload: ${stream.requestType}['payload'],`,
-    `): AsyncGenerator<${outputType}> {`,
-    `  const connection = createClient(options).connect(${stream.channel}, { share: true });`,
-    '  const responses = connection.stream();',
-    '  let failure: ChanxRequestError | undefined;',
-    '  const stopComplete = connection.onComplete(() => { responses.close(); });',
-    '  const stopError = connection.onError(frame => {',
-    '    failure = new ChanxRequestError(frame);',
-    '    responses.close();',
-    '  });',
-    '  try {',
-    '    await connection.ready({ timeout: 5_000 });',
-    `    const first = await connection.request({ action: '${stream.requestAction}', payload });`,
-    "    if ((first as { readonly action: string }).action === 'complete') return;",
-    '    switch (first.action) {',
-    ...firstCases,
-    '    }',
-    '    for await (const response of responses) {',
-    '      switch (response.action) {',
-    ...responseCases,
-    '      }',
-    '    }',
-    '    if (failure) throw failure;',
-    '  } finally {',
-    '    stopComplete();',
-    '    stopError();',
-    '    responses.close();',
-    '    connection.close();',
-    '  }',
-    '}',
-    '',
-  ];
-}
-
-function renderResponseCases(
-  stream: StreamSpec,
-  variable: string,
-  indent: string,
-): string[] {
-  return stream.responses.map(response => [
-    `${indent}case '${response.action}':`,
-    `${indent}  yield ${variable};`,
-    `${indent}  break;`,
-  ]).flat();
+function renderStreamDefinitions(streams: readonly StreamSpec[]): string[] {
+  const byChannel = new Map<string, StreamSpec[]>();
+  for (const stream of streams) {
+    const existing = byChannel.get(stream.channel) ?? [];
+    existing.push(stream);
+    byChannel.set(stream.channel, existing);
+  }
+  return [...byChannel.entries()].flatMap(([channel, channelStreams]) => [
+    `  defineStreamActions(${channel}, {`,
+    ...channelStreams.map(stream => (
+      `    ${JSON.stringify(stream.requestAction)}: ${JSON.stringify(stream.responseActions)},`
+    )),
+    '  }),',
+  ]);
 }

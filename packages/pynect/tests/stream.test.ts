@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { ClientOptions } from '@chanx-js/client';
 import { PassThrough } from 'node:stream';
-import { listModelsStream } from '../example/client.js';
+import { connectModelCatalog, listModelsStream } from '../example/client.js';
 import { startExampleIpcServer } from '../example/ipc-server.js';
 
 describe('generated streams', () => {
@@ -19,10 +19,11 @@ describe('generated streams', () => {
       },
     };
 
+    const connection = connectModelCatalog(options);
     const [first, second] = await Promise.all([
-      collect(listModelsStream(options, { provider: 'openai' })),
-      collect(listModelsStream(options, { provider: 'anthropic' })),
-    ]);
+      collect(listModelsStream(connection, { provider: 'openai' })),
+      collect(listModelsStream(connection, { provider: 'anthropic' })),
+    ]).finally(() => { connection.close(); });
 
     expect(first.every(model => model.provider === 'openai')).toBe(true);
     expect(second.every(model => model.provider === 'anthropic')).toBe(true);
