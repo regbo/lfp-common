@@ -9,7 +9,7 @@
     "noEmit": true,
     "skipLibCheck": true,
     "paths": {
-      "pynect": ["../../../src/js/index.ts"]
+      "pynect": ["../../src/js/index.ts"]
     },
     "types": ["node"]
   },
