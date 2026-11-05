@@ -20,7 +20,7 @@
     "watch": "projen watch",
     "projen": "projen",
     "pack:release": "bun pm pack --ignore-scripts --destination ../../../dist/packages --quiet",
-    "publish:release": "npm publish ../../../dist/packages/optionkit-0.8.9.tgz --access public --tag latest --provenance"
+    "publish:release": "npm publish ../../../dist/packages/optionkit-0.8.10.tgz --access public --tag latest --provenance"
   },
   "author": {
     "name": "optionkit contributors",
@@ -62,7 +62,7 @@
     "provenance": true,
     "registry": "https://registry.npmjs.org"
   },
-  "version": "0.8.9",
+  "version": "0.8.10",
   "bugs": {
     "url": "https://github.com/regbo/lfp-common/issues"
   },
