@@ -4,7 +4,11 @@ import { rmSync } from 'node:fs';
 import { createServer, type Server } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { createIpcSocketFactory } from '../src/ipc.js';
+import {
+  createIpcSocketFactory,
+  defaultIpcPath,
+  instanceIpcPath,
+} from '../src/ipc.js';
 
 const servers: Server[] = [];
 const endpoints: string[] = [];
@@ -19,6 +23,19 @@ afterEach(async () => {
 });
 
 describe('Chanx IPC socket adapter', () => {
+  test('creates stable shared endpoints and unique owned-server endpoints', () => {
+    const name = 'pynect-endpoint-test';
+    const shared = defaultIpcPath(name);
+    const first = instanceIpcPath(name);
+    const second = instanceIpcPath(name);
+
+    expect(defaultIpcPath(name)).toBe(shared);
+    expect(first).not.toBe(shared);
+    expect(first).not.toBe(second);
+    expect(first).toContain(`${name}-${process.pid}-`);
+    expect(second).toContain(`${name}-${process.pid}-`);
+  });
+
   test('sends the WebSocket handshake and receives newline-delimited frames', async () => {
     const name = `pynect-test-${process.pid}-${randomUUID()}`;
     const endpoint = process.platform === 'win32'

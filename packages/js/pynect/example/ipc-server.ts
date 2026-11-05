@@ -1,7 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import type { Writable } from 'node:stream';
 import {
-  defaultIpcPath,
   startIpcServer,
   type IpcServer,
 } from '../src/index.js';
@@ -14,7 +13,6 @@ export function startExampleIpcServer(options: {
 } = {}): Promise<IpcServer> {
   return startIpcServer({
     root: exampleRoot,
-    ipcPath: defaultIpcPath(`model-catalog-${process.pid}`),
     stdout: options.stdout,
   });
 }

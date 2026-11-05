@@ -10,6 +10,7 @@ import {
 import {
   canConnectIpc,
   defaultIpcPath,
+  instanceIpcPath,
   ipcClientOptions,
 } from './ipc.js';
 import { captureServerPid } from './pid-handshake.js';
@@ -99,7 +100,7 @@ export async function startIpcServer(
   const project = resolveProject(parsed);
   const ipcPath = parsed.ipcPath
     ?? process.env[project.ipcEnvironmentVariable]
-    ?? defaultIpcPath(project.slug);
+    ?? instanceIpcPath(project.slug);
   if (await canConnectIpc(ipcPath)) {
     throw new Error(`An IPC server is already listening at ${ipcPath}.`);
   }
@@ -143,13 +144,18 @@ export async function startIpcServer(
 export async function ensureIpcServer(
   input: StartIpcServerOptions = {},
 ): Promise<IpcServer> {
-  const parsed = serverOptionsSchema.parse(input);
-  const project = resolveProject(parsed);
-  const ipcPath = parsed.ipcPath
-    ?? process.env[project.ipcEnvironmentVariable]
-    ?? defaultIpcPath(project.slug);
+  const ipcPath = resolveSharedIpcPath(input);
   if (await canConnectIpc(ipcPath)) return new IpcServer({ path: ipcPath });
   return startIpcServer({ ...input, ipcPath });
+}
+
+/** Resolve the stable project endpoint used for discovery and explicit serving. */
+export function resolveSharedIpcPath(input: StartIpcServerOptions = {}): string {
+  const parsed = serverOptionsSchema.parse(input);
+  const project = resolveProject(parsed);
+  return parsed.ipcPath
+    ?? process.env[project.ipcEnvironmentVariable]
+    ?? defaultIpcPath(project.slug);
 }
 
 async function waitForIpc(

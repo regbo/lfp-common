@@ -10,6 +10,7 @@ export {
   canConnectIpc,
   createIpcSocketFactory,
   defaultIpcPath,
+  instanceIpcPath,
   ipcClientOptions,
 } from './ipc.js';
 export {

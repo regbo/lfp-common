@@ -2,9 +2,9 @@ import { describe, expect, test } from 'bun:test';
 import { spawn } from 'node:child_process';
 import { PassThrough } from 'node:stream';
 import path from 'node:path';
-import { canConnectIpc } from '../src/ipc.js';
+import { canConnectIpc, defaultIpcPath } from '../src/ipc.js';
 import { forwardedProcessSignals } from '../src/process-signals.js';
-import { startIpcServer } from '../src/server.js';
+import { ensureIpcServer, startIpcServer } from '../src/server.js';
 
 const pythonFixtureRoot = path.resolve(import.meta.dir, '../../../py/pynect-worker');
 
@@ -33,6 +33,8 @@ describe('Pyfig IPC server', () => {
     });
 
     expect(server.owned).toBe(true);
+    expect(server.path).not.toBe(defaultIpcPath(name));
+    expect(server.path).toContain(`${name}-${process.pid}-`);
     expect(server.pid).toBeNumber();
     expect(server.pid && isProcessAlive(server.pid)).toBe(true);
     expect(await canConnectIpc(server.path)).toBe(true);
@@ -50,6 +52,30 @@ describe('Pyfig IPC server', () => {
     expect(isProcessAlive(pid)).toBe(false);
     for (const signal of forwardedProcessSignals) {
       expect(process.listenerCount(signal)).toBe(initialSignalListeners.get(signal) ?? 0);
+    }
+  }, 60_000);
+
+  test('uses a stable endpoint when ensuring a shared server', async () => {
+    const name = `pynect-shared-${process.pid}-${Date.now()}`;
+    const server = await ensureIpcServer({
+      root: pythonFixtureRoot,
+      app: 'tests.fixtures.catalog:app',
+      name,
+      startupTimeoutMs: 30_000,
+    });
+    try {
+      expect(server.owned).toBe(true);
+      expect(server.path).toBe(defaultIpcPath(name));
+
+      const reused = await ensureIpcServer({
+        root: pythonFixtureRoot,
+        app: 'tests.fixtures.catalog:app',
+        name,
+      });
+      expect(reused.owned).toBe(false);
+      expect(reused.path).toBe(server.path);
+    } finally {
+      await server.close();
     }
   }, 60_000);
 

@@ -184,6 +184,9 @@ const connection = client.connect(greeter);
 launcher captures the real Python PID, and the worker watches its parent PID,
 so it exits if the parent disappears. Use `await using` for scoped cleanup or
 call `await server.close()` explicitly. Both are safe to call more than once.
+Unless a path is configured explicitly, each owned server uses an endpoint
+containing the parent PID and a random suffix, so multiple invocations can run
+without colliding.
 
 For a long-lived command, wait for the worker:
 
@@ -200,7 +203,8 @@ lets the console deliver Ctrl+C or Ctrl+Break directly, avoiding an abrupt
 emulated signal; if Python starts after that event, the captured PID receives a
 retained shutdown signal. A custom parent signal handler remains authoritative.
 `ensureIpcServer()` remains available only when deliberately reusing an
-existing endpoint is desired.
+existing endpoint is desired. It uses the stable project endpoint so other
+processes can discover it.
 
 Run a long-lived local server from the command line with:
 
@@ -208,8 +212,9 @@ Run a long-lived local server from the command line with:
 bunx pynect serve
 ```
 
-The default endpoint is `<temp>/model-catalog.sock` on macOS/Linux and
-`\\.\pipe\model-catalog` on Windows. Override it with
-`MODEL_CATALOG_IPC_PATH` or the `ipcPath` JavaScript option.
+The shared endpoint used by `ensureIpcServer()` and `pynect serve` is
+`<temp>/model-catalog.sock` on macOS/Linux and `\\.\pipe\model-catalog` on
+Windows. Override any generated endpoint with `MODEL_CATALOG_IPC_PATH` or the
+`ipcPath` JavaScript option.
 
 MIT licensed.

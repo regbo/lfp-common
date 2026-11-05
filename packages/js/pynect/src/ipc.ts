@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { createConnection, type Socket } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -108,4 +109,10 @@ export function defaultIpcPath(name: string): string {
   return process.platform === 'win32'
     ? `\\\\.\\pipe\\${name}`
     : path.join(os.tmpdir(), `${name}.sock`);
+}
+
+/** Create a process- and invocation-specific endpoint for an owned IPC server. */
+export function instanceIpcPath(name: string): string {
+  const nonce = randomBytes(8).toString('hex');
+  return defaultIpcPath(`${name}-${process.pid}-${nonce}`);
 }

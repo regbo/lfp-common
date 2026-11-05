@@ -4,7 +4,11 @@ import { createOptionKit } from 'optionkit';
 import { generateProject } from './codegen.js';
 import { projectOptionsSchema } from './config.js';
 import { PACKAGE_VERSION } from './_generated/metadata.js';
-import { serverOptionsSchema, startIpcServer } from './server.js';
+import {
+  resolveSharedIpcPath,
+  serverOptionsSchema,
+  startIpcServer,
+} from './server.js';
 
 /** Run the Pynect command-line interface. */
 export async function main(argv: string[] = process.argv): Promise<void> {
@@ -26,7 +30,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     .output(z.string())
     .render(output => output)
     .handler(async options => {
-      const server = await startIpcServer(options);
+      const server = await startIpcServer({
+        ...options,
+        ipcPath: resolveSharedIpcPath(options),
+      });
       await server.wait();
       return '';
     });
