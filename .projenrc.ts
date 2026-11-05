@@ -38,7 +38,7 @@ class ReadonlyGeneratedFilesPolicy extends Component {
   }
 }
 
-const VERSION = '0.8.11';
+const VERSION = '0.8.12';
 const BUN_VERSION = '1.4.4';
 const PROJEN_VERSION = '0.104.23';
 const PROJEN_COMMAND = 'bunx projen';
