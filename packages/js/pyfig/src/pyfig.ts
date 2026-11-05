@@ -23,6 +23,31 @@ import {
 import { resolveUv } from './uv.js';
 
 export const DEFAULT_UV = '>=0.10,<1';
+const uvSources = ['cache', 'download', 'explicit', 'path'] as const;
+
+const resolvedPathSchema = z.string()
+  .refine(value => path.isAbsolute(value), 'Executable path must be absolute.')
+  .transform(value => path.normalize(value));
+const pep440VersionSchema = z.string()
+  .transform(value => validVersion(value))
+  .pipe(z.string());
+
+const uvSourceSchema = z.enum(uvSources);
+const uvMetadataSchema = z.object({
+  path: resolvedPathSchema,
+  source: uvSourceSchema,
+  version: pep440VersionSchema,
+}).readonly();
+const pythonResolutionSchema = z.object({
+  path: resolvedPathSchema,
+  version: pep440VersionSchema,
+}).readonly();
+export const pyfigResolutionSchema = z.object({
+  uv: uvMetadataSchema,
+  python: pythonResolutionSchema.unwrap().extend({
+    resolved: z.literal(true),
+  }).readonly(),
+}).readonly();
 
 const ASTRAL_PYTHON_INSTALL_MIRROR =
   'https://releases.astral.sh/github/python-build-standalone/releases/download';
@@ -74,15 +99,12 @@ export const pyfigOptionsSchema = z.object({
 }).readonly().describe('Options for resolving uv and creating a lazy Python runtime context.');
 
 export type PyfigOptions = z.input<typeof pyfigOptionsSchema>;
-export type UvSource = 'cache' | 'download' | 'explicit' | 'path';
+export type PyfigResolution = z.output<typeof pyfigResolutionSchema>;
+export type UvSource = z.output<typeof uvSourceSchema>;
+export type UvMetadata = z.output<typeof uvMetadataSchema>;
+type PythonResolution = z.output<typeof pythonResolutionSchema>;
 
-export interface UvExecutable {
-  /** Absolute path to the resolved uv executable. */
-  readonly path: string;
-  /** How uv was selected or obtained. */
-  readonly source: UvSource;
-  /** PEP 440-compatible uv version. */
-  readonly version: string;
+export interface UvExecutable extends UvMetadata {
   /** Start uv with context defaults and optional Node spawn overrides. */
   spawn(...args: string[]): Promise<ChildProcess>;
   spawn(...args: [...string[], SpawnOptions]): Promise<ChildProcess>;
@@ -95,8 +117,8 @@ export interface PythonExecutable {
   readonly path: string | undefined;
   /** Python runtime version after successful resolution. */
   readonly version: string | undefined;
-  /** Resolve the context-default Python and populate its metadata. */
-  resolve(): Promise<void>;
+  /** Resolve the context-default Python, populate its metadata, and return its absolute path. */
+  resolve(): Promise<string>;
   /** Resolve Python privately, then execute it through uv run. */
   spawn(...args: string[]): Promise<ChildProcess>;
   spawn(...args: [...string[], SpawnOptions]): Promise<ChildProcess>;
@@ -106,17 +128,6 @@ interface RuntimeDefaults {
   readonly cwd: string;
   readonly env: NodeJS.ProcessEnv;
   readonly log: DebugLogger;
-}
-
-interface UvMetadata {
-  readonly path: string;
-  readonly source: UvSource;
-  readonly version: string;
-}
-
-interface PythonResolution {
-  readonly path: string;
-  readonly version: string;
 }
 
 interface PythonRuntimeDefaults extends RuntimeDefaults {
@@ -175,8 +186,8 @@ class LazyPython implements PythonExecutable {
     return this.#resolution?.version;
   }
 
-  async resolve(): Promise<void> {
-    await this.#resolve();
+  async resolve(): Promise<string> {
+    return (await this.#resolve()).path;
   }
 
   async spawn(...values: SpawnArgument[]): Promise<ChildProcess> {
@@ -240,10 +251,9 @@ export async function pyfig(options: PyfigOptions = {}): Promise<PythonContext> 
   );
 }
 
-interface Selection {
-  executable: string | null;
-  specifier: string | null;
-}
+type Selection =
+  | { readonly executable: string }
+  | { readonly specifier: string };
 
 async function selectUv(
   request: string,
@@ -252,12 +262,11 @@ async function selectUv(
   log: DebugLogger,
 ): Promise<UvMetadata> {
   const selection = await uvExecutableOrSpecifier(request, cwd, env);
-  if (selection.executable) {
+  if ('executable' in selection) {
     log('Using requested uv executable.', { path: selection.executable });
     return { ...await probeUv(selection.executable, cwd, env), source: 'explicit' };
   }
   const specifier = selection.specifier;
-  if (!specifier) throw new Error('uv selection did not contain a version specifier.');
   log('Resolving uv version constraint.', { specifier });
   return resolveUv(specifier, cwd, env, log);
 }
@@ -380,16 +389,12 @@ function parsePythonProbe(
   } catch {
     throw new Error('Python selected by uv returned malformed metadata.');
   }
-  if (!metadata || typeof metadata !== 'object') {
-    throw new Error('Python selected by uv returned incomplete metadata.');
-  }
-  const candidate = metadata as { path?: unknown; version?: unknown };
-  const version = typeof candidate.version === 'string' ? validVersion(candidate.version) : null;
-  if (typeof candidate.path !== 'string' || !path.isAbsolute(candidate.path) || !version) {
+  const result = pythonResolutionSchema.safeParse(metadata);
+  if (!result.success) {
     throw new Error('Python selected by uv returned incomplete metadata.');
   }
   defaults.log('Resolved Python through uv.');
-  return { path: path.normalize(candidate.path), version };
+  return result.data;
 }
 
 function shouldUseAstralFallback(
@@ -433,10 +438,10 @@ async function uvExecutableOrSpecifier(
 ): Promise<Selection> {
   assertNonempty('uv', value);
   const pathLike = path.isAbsolute(value) || /[\\/]/u.test(value);
-  if (!pathLike && validRange(value)) return { executable: null, specifier: value };
+  if (!pathLike && validRange(value)) return { specifier: value };
   const executable = await findExecutable(value, cwd, env);
-  if (executable) return { executable, specifier: null };
-  if (validRange(value)) return { executable: null, specifier: value };
+  if (executable) return { executable };
+  if (validRange(value)) return { specifier: value };
   throw new TypeError(
     `uv must resolve to an executable or be a valid PEP 440 specifier, received ${JSON.stringify(value)}.`,
   );

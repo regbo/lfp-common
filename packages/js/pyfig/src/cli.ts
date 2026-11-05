@@ -6,7 +6,12 @@ import { pathToFileURL } from 'node:url';
 import { createOptionKit } from 'optionkit';
 import { PACKAGE_VERSION } from './_generated/metadata.js';
 import { createDebugLogger } from './logging.js';
-import { pyfig, pyfigOptionsSchema, type PyfigOptions } from './pyfig.js';
+import {
+  pyfig,
+  pyfigOptionsSchema,
+  pyfigResolutionSchema,
+  type PyfigOptions,
+} from './pyfig.js';
 
 /** Run the Pyfig resolution command-line interface. */
 export async function main(argv: string[] = process.argv): Promise<void> {
@@ -19,19 +24,6 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     version: PACKAGE_VERSION,
   });
   const createInput = () => pyfigOptionsSchema.unwrap();
-  const output = z.object({
-    uv: z.object({
-      path: z.string().describe('Absolute path to the resolved uv executable.'),
-      source: z.enum(['cache', 'download', 'explicit', 'path'])
-        .describe('How uv was selected or obtained.'),
-      version: z.string().describe('Resolved uv version.'),
-    }).readonly(),
-    python: z.object({
-      path: z.string().describe('Absolute path to the resolved Python executable.'),
-      resolved: z.boolean().describe('Whether Python resolved successfully.'),
-      version: z.string().describe('Resolved Python version.'),
-    }).readonly(),
-  });
   const resolve = f
     .command({
       name: 'resolve',
@@ -39,17 +31,16 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       jsonOption: {},
     })
     .input(createInput())
-    .output(output)
+    .output(pyfigResolutionSchema)
     .render(result => [
       `uv ${result.uv.version} (${result.uv.source}): ${result.uv.path}`,
       `Python ${result.python.version}: ${result.python.path}`,
     ].join('\n'))
     .handler(async options => {
       const context = await pyfig(options);
-      await context.python.resolve();
-      const pythonPath = context.python.path;
+      const pythonPath = await context.python.resolve();
       const pythonVersion = context.python.version;
-      if (!context.python.resolved || !pythonPath || !pythonVersion) {
+      if (!pythonVersion) {
         throw new Error('Python metadata was unavailable after successful resolution.');
       }
       return {
@@ -60,7 +51,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         },
         python: {
           path: pythonPath,
-          resolved: context.python.resolved,
+          resolved: true,
           version: pythonVersion,
         },
       };

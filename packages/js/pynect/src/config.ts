@@ -1,5 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import type { GenerateOptions } from '@chanx-js/codegen';
+import { pyfigOptionsSchema } from 'pyfig';
 import { parse as parseToml } from 'smol-toml';
 import { z } from 'zod';
 
@@ -10,46 +12,43 @@ const importTargetSchema = z.string()
     'app must use the form "module:object".',
   );
 
-const fileConfigSchema = z.object({
-  app: importTargetSchema.default('server:app'),
-  out: z.string().trim().min(1).optional(),
-  name: z.string().trim().min(1).optional(),
-  python: z.string().trim().min(1).optional(),
-  uv: z.string().trim().min(1).optional(),
-  debug: z.boolean().default(false),
-  validation: z.enum(['none', 'zod']).default('none'),
-  format: z.boolean().default(false),
-}).strict();
+const pynectPyfigOptionsSchema = pyfigOptionsSchema.unwrap()
+  .omit({ cwd: true })
+  .readonly()
+  .describe('Pyfig options; Pynect supplies the Python project directory as cwd.');
 
-export const projectOptionsSchema = z.object({
-  root: z.string().trim().min(1).default('.').describe('Python project directory.'),
+export const pynectPythonSchema = z.union([
+  z.string().trim().min(1).describe('Exact Python executable path.'),
+  pynectPyfigOptionsSchema,
+]).describe('An exact Python executable path or options resolved through Pyfig.');
+
+export type PynectPython = z.input<typeof pynectPythonSchema>;
+
+const projectConfigSchema = z.object({
   app: importTargetSchema.optional().describe('ASGI app as module:object.'),
   out: z.string().trim().min(1).optional().describe('Generated output directory.'),
   name: z.string().trim().min(1).optional().describe('Generated project name override.'),
-  python: z.string().trim().min(1).optional().describe('Python request passed to Pyfig.'),
-  uv: z.string().trim().min(1).optional().describe('uv executable or version constraint.'),
-  debug: z.boolean().optional().describe('Write Pyfig and Python worker diagnostics to stderr.'),
+  python: pynectPythonSchema.optional(),
+});
+
+export const projectOptionsSchema = projectConfigSchema.extend({
+  root: z.string().trim().min(1).default('.').describe('Python project directory.'),
 }).readonly();
 
 export type ProjectOptions = z.input<typeof projectOptionsSchema>;
 
-export interface PynectProject {
-  readonly app: string;
-  readonly debug: boolean;
-  readonly format: boolean;
-  readonly name: string;
-  readonly outDir: string;
-  readonly pyprojectPath: string;
-  readonly python?: string;
-  readonly root: string;
-  readonly schemaPath: string;
-  readonly slug: string;
-  readonly uv?: string;
-  readonly validation: 'none' | 'zod';
-}
+const validationModes = [
+  'none',
+  'zod',
+] as const satisfies readonly NonNullable<GenerateOptions['validation']>[];
+const fileConfigSchema = projectConfigSchema.extend({
+  app: importTargetSchema.default('server:app'),
+  validation: z.enum(validationModes).default('none'),
+  format: z.boolean().default(false),
+}).strict();
 
 /** Resolve direct options over `[tool.pynect]`, then apply project-derived defaults. */
-export function resolveProject(input: ProjectOptions = {}): PynectProject {
+export function resolveProject(input: ProjectOptions = {}) {
   const options = projectOptionsSchema.parse(input);
   const pyprojectPath = findPyproject(path.resolve(options.root));
   const root = path.dirname(pyprojectPath);
@@ -62,24 +61,23 @@ export function resolveProject(input: ProjectOptions = {}): PynectProject {
   const slug = slugify(name);
   const out = options.out ?? configured.out ?? path.join('_generated', slug);
   const outDir = path.resolve(root, out);
+  const python = options.python ?? configured.python;
 
   return Object.freeze({
     app: options.app ?? configured.app,
-    debug: options.debug ?? configured.debug,
     format: configured.format,
     name,
     outDir,
     pyprojectPath,
-    ...(options.python ?? configured.python
-      ? { python: options.python ?? configured.python }
-      : {}),
+    ...(python === undefined ? {} : { python }),
     root,
     schemaPath: path.join(outDir, 'asyncapi.json'),
     slug,
-    ...(options.uv ?? configured.uv ? { uv: options.uv ?? configured.uv } : {}),
     validation: configured.validation,
   });
 }
+
+export type PynectProject = ReturnType<typeof resolveProject>;
 
 function findPyproject(start: string): string {
   for (let directory = start; ; directory = path.dirname(directory)) {

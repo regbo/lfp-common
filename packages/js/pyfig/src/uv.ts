@@ -23,29 +23,49 @@ import { unzipSync } from 'fflate';
 import { withLock } from 'loqkit';
 import * as tar from 'tar';
 import { EnvHttpProxyAgent, fetch } from 'undici';
+import { z } from 'zod';
 import type { DebugLogger } from './logging.js';
+import type { UvMetadata, UvSource } from './pyfig.js';
 import {
   capture,
   environmentValue,
   findExecutables,
 } from './process.js';
 
-interface UvArtifact {
-  archiveFormat: 'tar.gz' | 'zip';
-  platform: string;
-  sha256: string;
-  url: string;
-}
+const archiveFormatSchema = z.enum(['tar.gz', 'zip']);
+const sha256Schema = z.string().regex(/^[a-f\d]{64}$/iu).transform(value => value.toLowerCase());
+const httpsUrlSchema = z.url().refine(value => value.startsWith('https://'));
+const uvVersionSchema = z.string().refine(value => validVersion(value) === value);
+const uvArtifactSchema = z.object({
+  archiveFormat: archiveFormatSchema,
+  platform: z.string().min(1),
+  sha256: sha256Schema,
+  url: httpsUrlSchema,
+}).readonly();
+const uvReleaseSchema = z.object({
+  artifact: uvArtifactSchema,
+  version: uvVersionSchema,
+}).readonly();
+const uvReleaseCatalogSchema = z.object({
+  fetchedAt: z.number().int().nonnegative(),
+  releases: z.array(uvReleaseSchema).readonly(),
+}).readonly();
+const uvManifestArtifactSchema = z.object({
+  archive_format: archiveFormatSchema,
+  platform: z.string().min(1),
+  sha256: sha256Schema,
+  url: httpsUrlSchema,
+  variant: z.literal('default').optional(),
+}).transform(artifact => uvArtifactSchema.parse({
+  archiveFormat: artifact.archive_format,
+  platform: artifact.platform,
+  sha256: artifact.sha256,
+  url: artifact.url,
+}));
 
-interface UvRelease {
-  artifact: UvArtifact;
-  version: string;
-}
-
-interface UvReleaseCatalog {
-  fetchedAt: number;
-  releases: UvRelease[];
-}
+type UvArtifact = z.output<typeof uvArtifactSchema>;
+type UvRelease = z.output<typeof uvReleaseSchema>;
+type UvReleaseCatalog = z.output<typeof uvReleaseCatalogSchema>;
 
 interface UvSetupContext {
   cache: string;
@@ -55,11 +75,9 @@ interface UvSetupContext {
   specifier: string;
 }
 
-interface ResolvedUv {
-  path: string;
-  source: 'cache' | 'download' | 'path';
-  version: string;
-}
+type ResolvedUv = Omit<UvMetadata, 'source'> & {
+  readonly source: Exclude<UvSource, 'explicit'>;
+};
 
 const RELEASE_METADATA_TTL_MS = 24 * 60 * 60_000;
 const METADATA_TIMEOUT_MS = 30_000;
@@ -243,12 +261,13 @@ function parseUvManifest(text: string): UvRelease[] {
     const entry = value as { artifacts?: unknown; version?: unknown };
     const version = typeof entry.version === 'string' ? validVersion(entry.version) : null;
     if (!version || !Array.isArray(entry.artifacts)) continue;
-    const artifacts: unknown[] = entry.artifacts;
-    const artifact = platforms.flatMap(platform => artifacts
-      .filter(candidate => candidate && typeof candidate === 'object')
-      .map(candidate => candidate as Record<string, unknown>)
-      .filter(candidate => candidate['platform'] === platform)
-    ).map(parseUvArtifact).find(candidate => candidate !== null);
+    const artifacts = entry.artifacts.flatMap(candidate => {
+      const result = uvManifestArtifactSchema.safeParse(candidate);
+      return result.success ? [result.data] : [];
+    });
+    const artifact = platforms.flatMap(platform =>
+      artifacts.filter(candidate => candidate.platform === platform)
+    ).at(0);
     if (artifact) releases.push({ artifact, version });
   }
   return releases;
@@ -270,40 +289,8 @@ async function readUvReleaseCatalog(file: string): Promise<UvReleaseCatalog | nu
 }
 
 function parseUvReleaseCatalog(value: unknown): UvReleaseCatalog | null {
-  if (!value || typeof value !== 'object') return null;
-  const catalog = value as { fetchedAt?: unknown; releases?: unknown };
-  if (!Number.isSafeInteger(catalog.fetchedAt) || (catalog.fetchedAt as number) < 0 ||
-      !Array.isArray(catalog.releases)) return null;
-  const releases: UvRelease[] = [];
-  for (const candidate of catalog.releases) {
-    if (!candidate || typeof candidate !== 'object') return null;
-    const release = candidate as { artifact?: unknown; version?: unknown };
-    if (typeof release.version !== 'string' ||
-        validVersion(release.version) !== release.version ||
-        !release.artifact || typeof release.artifact !== 'object') return null;
-    const artifact = parseUvArtifact(release.artifact as Record<string, unknown>);
-    if (!artifact) return null;
-    releases.push({ artifact, version: release.version });
-  }
-  return {
-    fetchedAt: catalog.fetchedAt as number,
-    releases,
-  };
-}
-
-function parseUvArtifact(value: Record<string, unknown>): UvArtifact | null {
-  const archiveFormat = value['archive_format'] ?? value['archiveFormat'];
-  if ((archiveFormat !== 'tar.gz' && archiveFormat !== 'zip') ||
-      value['variant'] !== 'default' && value['variant'] !== undefined ||
-      typeof value['platform'] !== 'string' ||
-      typeof value['sha256'] !== 'string' || !/^[a-f\d]{64}$/iu.test(value['sha256']) ||
-      typeof value['url'] !== 'string' || !/^https:\/\//iu.test(value['url'])) return null;
-  return {
-    archiveFormat,
-    platform: value['platform'],
-    sha256: value['sha256'].toLowerCase(),
-    url: value['url'],
-  };
+  const result = uvReleaseCatalogSchema.safeParse(value);
+  return result.success ? result.data : null;
 }
 
 async function writeUvReleaseCatalog(file: string, catalog: UvReleaseCatalog): Promise<void> {

@@ -11,7 +11,7 @@ export function throwIfAborted(
   }
 }
 
-export function throwIfTimedOut(
+function throwIfTimedOut(
   startedAt: number,
   timeoutMs: number | undefined,
   info: Readonly<LockInfo>,

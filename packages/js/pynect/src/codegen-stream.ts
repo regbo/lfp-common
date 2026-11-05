@@ -7,16 +7,11 @@ import {
   type OperationObject,
 } from '@chanx-js/codegen';
 
-interface StreamOperation extends OperationObject {
+type StreamOperation = OperationObject & {
   readonly 'x-pynect-stream'?: boolean;
-}
+};
 
-interface StreamSpec {
-  readonly channel: string;
-  readonly requestAction: string;
-}
-
-/** Mark iterator requests and expose Pynect's client from the generated index. */
+/** Add iterator metadata and Pynect's client to generated Chanx modules. */
 export async function emitStreamSupport(
   document: AsyncAPIDocument,
   outDir: string,
@@ -33,7 +28,7 @@ export async function emitStreamSupport(
   }
 }
 
-function streamSpecs(document: AsyncAPIDocument): StreamSpec[] {
+function streamSpecs(document: AsyncAPIDocument) {
   const connections = analyze(document);
   return Object.entries(document.operations ?? {}).flatMap(([name, rawOperation]) => {
     const operation = rawOperation as StreamOperation;
@@ -56,6 +51,8 @@ function streamSpecs(document: AsyncAPIDocument): StreamSpec[] {
     }];
   });
 }
+
+type StreamSpec = ReturnType<typeof streamSpecs>[number];
 
 async function markStreamChannels(
   channelsPath: string,

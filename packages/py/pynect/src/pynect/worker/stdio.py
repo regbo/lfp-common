@@ -167,19 +167,18 @@ class StdioConnection:
             await self.task
 
 
-async def serve(
-    app_target: str,
+async def _serve(
+    app: Any,
     prefix: bytes,
     input_stream: BinaryIO | None = None,
     output_stream: BinaryIO | None = None,
 ) -> None:
-    """Import the configured app and serve until shutdown or stdin EOF."""
+    """Serve a loaded application until shutdown or stdin EOF."""
     writer = ProtocolWriter(prefix, output_stream)
     queue: asyncio.Queue[InputItem] = asyncio.Queue()
     pump = StdinPump(input_stream or sys.stdin.buffer, prefix, queue)
     connection: StdioConnection | None = None
     try:
-        app = load_object(app_target)
         pump.start()
         while True:
             item = await queue.get()
@@ -237,6 +236,16 @@ async def serve(
         raise
 
 
+async def serve(
+    app_target: str,
+    prefix: bytes,
+    input_stream: BinaryIO | None = None,
+    output_stream: BinaryIO | None = None,
+) -> None:
+    """Load an application and serve it over stdio."""
+    await _serve(load_object(app_target), prefix, input_stream, output_stream)
+
+
 def main() -> None:
     """Console entry point driven by the JavaScript stdio launcher."""
     level_name = os.environ.get("PYNECT_LOG_LEVEL", "WARNING").upper()
@@ -252,5 +261,7 @@ def main() -> None:
     if not app_target:
         raise RuntimeError("PYNECT_APP is required")
     prefix = prefix_from_environment()
+    app = load_object(app_target)
+    ProtocolWriter(prefix).write({"type": "ready"})
     with suppress(KeyboardInterrupt):
-        asyncio.run(serve(app_target, prefix))
+        asyncio.run(_serve(app, prefix))

@@ -1,31 +1,23 @@
 import type { ChildProcess, SpawnOptions } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { pyfig, type PythonContext } from 'pyfig';
+import { pyfig } from 'pyfig';
 import type { PynectProject } from './config.js';
-import { resolvePythonPath } from './utils/pyfig.js';
-import { resolvePythonPackage } from './utils/python-package.js';
+import { resolvePythonPackage } from './python-package.js';
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
-
-export interface SpawnWorkerResult {
-  readonly child: ChildProcess;
-  readonly environment: PythonContext;
-}
 
 /** Run the bundled Python adapter inside the configured uv project. */
 export async function spawnWorker(
   project: PynectProject,
   pythonArguments: readonly string[],
   options: SpawnOptions = {},
-): Promise<SpawnWorkerResult> {
-  const environment = await pyfig({
-    cwd: project.root,
-    debug: project.debug,
-    ...(project.python ? { python: project.python } : {}),
-    ...(project.uv ? { uv: project.uv } : {}),
-  });
-  const pythonPath = await resolvePythonPath(environment);
+): Promise<ChildProcess> {
+  const python = typeof project.python === 'string'
+    ? { python: project.python }
+    : project.python;
+  const environment = await pyfig({ ...python, cwd: project.root });
+  const pythonPath = await environment.python.resolve();
   const worker = resolvePythonPackage(moduleDirectory);
   const args = [
     'run',
@@ -43,7 +35,7 @@ export async function spawnWorker(
     ...options,
     env: { ...process.env, ...options.env },
   });
-  return { child, environment };
+  return child;
 }
 
 export function waitForChild(child: ChildProcess, purpose: string): Promise<void> {

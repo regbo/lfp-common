@@ -1,50 +1,62 @@
 import { randomBytes } from 'node:crypto';
 import type { Readable, Writable } from 'node:stream';
+import { z } from 'zod';
+import { asError } from './errors.js';
 
 export const STDIO_PROTOCOL_VERSION = 1;
 export const MAX_STDIO_RECORD_BYTES = 16 * 1024 * 1024;
 const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
 
-export interface HelloEvent {
-  readonly type: 'hello';
-  readonly protocol: typeof STDIO_PROTOCOL_VERSION;
-  readonly pid: number;
-}
+export const helloEventSchema = z.object({
+  type: z.literal('hello'),
+  protocol: z.literal(STDIO_PROTOCOL_VERSION),
+  pid: z.number().int().positive(),
+});
+const readyEventSchema = z.object({ type: z.literal('ready') });
+const openEventSchema = z.object({
+  type: z.literal('open'),
+  path: z.string(),
+  query: z.string(),
+  headers: z.record(z.string(), z.string()).readonly(),
+  subprotocols: z.array(z.string()).readonly(),
+});
+const frameEventSchema = z.object({
+  type: z.literal('frame'),
+  data: z.string(),
+});
+const closeEventSchema = z.object({
+  type: z.literal('close'),
+  code: z.number().int().min(0).max(4_999),
+  reason: z.string(),
+});
+const errorEventSchema = z.object({
+  type: z.literal('error'),
+  message: z.string(),
+});
+const shutdownEventSchema = z.object({ type: z.literal('shutdown') });
+const byeEventSchema = z.object({ type: z.literal('bye') });
+const parentStdioEventSchema = z.discriminatedUnion('type', [
+  openEventSchema,
+  frameEventSchema,
+  closeEventSchema,
+  shutdownEventSchema,
+]);
+const workerStdioEventSchema = z.discriminatedUnion('type', [
+  helloEventSchema,
+  readyEventSchema,
+  frameEventSchema,
+  closeEventSchema,
+  errorEventSchema,
+  byeEventSchema,
+]);
+const workerStdioEventTypes = new Set<unknown>(
+  workerStdioEventSchema.options.map(option => option.shape.type.value),
+);
 
-export interface OpenEvent {
-  readonly type: 'open';
-  readonly path: string;
-  readonly query: string;
-  readonly headers: Readonly<Record<string, string>>;
-  readonly subprotocols: readonly string[];
-}
-
-export interface FrameEvent {
-  readonly type: 'frame';
-  readonly data: string;
-}
-
-export interface CloseEvent {
-  readonly type: 'close';
-  readonly code: number;
-  readonly reason: string;
-}
-
-export interface ErrorEvent {
-  readonly type: 'error';
-  readonly message: string;
-}
-
-export interface ShutdownEvent {
-  readonly type: 'shutdown';
-}
-
-export interface ByeEvent {
-  readonly type: 'bye';
-}
-
-export type ParentStdioEvent = OpenEvent | FrameEvent | CloseEvent | ShutdownEvent;
-export type WorkerStdioEvent = HelloEvent | FrameEvent | CloseEvent | ErrorEvent | ByeEvent;
+export type OpenEvent = Readonly<z.output<typeof openEventSchema>>;
+export type CloseEvent = Readonly<z.output<typeof closeEventSchema>>;
+type ParentStdioEvent = Readonly<z.output<typeof parentStdioEventSchema>>;
+type WorkerStdioEvent = Readonly<z.output<typeof workerStdioEventSchema>>;
 
 /** Create the per-process marker that separates protocol records from Python output. */
 export function createStdioPrefix(): string {
@@ -66,27 +78,19 @@ export function encodeStdioRecord(
 /** Validate an event received from the Python worker. */
 export function parseWorkerStdioEvent(value: unknown): WorkerStdioEvent {
   const event = record(value);
-  switch (event.type) {
-    case 'hello': {
-      const protocol = integer(event.protocol, 'hello.protocol');
-      if (protocol !== STDIO_PROTOCOL_VERSION) {
-        throw new Error(`Unsupported Pynect stdio protocol version ${protocol}.`);
-      }
-      const pid = integer(event.pid, 'hello.pid');
-      if (pid <= 0) throw new Error('Pynect stdio hello.pid must be positive.');
-      return { type: 'hello', protocol: STDIO_PROTOCOL_VERSION, pid };
-    }
-    case 'frame':
-      return { type: 'frame', data: stringValue(event.data, 'frame.data') };
-    case 'close':
-      return closeEvent(event);
-    case 'error':
-      return { type: 'error', message: stringValue(event.message, 'error.message') };
-    case 'bye':
-      return { type: 'bye' };
-    default:
-      throw new Error(`Unknown Pynect stdio event type ${JSON.stringify(event.type)}.`);
+  if (!workerStdioEventTypes.has(event.type)) {
+    throw new Error(`Unknown Pynect stdio event type ${JSON.stringify(event.type)}.`);
   }
+  if (
+    event.type === 'hello'
+    && Number.isSafeInteger(event.protocol)
+    && event.protocol !== STDIO_PROTOCOL_VERSION
+  ) {
+    throw new Error(`Unsupported Pynect stdio protocol version ${event.protocol}.`);
+  }
+  const parsed = workerStdioEventSchema.safeParse(event);
+  if (!parsed.success) throw new Error(`Invalid Pynect stdio event: ${z.prettifyError(parsed.error)}`);
+  return parsed.data;
 }
 
 /** Separate length-prefixed records from byte-exact ordinary stdout at any offset. */
@@ -311,22 +315,6 @@ function record(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function closeEvent(event: Record<string, unknown>): CloseEvent {
-  const code = integer(event.code, 'close.code');
-  if (code < 0 || code > 4_999) throw new Error('Pynect stdio close.code is out of range.');
-  return { type: 'close', code, reason: stringValue(event.reason, 'close.reason') };
-}
-
-function integer(value: unknown, field: string): number {
-  if (!Number.isSafeInteger(value)) throw new Error(`Pynect stdio ${field} must be an integer.`);
-  return value as number;
-}
-
-function stringValue(value: unknown, field: string): string {
-  if (typeof value !== 'string') throw new Error(`Pynect stdio ${field} must be a string.`);
-  return value;
-}
-
 function writeChunk(output: Writable, chunk: Buffer): Promise<void> {
   return new Promise((resolve, reject) => {
     output.write(chunk, error => { if (error) reject(error); else resolve(); });
@@ -339,8 +327,4 @@ function matchingPrefixSuffix(value: Buffer, prefix: Buffer): number {
     if (value.subarray(value.length - length).equals(prefix.subarray(0, length))) return length;
   }
   return 0;
-}
-
-function asError(value: unknown): Error {
-  return value instanceof Error ? value : new Error(String(value));
 }

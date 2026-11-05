@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { createFileSystemProject, type Workspace } from 'pacwich';
 import { parse } from 'smol-toml';
+import { readRootVersion } from './version.ts';
 
 export const ROOT = path.resolve(import.meta.dir, '..');
 const pythonPackagePaths = [...new Bun.Glob('packages/py/*/pyproject.toml').scanSync({
@@ -72,8 +73,11 @@ export async function uvProjectPaths(): Promise<readonly string[]> {
 }
 
 export async function sharedVersion(): Promise<string> {
-  const version = (await readManifest(ROOT)).version;
-  if (typeof version !== 'string') throw new Error('Root package.json has no version.');
+  const version = readRootVersion(ROOT);
+  const rootVersion = (await readManifest(ROOT)).version;
+  if (rootVersion !== version) {
+    throw new Error(`Root package.json version ${rootVersion ?? '<missing>'} must equal VERSION ${version}.`);
+  }
 
   const mismatches = (await Promise.all(BUN_WORKSPACES.map(async workspace => ({
     name: workspace.name,
@@ -81,7 +85,7 @@ export async function sharedVersion(): Promise<string> {
   })))).filter(workspace => workspace.version !== version);
   if (mismatches.length > 0) {
     throw new Error(
-      `Workspace versions must equal root ${version}: ` +
+      `Workspace versions must equal VERSION ${version}: ` +
       mismatches.map(workspace => `${workspace.name}@${workspace.version}`).join(', '),
     );
   }
@@ -93,7 +97,7 @@ export async function sharedVersion(): Promise<string> {
   })))).filter(project => project.version !== version);
   if (pythonMismatches.length > 0) {
     throw new Error(
-      `Python project versions must equal root ${version}: ` +
+      `Python project versions must equal VERSION ${version}: ` +
       pythonMismatches.map(project => `${project.name}@${project.version ?? '<missing>'}`).join(', '),
     );
   }

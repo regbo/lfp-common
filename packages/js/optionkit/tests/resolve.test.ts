@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { importPackageIfAvailable, resolvePackage } from '../src/index.ts';
+import { importPackageIfAvailable, resolvePackage } from '../src/resolve.ts';
 
 const root = path.resolve(import.meta.dir, '..');
 

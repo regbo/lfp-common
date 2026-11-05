@@ -6,19 +6,18 @@ import time
 
 
 def main(warmup_iterations: int, measured_iterations: int) -> None:
-    """Measure the model-list operation with the same JSON response payload."""
-    from pynect_example.catalog import MODEL_COUNT, ModelFilters, filter_models
+    """Measure the weather operation with the same JSON response payload."""
+    from pynect_example.domain import WeatherQuery, observe_weather
 
-    filters = ModelFilters()
+    query = WeatherQuery()
     print(json.dumps({"event": "ready"}), flush=True)
 
     def operation() -> str:
-        models = filter_models(filters)
-        return json.dumps([model.model_dump(mode="json") for model in models], separators=(",", ":"))
+        return observe_weather(query).model_dump_json()
 
     first = operation()
-    if len(json.loads(first)) != MODEL_COUNT:
-        raise RuntimeError("Native list_models baseline returned an unexpected count")
+    if json.loads(first)["location"] != query.location:
+        raise RuntimeError("Native get_weather baseline returned an unexpected location")
     print(
         json.dumps({"event": "first-response"}),
         flush=True,

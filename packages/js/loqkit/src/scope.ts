@@ -1,10 +1,10 @@
 import {
   lockBackendScopes,
+  type LockBackendScope,
   type NormalizedLockScope,
 } from "./schemas.js";
 import type {
   LockBackendInfo,
-  LockBackendScope,
   ResolvedLockScope,
 } from "./types.js";
 

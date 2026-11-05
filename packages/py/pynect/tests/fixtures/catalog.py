@@ -54,5 +54,6 @@ class CatalogConsumer(AsyncJsonWebsocketConsumer):
         yield WatchResponse(payload=message.payload)
 
 
+bare_app = CatalogConsumer.as_asgi()
 app = FastAPI(title="Pynect fixture", version="1.0.0")
-app.router.add_websocket_route("/ws/catalog", CatalogConsumer.as_asgi())
+app.router.add_websocket_route("/ws/catalog", bare_app)

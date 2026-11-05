@@ -1,13 +1,8 @@
 import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
-export interface PythonPackageLocation {
-  readonly editable: boolean;
-  readonly requirement: string;
-}
-
 /** Resolve the built worker wheel, falling back to the editable source project. */
-export function resolvePythonPackage(moduleDirectory: string): PythonPackageLocation {
+export function resolvePythonPackage(moduleDirectory: string) {
   const wheelDirectory = path.resolve(moduleDirectory, 'py');
   if (existsSync(wheelDirectory)) {
     const wheel = readdirSync(wheelDirectory)

@@ -4,9 +4,12 @@ import { createInterface } from 'node:readline';
 import { PassThrough } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { z } from 'zod';
+import { asError } from '../src/errors.js';
+import { withTimeout } from '../src/promise.js';
 import { startWorker } from '../src/worker.js';
 
-type ModelCatalogClient = typeof import('../../../py/pynect-example/client.js');
+type ExampleClient = typeof import('../../../py/pynect-example/client.js');
 
 const exampleRoot = fileURLToPath(new URL('../../../py/pynect-example/', import.meta.url));
 const pythonPath = requiredEnvironment('PYNECT_BENCHMARK_PYTHON_PATH');
@@ -17,13 +20,6 @@ const nativePath = fileURLToPath(new URL(
 const launcherPath = fileURLToPath(new URL('./benchmark-application.ts', import.meta.url));
 const packageRoot = fileURLToPath(new URL('../', import.meta.url));
 
-interface Summary {
-  readonly mean: number;
-  readonly p50: number;
-  readonly p95: number;
-  readonly p99: number;
-}
-
 interface StdioColdStartStages {
   readonly markerToRunnerReadyMs: number;
   readonly runnerReadyToWorkerStartMs: number;
@@ -31,24 +27,19 @@ interface StdioColdStartStages {
   readonly helloToAppReadyMs: number;
 }
 
-interface ProcessResult {
-  readonly runtimeStartToAppReadyMs: number;
-  readonly appReadyToFirstMs: number;
-  readonly runtimeStartToFirstMs: number;
-  readonly stdioColdStartStages?: StdioColdStartStages;
-  readonly warmSamplesMs: readonly number[];
-}
+const benchmarkEventSchema = z.discriminatedUnion('event', [
+  z.object({ event: z.literal('runner-ready') }),
+  z.object({ event: z.literal('worker-start') }),
+  z.object({ event: z.literal('worker-hello') }),
+  z.object({ event: z.literal('ready') }),
+  z.object({ event: z.literal('first-response') }),
+  z.object({
+    event: z.literal('complete'),
+    warmSamplesMs: z.array(z.number()),
+  }),
+]);
 
-interface BenchmarkEvent {
-  readonly event:
-    | 'runner-ready'
-    | 'worker-start'
-    | 'worker-hello'
-    | 'ready'
-    | 'first-response'
-    | 'complete';
-  readonly warmSamplesMs?: readonly number[];
-}
+type BenchmarkEvent = z.output<typeof benchmarkEventSchema>;
 
 const { values } = parseArgs({
   args: process.argv.slice(2),
@@ -129,7 +120,7 @@ async function runComparison(
   }
 
   console.log(`Bun ${Bun.version}; ${process.platform}-${process.arch}`);
-  console.log(`${warmupIterations} warmups + ${measuredIterations} measured model-list operations.`);
+  console.log(`${warmupIterations} warmups + ${measuredIterations} measured weather operations.`);
   console.table([
     {
       path: 'Native Python + JSON serialization',
@@ -177,7 +168,7 @@ async function runProcess(
   cwd: string,
   name: string,
   startMarker: string,
-): Promise<ProcessResult> {
+) {
   const child = spawn(executable, [...args], {
     cwd,
     stdio: ['ignore', 'pipe', 'inherit'],
@@ -200,7 +191,7 @@ async function runProcess(
       return;
     }
     try {
-      const event = JSON.parse(line) as BenchmarkEvent;
+      const event = benchmarkEventSchema.parse(JSON.parse(line) as unknown);
       if (event.event === 'runner-ready') runnerReadyAt = performance.now();
       else if (event.event === 'worker-start') workerStartAt = performance.now();
       else if (event.event === 'worker-hello') workerHelloAt = performance.now();
@@ -274,21 +265,21 @@ async function runStdioChild(
     root: exampleRoot,
     stdout: output,
   });
-  const clientPromise: Promise<ModelCatalogClient> = import('../../../py/pynect-example/client.js');
+  const clientPromise: Promise<ExampleClient> = import('../../../py/pynect-example/client.js');
   await using worker = await workerPromise;
   emit({ event: 'worker-hello' });
   await withTimeout(appReady.promise, 30_000, 'Benchmark application import');
   emit({ event: 'ready' });
   const client = await clientPromise;
-  const connection = client.connectModelCatalog(worker.clientOptions);
+  const connection = client.connectDemo(worker.clientOptions);
   try {
-    await client.listModels(connection);
+    await client.getWeather(connection);
     emit({ event: 'first-response' });
-    for (let index = 0; index < warmupIterations; index += 1) await client.listModels(connection);
+    for (let index = 0; index < warmupIterations; index += 1) await client.getWeather(connection);
     const warmSamplesMs: number[] = [];
     for (let index = 0; index < measuredIterations; index += 1) {
       const sampleStartedAt = performance.now();
-      await client.listModels(connection);
+      await client.getWeather(connection);
       warmSamplesMs.push(performance.now() - sampleStartedAt);
     }
     emit({ event: 'complete', warmSamplesMs });
@@ -301,7 +292,7 @@ function emit(event: BenchmarkEvent): void {
   process.stdout.write(`${JSON.stringify(event)}\n`);
 }
 
-function summarize(samples: readonly number[]): Summary {
+function summarize(samples: readonly number[]) {
   if (samples.length === 0) throw new Error('Cannot summarize an empty sample set.');
   const sorted = [...samples].sort((left, right) => left - right);
   return {
@@ -333,19 +324,4 @@ function requiredEnvironment(name: string): string {
 function round(value: number, digits = 1): number {
   const factor = 10 ** digits;
   return Math.round(value * factor) / factor;
-}
-
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, purpose: string): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`${purpose} timed out after ${timeoutMs} ms.`)), timeoutMs);
-    timer.unref();
-    promise.then(
-      value => { clearTimeout(timer); resolve(value); },
-      error => { clearTimeout(timer); reject(error); },
-    );
-  });
-}
-
-function asError(value: unknown): Error {
-  return value instanceof Error ? value : new Error(String(value));
 }

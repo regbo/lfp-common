@@ -17,7 +17,7 @@ Python projects use Chanx directly:
 
 ```toml
 [project]
-name = "model-catalog"
+name = "weather-service"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
@@ -34,8 +34,8 @@ Starlette ASGI application containing the Chanx routes. It defaults to
 `server:app`.
 
 The [`pynect-example`](../../py/pynect-example) workspace contains
-a complete model-catalog project with generated TypeScript plus owned-worker and
-remote WebSocket clients.
+a complete weather, event-stream, and stateful-chat project with generated
+TypeScript plus owned-worker and remote WebSocket clients.
 
 ## Write the API in Python
 
@@ -103,7 +103,7 @@ currently expose per-request cancellation, so a client-side `break` cannot
 remotely interrupt a server handler that is still producing values.
 
 ```ts
-import { createPynectClient, greeter } from './_generated/model-catalog/index.js';
+import { createPynectClient, greeter } from './_generated/weather-service/index.js';
 
 const connection = createPynectClient(clientOptions).connect(greeter);
 const result = await connection.request({
@@ -132,7 +132,7 @@ bunx pynect generate
 By default this writes both the exported schema and Chanx modules to:
 
 ```text
-_generated/model-catalog/
+_generated/weather-service/
   asyncapi.json
   channels.ts
   index.ts
@@ -144,20 +144,29 @@ Set `out` under `[tool.pynect]` when the TypeScript project lives elsewhere:
 ```toml
 [tool.pynect]
 app = "server:app"
-out = "../web/src/_generated/model-catalog"
+out = "../web/src/_generated/weather-service"
 ```
 
 Configuration precedence is command options, `[tool.pynect]`, then defaults.
 Pynect uses Pyfig to resolve uv and Python, and runs schema export inside the
-configured uv project. Optional `python`, `uv`, `debug`, `validation`, and
-`format` fields are available for projects that need them.
+configured uv project. `python` accepts either an exact executable path or a
+table of Pyfig options; `cwd` is omitted because Pynect supplies `root` as the
+single project directory. Pyfig's `uv`, Python request, environment, and debug
+options live inside that table instead of being repeated as Pynect options:
+
+```toml
+[tool.pynect]
+python = { python = ">=3.12", uv = ">=0.10,<1", debug = true }
+validation = "zod"
+format = true
+```
 
 ## Remote connection
 
 Generated modules are standard `@chanx-js/client` descriptors:
 
 ```ts
-import { createPynectClient, greeter } from './_generated/model-catalog/index.js';
+import { createPynectClient, greeter } from './_generated/weather-service/index.js';
 
 const client = createPynectClient({ baseUrl: 'wss://api.example.com' });
 const connection = client.connect(greeter);
@@ -169,32 +178,36 @@ const response = await connection.request({
 
 ## Owned local worker
 
-For local calls, start the same ASGI app with a resolved Python executable and
-pass the worker's client options to Chanx:
+For local calls, start the same ASGI app and pass the worker's client options to
+Chanx. Pass Pyfig options for normal runtime discovery:
 
 ```ts
 import { startWorker } from 'pynect';
-import { createPynectClient, greeter } from './_generated/model-catalog/index.js';
+import { createPynectClient, greeter } from './_generated/weather-service/index.js';
 
 await using worker = await startWorker({
-  python: 'C:\\path\\to\\python.exe',
   root: '../python',
 });
+await worker.ready;
 const client = createPynectClient(worker.clientOptions);
 const connection = client.connect(greeter);
 ```
 
 `startWorker()` always starts one Python process owned by the current Bun/Node
-process. It does not discover Python, listen on an endpoint, expose a reusable
-daemon, or allow another process to connect. Resolve the executable before
-calling it. Use `await using` for scoped cleanup or call `await worker.close()`
-explicitly; concurrent close calls share the same shutdown operation.
+process. Omitting `python` uses Pyfig's defaults. A string value is an exact
+executable path and bypasses Pyfig resolution, which is useful for tests and
+benchmarks. An object is passed to Pyfig, with `root` supplied as its working
+directory. The worker never listens on an endpoint, exposes a reusable daemon,
+or allows another process to connect. Use `await using` for scoped cleanup or
+call `await worker.close()` explicitly; concurrent close calls share the same
+shutdown operation.
 
 stdin carries random-marker, byte-length-delimited protocol records. stdout
 multiplexes the same records with byte-exact ordinary Python output, and stderr
 is forwarded immediately. Chanx frames remain opaque strings inside the
 transport. The first record reports the real Python PID before Pynect or the
-configured app is imported.
+configured app is imported. `await worker.ready` waits for the configured app
+to finish importing without delaying that early PID result.
 
 For a long-lived command, wait for the worker:
 

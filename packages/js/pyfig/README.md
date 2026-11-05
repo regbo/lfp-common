@@ -23,8 +23,8 @@ const context = await pyfig({
 
 console.log(context.uv.path, context.uv.version, context.uv.source);
 console.log(context.python.resolved); // false
-await context.python.resolve();
-console.log(context.python.path, context.python.version);
+const pythonPath = await context.python.resolve();
+console.log(pythonPath, context.python.version);
 console.log(context.python.resolved); // true
 
 const child = await context.python.spawn('-c', 'print("hello")');
@@ -36,12 +36,13 @@ The context has two immutable fields:
 | Field | Public values |
 | --- | --- |
 | `uv` | `path`, `version`, `source`, and async `spawn()` |
-| `python` | `resolved`, `path`, `version`, async `resolve()`, and async `spawn()` |
+| `python` | `resolved`, `path`, `version`, async `resolve()` returning the path, and async `spawn()` |
 
 `pyfig()` resolves uv immediately. Python remains unresolved until the first
 call to `python.resolve()` or `python.spawn()`. Both share one memoized
 resolution. Before that, `path` and `version` are `undefined`, and `resolved` is
-`false`. Awaiting `spawn()` resolves Python before returning its Node
+`false`. Awaiting `resolve()` returns the verified absolute executable path.
+Awaiting `spawn()` resolves Python before returning its Node
 `ChildProcess`; the user command itself runs exactly once through `uv run`.
 
 Both spawn helpers accept string arguments followed by an optional Node
@@ -124,8 +125,9 @@ not escape to public infrastructure when one applies. A custom installer base
 also requires `UV_ASTRAL_MIRROR_URL` for release metadata. Provisioning uses
 JavaScript extraction and needs no Python, PowerShell, shell, `curl`, or `wget`.
 
-The runtime package exports `pyfig`, `pyfigOptionsSchema`, `DEFAULT_UV`, and
-`PythonContext`. TypeScript also exports `PyfigOptions`, `UvExecutable`,
+The runtime package exports `pyfig`, `pyfigOptionsSchema`,
+`pyfigResolutionSchema`, `DEFAULT_UV`, and `PythonContext`. TypeScript also
+exports `PyfigOptions`, `PyfigResolution`, `UvMetadata`, `UvExecutable`,
 `PythonExecutable`, and `UvSource`. Matching ESM and CommonJS entry points are
 published.
 
@@ -159,14 +161,17 @@ bun run build
 
 ## Publishing
 
+The repository-root `VERSION` file is the shared version source for every npm
+and Python package.
+
 From a clean, synchronized `main` branch, `bun run release` verifies locally,
 builds and packs the package, commits the next version, creates its Git tag,
 and pushes both atomically. The tag workflow publishes that exact package to
 npm through trusted publishing.
 
-Use `bun run release -- --commit` to first verify, commit, and push compatible
-worktree changes. It refuses merge conflicts, in-progress Git operations,
+Use `bun run release -- --push` to include compatible worktree changes in a
+preparation commit. It refuses merge conflicts, in-progress Git operations,
 and divergence from `origin/main`. The preparation and release commits are
-pushed together atomically with the release tag. If any pre-push step fails,
-local commits and tags are removed while the original worktree and staging
-state are restored.
+pushed together atomically with the release tag. Failures before release
+history is created restore the original worktree and staging state. A rejected
+atomic push preserves the local commits and tag for inspection and retry.

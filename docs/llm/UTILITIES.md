@@ -9,8 +9,10 @@
 - `createPyPackage`: creates uv packages from native Projen project metadata.
 - `configurePythonTests`: adds shared pytest and Ruff task coverage to a Python package.
 - `pythonPackages`: discovers uv packages from the Projen subproject tree.
+- `scripts/version.ts`: reads and validates the root `VERSION` source shared by every package.
 - `scripts/workspaces.ts`: Pacwich-backed workspace discovery and shared-version validation.
 - `scripts/release-lib.ts`: pure SemVer, tag, GitHub remote, and identity helpers.
+- `scripts/release-git.ts`: guarded worktree preparation, snapshot, and restoration for releases.
 - `scripts/release.ts`: local fixed-version release transaction.
 - `scripts/release-check.ts`: tag-workflow and registry preflight.
 - Bun runs each generated `pack:release` package script across the workspace.

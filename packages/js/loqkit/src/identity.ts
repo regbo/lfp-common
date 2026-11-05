@@ -17,7 +17,7 @@ async function discoverNamespace(cwd: string): Promise<string> {
   return basename(resolve(cwd)) || "default";
 }
 
-export async function resolveNamespace(
+async function resolveNamespace(
   options: ResolvedLockOptionsData,
 ): Promise<string> {
   if (options.namespace) return options.namespace;
@@ -35,7 +35,7 @@ export async function resolveNamespace(
   return pending;
 }
 
-export function resolveLockDirectory(options: ResolvedLockOptionsData): string {
+function resolveLockDirectory(options: ResolvedLockOptionsData): string {
   const configured =
     options.lockDirectory ??
     process.env.LOQKIT_LOCK_DIR?.trim() ??

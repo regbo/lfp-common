@@ -1,25 +1,25 @@
 import { fileURLToPath } from 'node:url';
-import type { Writable } from 'node:stream';
 import {
   startWorker,
+  type StartWorkerOptions,
   type Worker,
 } from 'pynect';
 
 const exampleRoot = fileURLToPath(new URL('.', import.meta.url));
-const defaultPython = fileURLToPath(new URL(
-  process.platform === 'win32' ? '../../../.venv/Scripts/python.exe' : '../../../.venv/bin/python',
-  import.meta.url,
-));
 
-/** Start the invocation-owned Python subprocess behind the example's stdio IPC. */
-export function startExampleWorker(options: {
-  readonly stdout?: Writable;
-  readonly stderr?: Writable;
-} = {}): Promise<Worker> {
+/** Start the HTTP-neutral demo service in an invocation-owned Python subprocess. */
+export function startExampleWorker(
+  options: Pick<StartWorkerOptions, 'python' | 'stdout' | 'stderr'> & {
+    readonly preloadChat?: boolean;
+  } = {},
+): Promise<Worker> {
+  const python = options.python ?? process.env.PYNECT_PYTHON;
   return startWorker({
-    app: 'pynect_example.service:app',
+    app: options.preloadChat
+      ? 'pynect_example.chat_service:app'
+      : 'pynect_example.service:app',
     root: exampleRoot,
-    python: process.env.PYNECT_PYTHON ?? defaultPython,
+    ...(python === undefined ? {} : { python }),
     stdout: options.stdout,
     stderr: options.stderr,
   });

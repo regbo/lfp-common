@@ -5,7 +5,12 @@ import { createInterface } from 'node:readline';
 import type { Readable, Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { StdioOutputParser } from '../src/stdio-protocol.js';
+import { z } from 'zod';
+import { withTimeout } from '../src/promise.js';
+import {
+  helloEventSchema,
+  StdioOutputParser,
+} from '../src/stdio-protocol.js';
 
 const exampleRoot = fileURLToPath(new URL('../../../py/pynect-example/', import.meta.url));
 const pythonPath = fileURLToPath(new URL(
@@ -23,53 +28,23 @@ const packageRoot = fileURLToPath(new URL('../', import.meta.url));
 const benchmarkStart = 'BENCHMARK_START python-spawn';
 const timeoutMs = 30_000;
 
-interface HelloEvent {
-  readonly type: 'hello';
-  readonly pid: number;
-  readonly protocol: number;
-}
+const protocolEventSchema = z.discriminatedUnion('type', [
+  helloEventSchema,
+  z.object({ type: z.literal('pong'), id: z.number().int().positive() }),
+  z.object({ type: z.literal('bye'), id: z.number().int().positive() }),
+]);
+const completeEventSchema = z.object({
+  event: z.literal('complete'),
+  warmSamplesMs: z.array(z.number()),
+});
+const benchmarkEventSchema = z.discriminatedUnion('event', [
+  z.object({ event: z.literal('ready'), pid: z.number().int().positive() }),
+  z.object({ event: z.literal('first-response') }),
+  completeEventSchema,
+]);
 
-interface PongEvent {
-  readonly type: 'pong';
-  readonly id: number;
-}
-
-interface ByeEvent {
-  readonly type: 'bye';
-  readonly id: number;
-}
-
-type ProtocolEvent = HelloEvent | PongEvent | ByeEvent;
-
-interface ReadyEvent {
-  readonly event: 'ready';
-  readonly pid: number;
-}
-
-interface FirstResponseEvent {
-  readonly event: 'first-response';
-}
-
-interface CompleteEvent {
-  readonly event: 'complete';
-  readonly warmSamplesMs: readonly number[];
-}
-
-type BenchmarkEvent = ReadyEvent | FirstResponseEvent | CompleteEvent;
-
-interface SampleResult {
-  readonly markerToReadyMs: number;
-  readonly readyToFirstMs: number;
-  readonly markerToFirstMs: number;
-  readonly warmSamplesMs: readonly number[];
-}
-
-interface Summary {
-  readonly mean: number;
-  readonly p50: number;
-  readonly p95: number;
-  readonly p99: number;
-}
+type BenchmarkEvent = z.output<typeof benchmarkEventSchema>;
+type CompleteEvent = z.output<typeof completeEventSchema>;
 
 const { values } = parseArgs({
   args: process.argv.slice(2),
@@ -97,10 +72,10 @@ async function runChild(warmupIterations: number, measuredIterations: number): P
   process.stdout.write(`${benchmarkStart}\n`);
   const transport = StdioPingPong.start(prefix);
   try {
-    const pid = await withTimeout(transport.ready, 'Python stdio hello');
+    const pid = await withTimeout(transport.ready, timeoutMs, 'Python stdio hello');
     emit({ event: 'ready', pid });
 
-    await withTimeout(transport.ping(), 'first Python stdio pong');
+    await withTimeout(transport.ping(), timeoutMs, 'first Python stdio pong');
     emit({ event: 'first-response' });
 
     for (let index = 0; index < warmupIterations; index += 1) {
@@ -124,7 +99,7 @@ async function runParent(
   measuredIterations: number,
   json: boolean,
 ): Promise<void> {
-  const samples: SampleResult[] = [];
+  const samples: Array<Awaited<ReturnType<typeof runFreshProcess>>> = [];
   for (let index = 0; index < sampleCount; index += 1) {
     samples.push(await runFreshProcess(warmupIterations, measuredIterations));
   }
@@ -172,7 +147,7 @@ async function runParent(
 async function runFreshProcess(
   warmupIterations: number,
   measuredIterations: number,
-): Promise<SampleResult> {
+) {
   const child = spawn(process.execPath, [
     launcherPath,
     '--child',
@@ -198,7 +173,7 @@ async function runFreshProcess(
       return;
     }
     try {
-      const event = JSON.parse(line) as BenchmarkEvent;
+      const event = benchmarkEventSchema.parse(JSON.parse(line) as unknown);
       if (event.event === 'ready') readyAt = performance.now();
       else if (event.event === 'first-response') firstAt = performance.now();
       else if (event.event === 'complete') complete = event;
@@ -289,8 +264,8 @@ class StdioPingPong {
     this.#closed = true;
     const request = this.#request('shutdown');
     this.#child.stdin?.end();
-    await withTimeout(request, 'Python stdio shutdown');
-    const exitCode = await withTimeout(this.#exited, 'Python stdio process exit');
+    await withTimeout(request, timeoutMs, 'Python stdio shutdown');
+    const exitCode = await withTimeout(this.#exited, timeoutMs, 'Python stdio process exit');
     if (exitCode !== 0) throw new Error(`Python stdio worker exited with code ${exitCode}.`);
   }
 
@@ -308,30 +283,32 @@ class StdioPingPong {
   }
 
   #receive(event: unknown): void {
-    if (!isProtocolEvent(event)) {
+    const parsed = protocolEventSchema.safeParse(event);
+    if (!parsed.success) {
       this.#fail(new Error('Python emitted an invalid stdio protocol event.'));
       return;
     }
+    const protocolEvent = parsed.data;
     this.#protocolEvents += 1;
     if (this.#protocolEvents === 1) {
-      if (event.type !== 'hello' || event.protocol !== 1) {
+      if (protocolEvent.type !== 'hello') {
         this.#fail(new Error('The first Python stdio event was not the protocol hello.'));
         return;
       }
       this.#settledReady = true;
-      this.#resolveReady(event.pid);
+      this.#resolveReady(protocolEvent.pid);
       return;
     }
-    if (event.type === 'hello') {
+    if (protocolEvent.type === 'hello') {
       this.#fail(new Error('Python emitted more than one stdio hello event.'));
       return;
     }
-    const pending = this.#pending.get(event.id);
+    const pending = this.#pending.get(protocolEvent.id);
     if (!pending) {
-      this.#fail(new Error(`Python replied to unknown request ${event.id}.`));
+      this.#fail(new Error(`Python replied to unknown request ${protocolEvent.id}.`));
       return;
     }
-    this.#pending.delete(event.id);
+    this.#pending.delete(protocolEvent.id);
     pending.resolve();
   }
 
@@ -374,16 +351,6 @@ function encodeRecord(prefix: string, event: object): Buffer {
   return Buffer.concat([Buffer.from(`${prefix}${payload.length}:`), payload]);
 }
 
-function isProtocolEvent(event: unknown): event is ProtocolEvent {
-  if (!event || typeof event !== 'object') return false;
-  const candidate = event as { id?: unknown; pid?: unknown; protocol?: unknown; type?: unknown };
-  if (candidate.type === 'hello') {
-    return Number.isSafeInteger(candidate.pid) && Number.isSafeInteger(candidate.protocol);
-  }
-  return (candidate.type === 'pong' || candidate.type === 'bye')
-    && Number.isSafeInteger(candidate.id);
-}
-
 function emit(event: BenchmarkEvent): void {
   process.stdout.write(`${JSON.stringify(event)}\n`);
 }
@@ -395,20 +362,7 @@ function waitForExit(child: ChildProcess): Promise<number | null> {
   });
 }
 
-function withTimeout<T>(promise: Promise<T>, purpose: string): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(new Error(`${purpose} timed out after ${timeoutMs} ms.`));
-    }, timeoutMs);
-    timer.unref();
-    promise.then(
-      value => { clearTimeout(timer); resolve(value); },
-      error => { clearTimeout(timer); reject(error); },
-    );
-  });
-}
-
-function summarize(samples: readonly number[]): Summary {
+function summarize(samples: readonly number[]) {
   if (samples.length === 0) throw new Error('Cannot summarize an empty sample set.');
   const sorted = [...samples].sort((left, right) => left - right);
   return {

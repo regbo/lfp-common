@@ -23,14 +23,16 @@ describe('stdio protocol', () => {
       onProtocolError: error => { errors.push(error); },
     });
     const first = encodeStdioRecord(prefix, { type: 'hello', protocol: 1, pid: 123 });
+    const ready = encodeStdioRecord(prefix, { type: 'ready' });
     const second = encodeStdioRecord(prefix, { type: 'frame', data: '{"action":"pong"}' });
 
     for (const byte of first) parser.push(Buffer.from([byte]));
-    parser.push(Buffer.concat([Buffer.from('before\r\n\n'), second, Buffer.from('after\n')]));
+    parser.push(Buffer.concat([Buffer.from('before\r\n\n'), ready, second, Buffer.from('after\n')]));
     parser.finish();
 
     expect(events).toEqual([
       { type: 'hello', protocol: 1, pid: 123 },
+      { type: 'ready' },
       { type: 'frame', data: '{"action":"pong"}' },
     ]);
     expect(Buffer.concat(output).toString()).toBe('before\r\n\nafter\n');

@@ -30,6 +30,24 @@ const memoryOnly = {
   flock: false,
   poll: false,
 } as const;
+
+test("exposes only the supported runtime API", async () => {
+  const api = await import("../src/index.js");
+  expect(Object.keys(api).sort()).toEqual([
+    "LockAbortedError",
+    "LockTimeoutError",
+    "LockUnavailableError",
+    "lockAutoScopeSchema",
+    "lockBackendScopeSchema",
+    "lockBackendScopes",
+    "lockOptionsSchema",
+    "lockScopeSchema",
+    "lockTimeoutSchema",
+    "memoize",
+    "withLock",
+  ]);
+});
+
 describe("memoize", () => {
   test("memoizes synchronous results, including undefined", () => {
     let calls = 0;

@@ -3,6 +3,11 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { catalog } from '../src/_generated/catalog.ts';
 
+test('exposes only the CLI construction entry point at runtime', async () => {
+  const api = await import('../src/index.ts');
+  expect(Object.keys(api)).toEqual(['createOptionKit']);
+});
+
 test('keeps runtime dependencies centralized in the workspace catalog', async () => {
   const root = path.resolve(import.meta.dir, '..');
   const monorepoRoot = path.resolve(root, '..', '..', '..');

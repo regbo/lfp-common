@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from chanx.fast_channels.views import generate_asyncapi_schema
+from fastapi import FastAPI
 from starlette.requests import Request
 
 from pynect._app import load_object
@@ -14,7 +15,7 @@ from pynect.handlers import stream_operations
 
 def export_schema(app_target: str, output: Path) -> None:
     """Generate AsyncAPI without starting an HTTP server."""
-    app = load_object(app_target)
+    app = _schema_host(load_object(app_target))
     request = Request(
         {
             "type": "http",
@@ -48,6 +49,26 @@ def export_schema(app_target: str, output: Path) -> None:
     temporary = output.with_name(f".{output.name}.{os.getpid()}.tmp")
     temporary.write_text(json.dumps(schema, indent=2) + "\n", encoding="utf-8")
     temporary.replace(output)
+
+
+def _schema_host(app: Any) -> Any:
+    """Give a bare Chanx consumer the route metadata its schema generator needs."""
+    if hasattr(app, "routes"):
+        return app
+    consumer = getattr(app, "consumer_class", None)
+    if consumer is None:
+        return app
+
+    channel_info = getattr(consumer, "_channel_info", {})
+    channel_name = channel_info.get("name") or getattr(consumer, "snake_name", None)
+    if not isinstance(channel_name, str) or not channel_name:
+        raise TypeError("A bare Chanx application must expose a channel name")
+
+    title = getattr(consumer, "name", channel_name)
+    description = channel_info.get("description") or ""
+    host = FastAPI(title=title, version="1.0.0", description=description)
+    host.router.add_websocket_route(f"/ws/{channel_name}", app)
+    return host
 
 
 def _message_schema_name(schema: dict[str, Any], message_ref: str | None) -> str | None:

@@ -1,11 +1,23 @@
-import { spawn, type ChildProcess, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { existsSync, statSync } from 'node:fs';
+import {
+  spawn,
+  type ChildProcess,
+  type ChildProcessWithoutNullStreams,
+  type SpawnOptions,
+} from 'node:child_process';
+import { statSync } from 'node:fs';
 import path from 'node:path';
-import type { Writable } from 'node:stream';
+import { Writable } from 'node:stream';
 import type { ClientOptions, SocketFactory, WebSocketLike } from '@chanx-js/client';
+import { pyfig } from 'pyfig';
 import { z } from 'zod';
-import { projectOptionsSchema, resolveProject, type ProjectOptions } from './config.js';
+import {
+  projectOptionsSchema,
+  pynectPythonSchema,
+  resolveProject,
+} from './config.js';
+import { asError } from './errors.js';
 import { OwnedProcessTree } from './process-signals.js';
+import { withTimeout } from './promise.js';
 import {
   createStdioPrefix,
   parseWorkerStdioEvent,
@@ -34,20 +46,16 @@ const STDIO_LAUNCHER = [
 ].join(';');
 
 export const workerOptionsSchema = projectOptionsSchema.unwrap().extend({
-  python: z.string().trim().min(1).describe('Resolved Python executable path.'),
+  python: pynectPythonSchema.prefault({}),
   startupTimeoutMs: z.number().int().positive().default(30_000)
     .describe('Python hello timeout.'),
   shutdownTimeoutMs: z.number().int().positive().default(5_000)
     .describe('Graceful stdio shutdown timeout before process-tree termination.'),
+  stdout: z.instanceof(Writable).optional().describe('Destination for ordinary Python stdout.'),
+  stderr: z.instanceof(Writable).optional().describe('Destination for Python stderr.'),
 }).readonly();
 
-export interface StartWorkerOptions extends Omit<ProjectOptions, 'python'> {
-  readonly python: string;
-  readonly startupTimeoutMs?: number;
-  readonly shutdownTimeoutMs?: number;
-  readonly stdout?: Writable;
-  readonly stderr?: Writable;
-}
+export type StartWorkerOptions = z.input<typeof workerOptionsSchema>;
 
 /** A Python subprocess owned exclusively by the current Bun/Node process. */
 export class Worker implements AsyncDisposable {
@@ -55,6 +63,7 @@ export class Worker implements AsyncDisposable {
   readonly clientOptions: ClientOptions;
   readonly exited: Promise<number | null>;
   readonly pid: number;
+  readonly ready: Promise<void>;
   readonly #controller: WorkerController;
   readonly #shutdownTimeoutMs: number;
   readonly #tree: OwnedProcessTree;
@@ -73,6 +82,7 @@ export class Worker implements AsyncDisposable {
     this.#shutdownTimeoutMs = options.shutdownTimeoutMs;
     this.#tree = options.tree;
     this.exited = options.tree.exited;
+    this.ready = options.controller.applicationReady;
     this.clientOptions = Object.freeze({
       baseUrl: 'ws://pynect-stdio',
       reconnectAttempts: 0,
@@ -113,33 +123,23 @@ export class Worker implements AsyncDisposable {
   }
 }
 
-/** Start one worker using the exact Python executable supplied by the caller. */
+/** Start one worker from Pyfig defaults, configured options, or an exact Python path. */
 export async function startWorker(input: StartWorkerOptions): Promise<Worker> {
   const parsed = workerOptionsSchema.parse(input);
-  const python = path.resolve(parsed.python);
-  if (!statSync(python, { throwIfNoEntry: false })?.isFile()) {
-    throw new Error(`Python executable does not exist: ${python}`);
-  }
   const project = resolveProject(parsed);
   const prefix = createStdioPrefix();
-  const child = spawn(python, ['-c', STDIO_LAUNCHER], {
-    cwd: project.root,
-    detached: process.platform !== 'win32',
-    env: {
-      ...process.env,
-      PYNECT_APP: project.app,
-      PYNECT_LOG_LEVEL: project.debug ? 'DEBUG' : 'WARNING',
-      PYNECT_STDIO_PREFIX: prefix,
-      PYTHONUNBUFFERED: '1',
-    },
-    stdio: ['pipe', 'pipe', 'pipe'],
-    windowsHide: true,
+  const debug = typeof parsed.python === 'string' ? false : parsed.python.debug;
+  const child = await spawnWorker(parsed.python, project.root, {
+    PYNECT_APP: project.app,
+    PYNECT_LOG_LEVEL: debug ? 'DEBUG' : 'WARNING',
+    PYNECT_STDIO_PREFIX: prefix,
+    PYTHONUNBUFFERED: '1',
   });
   const controller = new WorkerController(
     child,
     prefix,
-    input.stdout ?? process.stdout,
-    input.stderr ?? process.stderr,
+    parsed.stdout ?? process.stdout,
+    parsed.stderr ?? process.stderr,
   );
   let tree: OwnedProcessTree | undefined;
   try {
@@ -166,7 +166,45 @@ export async function startWorker(input: StartWorkerOptions): Promise<Worker> {
   }
 }
 
+async function spawnWorker(
+  python: z.output<typeof pynectPythonSchema>,
+  root: string,
+  workerEnvironment: NodeJS.ProcessEnv,
+): Promise<ChildProcessWithoutNullStreams> {
+  const spawnOptions: SpawnOptions = {
+    detached: process.platform !== 'win32',
+    stdio: ['pipe', 'pipe', 'pipe'],
+    windowsHide: true,
+  };
+  let child: ChildProcess;
+  if (typeof python === 'string') {
+    const pythonPath = path.resolve(python);
+    if (!statSync(pythonPath, { throwIfNoEntry: false })?.isFile()) {
+      throw new Error(`Python executable does not exist: ${pythonPath}`);
+    }
+    child = spawn(pythonPath, ['-c', STDIO_LAUNCHER], {
+      ...spawnOptions,
+      cwd: root,
+      env: { ...process.env, ...workerEnvironment },
+    });
+  } else {
+    const environment = await pyfig({
+      ...python,
+      cwd: root,
+      env: { ...python.env, ...workerEnvironment },
+    });
+    child = await environment.python.spawn('-c', STDIO_LAUNCHER, spawnOptions);
+  }
+
+  if (!child.stdin || !child.stdout || !child.stderr) {
+    child.kill();
+    throw new Error('Python stdio worker did not expose piped standard streams.');
+  }
+  return child as ChildProcessWithoutNullStreams;
+}
+
 class WorkerController {
+  readonly applicationReady: Promise<void>;
   readonly ready: Promise<number>;
   readonly bye: Promise<void>;
   readonly socketFactory: SocketFactory;
@@ -178,6 +216,8 @@ class WorkerController {
   readonly #stderr: Writable;
   readonly #resolveReady: (pid: number) => void;
   readonly #rejectReady: (error: Error) => void;
+  readonly #resolveApplicationReady: () => void;
+  readonly #rejectApplicationReady: (error: Error) => void;
   readonly #resolveBye: () => void;
   readonly #rejectBye: (error: Error) => void;
   readonly #onChildError: (error: Error) => void;
@@ -185,6 +225,7 @@ class WorkerController {
   readonly #onStderrData: (chunk: Buffer | string) => void;
   readonly #onStderrError: (error: Error) => void;
   #active: StdioSocket | undefined;
+  #applicationReadySettled = false;
   #byeSettled = false;
   #closing = false;
   #disposed = false;
@@ -199,14 +240,19 @@ class WorkerController {
     this.#stdout = stdout;
     this.#stderr = stderr;
     const ready = Promise.withResolvers<number>();
+    const applicationReady = Promise.withResolvers<void>();
     const bye = Promise.withResolvers<void>();
     this.ready = ready.promise;
+    this.applicationReady = applicationReady.promise;
     this.bye = bye.promise;
     this.#resolveReady = ready.resolve;
     this.#rejectReady = ready.reject;
+    this.#resolveApplicationReady = applicationReady.resolve;
+    this.#rejectApplicationReady = applicationReady.reject;
     this.#resolveBye = bye.resolve;
     this.#rejectBye = bye.reject;
     void this.ready.catch(() => undefined);
+    void this.applicationReady.catch(() => undefined);
     void this.bye.catch(() => undefined);
     this.#writer = new StdioRecordWriter(child.stdin, prefix);
     this.#pump = new StdioOutputPump({
@@ -343,7 +389,13 @@ class WorkerController {
         return;
       }
       if (event.type === 'hello') throw new Error('Python emitted duplicate stdio hello events.');
-      if (event.type === 'frame') {
+      if (event.type === 'ready') {
+        if (this.#applicationReadySettled) {
+          throw new Error('Python emitted duplicate stdio ready events.');
+        }
+        this.#applicationReadySettled = true;
+        this.#resolveApplicationReady();
+      } else if (event.type === 'frame') {
         if (!this.#active) throw new Error('Python emitted a frame without an open connection.');
         this.#active.receive(event.data);
       } else if (event.type === 'close') {
@@ -370,6 +422,10 @@ class WorkerController {
     if (!this.#readySettled) {
       this.#readySettled = true;
       this.#rejectReady(error);
+    }
+    if (!this.#applicationReadySettled) {
+      this.#applicationReadySettled = true;
+      this.#rejectApplicationReady(error);
     }
     if (!this.#byeSettled) {
       this.#byeSettled = true;
@@ -448,19 +504,4 @@ function appendDiagnostic(
 function diagnostic(name: string, value: Buffer<ArrayBufferLike>): string | undefined {
   const text = value.toString('utf8').trimEnd();
   return text ? `Python ${name}:\n${text}` : undefined;
-}
-
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, purpose: string): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`${purpose} timed out after ${timeoutMs} ms.`)), timeoutMs);
-    timer.unref();
-    promise.then(
-      value => { clearTimeout(timer); resolve(value); },
-      error => { clearTimeout(timer); reject(error); },
-    );
-  });
-}
-
-function asError(value: unknown): Error {
-  return value instanceof Error ? value : new Error(String(value));
 }

@@ -47,17 +47,18 @@ describe('pyfig', () => {
     expect(context.python.resolved).toBe(false);
     expect(context.python.path).toBeUndefined();
     expect(context.python.version).toBeUndefined();
-    await Promise.all([
+    const resolvedPaths = await Promise.all([
       context.python.resolve(),
       context.python.resolve(),
     ]);
 
+    expect(resolvedPaths[0]).toBe(resolvedPaths[1]);
+    expect(context.python.path).toBe(resolvedPaths[0]);
     expect(path.isAbsolute(context.python.path ?? '')).toBe(true);
     expect(context.python.version).toMatch(/^\d+\.\d+\.\d+/u);
     expect(context.python.resolved).toBe(true);
-    const pythonPath = context.python.path;
-    await context.python.resolve();
-    expect(context.python.path).toBe(pythonPath);
+    const pythonPath = resolvedPaths[0];
+    expect(await context.python.resolve()).toBe(pythonPath);
   }, 120_000);
 
   test('executes Python through the memoized uv resolution', async () => {
@@ -189,6 +190,7 @@ describe('pyfig', () => {
       'PythonContext',
       'pyfig',
       'pyfigOptionsSchema',
+      'pyfigResolutionSchema',
     ]);
   });
 });

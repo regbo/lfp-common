@@ -109,16 +109,28 @@
       "name": "pynect-example",
       "version": "0.8.15",
       "dependencies": {
+        "@antfu/install-pkg": "catalog:",
         "@chanx-js/client": "catalog:",
         "optionkit": "workspace:*",
         "pynect": "workspace:*",
+        "zod": "catalog:",
       },
+      "devDependencies": {
+        "@clack/prompts": "catalog:",
+      },
+      "peerDependencies": {
+        "@clack/prompts": "*",
+      },
+      "optionalPeers": [
+        "@clack/prompts",
+      ],
     },
   },
   "catalog": {
     "@antfu/install-pkg": "^2.1.0",
     "@chanx-js/client": "^2.4.0",
     "@chanx-js/codegen": "^2.1.2",
+    "@clack/prompts": "^1.8.1",
     "@renovatebot/pep440": "^5.0.1",
     "@types/bun": "^1.4.4",
     "@types/fs-ext": "^2.0.3",
@@ -155,6 +167,10 @@
     "@chanx-js/client": ["@chanx-js/client@2.4.0", "", { "peerDependencies": { "react": ">=18", "solid-js": ">=1.8", "svelte": ">=4", "vue": ">=3.4" }, "optionalPeers": ["react", "solid-js", "svelte", "vue"] }, "sha512-sQF0oFVvDTJ3QDYIKZWOtINq7MRhW23S1SeNBcQqSAtSxMIA5Vin0elHDggci9oKgG74W7SsoJ+dyW5vE+Vm8A=="],
 
     "@chanx-js/codegen": ["@chanx-js/codegen@2.1.2", "", { "dependencies": { "cac": "^6.7.14", "ts-morph": "^28.0.0", "yaml": "^2.7.0" }, "peerDependencies": { "prettier": ">=3" }, "optionalPeers": ["prettier"], "bin": { "chanx-codegen": "dist/cli.mjs" } }, "sha512-OTFdBCf9WpznxYRDmZyXmiKnwkGFXT7nznhMxqE23VPnW5Zd2rr5yp1RAGJ/UCkf3wS94u0KXAvHTwKOguIiXQ=="],
+
+    "@clack/core": ["@clack/core@1.5.1", "", { "dependencies": { "fast-wrap-ansi": "^0.2.0", "sisteransi": "^1.0.5" } }, "sha512-iHTrHA8MtVuLl2TfZySmcKv1qO2PoyC9Z7pfSDozEuV5vtY3/wcOPKJXlqJ5Oq2Cx5DDGQGAMVx6HZfRRoVEbQ=="],
+
+    "@clack/prompts": ["@clack/prompts@1.8.1", "", { "dependencies": { "@clack/core": "1.5.1", "fast-string-width": "^3.0.2", "fast-wrap-ansi": "^0.2.0", "sisteransi": "^1.0.5" } }, "sha512-dlT1m5e/0yUL0kRNcQn7yGLVThkgbB0Ga/1AmfDDC/8ik6AIiSf2QLQO2zPYvefsHP0aFgxO93cVLCCfDp7kzQ=="],
 
     "@isaacs/fs-minipass": ["@isaacs/fs-minipass@4.0.1", "", { "dependencies": { "minipass": "^7.0.4" } }, "sha512-wgm9Ehl2jpeqP3zw/7mo3kRHFp5MEDhqAdwy1fTGkHAwnkGOVsgpvQhL8B5n1qlb01jV3n/bI0ZfZp5lWA1k4w=="],
 
@@ -201,6 +217,12 @@
     "constructs": ["constructs@10.8.1", "", {}, "sha512-98yGXYyhePqPYh3cYu8nzBERmAhC0DONe3UD03okK0nehZ7hYP4wgZuf02a04+uOWxnTJ5Rpp5m0GRNpwyLGGA=="],
 
     "escape-string-regexp": ["escape-string-regexp@5.0.0", "", {}, "sha512-/veY75JbMK4j1yjvuUxuVsiS/hr/4iHs9FTT6cgTexxdE0Ly/glccBAkloH/DofkjRbZU3bnoj38mOmhkZ0lHw=="],
+
+    "fast-string-truncated-width": ["fast-string-truncated-width@3.0.3", "", {}, "sha512-0jjjIEL6+0jag3l2XWWizO64/aZVtpiGE3t0Zgqxv0DPuxiMjvB3M24fCyhZUO4KomJQPj3LTSUnDP3GpdwC0g=="],
+
+    "fast-string-width": ["fast-string-width@3.0.2", "", { "dependencies": { "fast-string-truncated-width": "^3.0.2" } }, "sha512-gX8LrtNEI5hq8DVUfRQMbr5lpaS4nMIWV+7XEbXk2b8kiQIizgnlr12B4dA3ZEx3308ze0O4Q1R+cHts8kyUJg=="],
+
+    "fast-wrap-ansi": ["fast-wrap-ansi@0.2.2", "", { "dependencies": { "fast-string-width": "^3.0.2" } }, "sha512-7F2Fl+TjRSenLqlU3UjSH0iyqopqoZIu7eZVpEirP2g1GtWa2G/ecEmBdgz31+Mxr+ELclgg6sokpSFIQiZ02Q=="],
 
     "fdir": ["fdir@6.5.0", "", { "peerDependencies": { "picomatch": "^3 || ^4" }, "optionalPeers": ["picomatch"] }, "sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg=="],
 
@@ -271,6 +293,8 @@
     "semver": ["semver@7.8.6", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-9lpSSU4Mly3mrtruwLs1eLK6+gzbzqeBFwRNjIjE+9LuDpWdYctrQlQ3ej1Ilgi7gknpsTRnPoLP8DpCHqHIJw=="],
 
     "signal-exit": ["signal-exit@3.0.7", "", {}, "sha512-wnD2ZE+l+SPC/uoS0vXeE9L1+0wuaMqKlfz9AMUo38JsyLSBWSFcHR1Rri62LZc12vLr1gb3jl7iwQhgwpAbGQ=="],
+
+    "sisteransi": ["sisteransi@1.0.5", "", {}, "sha512-bLGGlR1QxBcynn2d5YmDX4MGjlZvy2MRBDRNHLJ8VI6l6+9FUiyTFNJ0IveOSP0bcXgVDPRcfGqA0pjaqUpfVg=="],
 
     "smol-toml": ["smol-toml@1.9.1", "", {}, "sha512-j7WyPdf0CJoutMzMoPLF/bVXHtKZIT9Rb4eGeEbWw8X2t5oirjPgpL+OpaENZrILYaXqYwnVH+qgUwVbl+pUJQ=="],
 

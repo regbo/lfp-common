@@ -2,6 +2,12 @@ import subprocess
 import sys
 
 
+def test_public_api_is_explicit() -> None:
+    import pynect
+
+    assert pynect.__all__ == ["AsyncJsonWebsocketConsumer", "PACKAGE_NAME", "PACKAGE_VERSION"]
+
+
 def test_stdio_runtime_does_not_import_http_stack() -> None:
     script = """
 import sys

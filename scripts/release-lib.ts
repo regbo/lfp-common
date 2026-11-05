@@ -2,11 +2,30 @@ import semver from 'semver';
 
 export type ReleaseIncrement = 'major' | 'minor' | 'patch';
 
-export interface ReleasePlan {
-  readonly currentVersion?: string;
-  readonly initial: boolean;
-  readonly nextVersion: string;
+export function assertReleaseBranchState(options: {
+  readonly allowPush: boolean;
+  readonly branch: string;
+  readonly localHead: string;
+  readonly mergeBase: string;
+  readonly remoteHead: string;
+  readonly upstreamHead: string;
+}): void {
+  if (options.upstreamHead !== options.remoteHead) {
+    throw new Error(`Local ${options.branch} does not track the fetched remote head.`);
+  }
+  if (options.allowPush) {
+    if (options.mergeBase !== options.remoteHead) {
+      throw new Error(
+        `Local ${options.branch} cannot be pushed without overwriting or merging remote commits.`,
+      );
+    }
+    return;
+  }
+  if (options.localHead !== options.remoteHead) {
+    throw new Error(`Local ${options.branch} must exactly match its GitHub upstream before releasing.`);
+  }
 }
+
 /** Select the greatest stable v<SemVer> tag from git ls-remote output. */
 export function latestReleaseVersion(output: string): string | undefined {
   const versions = output
@@ -26,20 +45,20 @@ export function planRelease(options: {
   readonly increment: ReleaseIncrement;
   readonly initial: boolean;
   readonly latestRemoteVersion?: string;
-  readonly manifestVersion: string;
-}): ReleasePlan {
-  if (!semver.valid(options.manifestVersion)) {
-    throw new Error(`package.json has invalid stable SemVer: ${options.manifestVersion}.`);
+  readonly sourceVersion: string;
+}) {
+  if (!semver.valid(options.sourceVersion)) {
+    throw new Error(`Shared version has invalid stable SemVer: ${options.sourceVersion}.`);
   }
-  if (semver.prerelease(options.manifestVersion)) {
-    throw new Error(`Shared releases must use stable SemVer: ${options.manifestVersion}.`);
+  if (semver.prerelease(options.sourceVersion)) {
+    throw new Error(`Shared releases must use stable SemVer: ${options.sourceVersion}.`);
   }
 
   if (options.latestRemoteVersion) {
     if (options.initial) throw new Error('--initial is only valid when the remote has no release tags.');
-    if (options.manifestVersion !== options.latestRemoteVersion) {
+    if (options.sourceVersion !== options.latestRemoteVersion) {
       throw new Error(
-        `Shared version ${options.manifestVersion} must match latest remote tag v${options.latestRemoteVersion}.`,
+        `Shared version ${options.sourceVersion} must match latest remote tag v${options.latestRemoteVersion}.`,
       );
     }
     return {
@@ -56,9 +75,11 @@ export function planRelease(options: {
   }
   return {
     initial: true,
-    nextVersion: options.manifestVersion,
+    nextVersion: options.sourceVersion,
   };
 }
+
+export type ReleasePlan = ReturnType<typeof planRelease>;
 
 export function githubRepositoryFromRemote(remote: string): string | undefined {
   return /^(?:git@github\.com:|ssh:\/\/git@github\.com\/|(?:git\+)?https:\/\/github\.com\/)([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/iu

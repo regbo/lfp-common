@@ -3,7 +3,7 @@
 [project]
 name = "pynect-example"
 version = "0.8.15"
-description = "Python-owned Chanx model catalog consumed by the Pynect TypeScript example"
+description = "Runnable Pynect weather, event-stream, chat, and web-server examples"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
@@ -17,7 +17,10 @@ classifiers = [
 ]
 dependencies = [
   "chanx[fast_channels]>=2.13.0,<3",
+  "huggingface-hub>=0.34,<1",
+  "optimum-onnx[onnxruntime]>=0.1,<0.2",
   "pynect",
+  "transformers>=4.49,<5",
   "uvicorn[standard]>=0.40,<1"
 ]
 
@@ -57,6 +60,7 @@ src = [ "src" ]
     "src/pynect_example/benchmark_native.py" = [ "E402" ]
 
 [tool.pynect]
-name = "model-catalog"
-app = "pynect_example.server:app"
-out = "_generated/model-catalog"
+name = "pynect-example"
+app = "pynect_example.service:app"
+out = "_generated/pynect-example"
+validation = "zod"

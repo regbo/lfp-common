@@ -1,1 +1,1 @@
-"""Pynect model-catalog example application."""
+"""Runnable Pynect example application."""

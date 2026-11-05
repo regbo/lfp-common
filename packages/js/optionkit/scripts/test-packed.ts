@@ -60,13 +60,10 @@ const input = z.object({
   labels: z.array(z.string()).optional().describe('Labels as shell words.'),
   settings: z.record(z.string(), z.string()).optional().describe('Settings as a JSON object.'),
 });
+const output = input.pick({ tags: true, labels: true, settings: true });
 const command = f.command({ name: 'resolve', description: 'Resolve runtimes.' })
   .input(input)
-  .output(z.object({
-    tags: z.array(z.string()).optional(),
-    labels: z.array(z.string()).optional(),
-    settings: z.record(z.string(), z.string()).optional(),
-  }))
+  .output(output)
   .render(output => JSON.stringify(output))
   .handler(input => input);
 await command.parseAsync(process.argv);

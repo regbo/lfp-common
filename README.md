@@ -9,7 +9,7 @@ The shared Bun and uv monorepo for LFP Connect libraries.
 | [`pyfig`](packages/js/pyfig) | Bootstrap uv and delegate Python execution to it. |
 | [`pynect`](packages/js/pynect) (npm) | Generate Chanx clients from Python and run them through an owned stdio worker. |
 | [`pynect`](packages/py/pynect) (PyPI) | Chanx schema export and owned stdio adapter for Pynect. |
-| [`pynect-example`](packages/py/pynect-example) | Python-owned Chanx model catalog consumed by the Pynect TypeScript example. |
+| [`pynect-example`](packages/py/pynect-example) | Runnable Pynect weather, event-stream, chat, and web-server examples. |
 
 All packages use the version declared in `.projenrc.ts`, external versions come from its Bun catalog, and sibling packages use `workspace:*`.
 Every workspace publishes its generated `PACKAGE_NAME` and `PACKAGE_VERSION` constants from the `./metadata` subpath.

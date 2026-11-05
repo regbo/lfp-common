@@ -14,6 +14,7 @@ import {
   python,
   typescript,
 } from 'projen';
+import { readRootVersion } from './scripts/version.ts';
 
 /** Enforce `.projenrc.ts` as the only writable source for synthesized files. */
 class ReadonlyGeneratedFiles implements IMixin {
@@ -38,7 +39,8 @@ class ReadonlyGeneratedFilesPolicy extends Component {
   }
 }
 
-const VERSION = '0.8.15';
+const ROOT_DIRECTORY = fileURLToPath(new URL('.', import.meta.url));
+const VERSION = readRootVersion(ROOT_DIRECTORY);
 const BUN_VERSION = '1.4.4';
 const PROJEN_VERSION = '0.104.23';
 const PROJEN_COMMAND = 'bunx projen';
@@ -50,7 +52,6 @@ const GITHUB_AUTHOR = GITHUB_REPOSITORY.split('/')[0]!;
 const GITHUB_URL = `https://github.com/${GITHUB_REPOSITORY}`;
 const REPOSITORY = `${GITHUB_URL}.git`;
 const BUGS_URL = `${GITHUB_URL}/issues`;
-const ROOT_DIRECTORY = fileURLToPath(new URL('.', import.meta.url));
 const JS_PROJECT_DEFAULTS = {
   repository: REPOSITORY,
   bugsUrl: BUGS_URL,
@@ -135,6 +136,7 @@ const CATALOG = {
   '@types/proper-lockfile': '^4.1.4',
   '@types/semver': '^7.8.0',
   '@types/which': '^3.0.4',
+  '@clack/prompts': '^1.8.1',
   'async-mutex': '^0.5.0',
   'clean-stack': '^7.0.0',
   'constructs': '^10.0.0',
@@ -855,10 +857,10 @@ const pyfig = createJsPackage('packages/js/pyfig', {
 }, project => {
   project.package.addField('exports', {
     ...(project.package.manifest.exports as Record<string, unknown>),
-      './cli': {
-        types: './dist/cli.d.ts',
-        import: './dist/cli.js',
-      },
+    './cli': {
+      types: './dist/cli.d.ts',
+      import: './dist/cli.js',
+    },
   });
   project.compileTask.reset();
   project.compileTask.execArgs(['bun', 'scripts/build.ts']);
@@ -906,10 +908,13 @@ const pynectPython = createPyPackage(
 const pynectExample = createPyPackage(
   'packages/py/pynect-example',
   {
-    description: 'Python-owned Chanx model catalog consumed by the Pynect TypeScript example',
+    description: 'Runnable Pynect weather, event-stream, chat, and web-server examples',
     dependencies: [
       'chanx[fast_channels]>=2.13.0,<3',
+      'huggingface-hub>=0.34,<1',
+      'optimum-onnx[onnxruntime]>=0.1,<0.2',
       pynectPython.project.name,
+      'transformers>=4.49,<5',
       'uvicorn[standard]>=0.40,<1',
     ],
   },
@@ -922,26 +927,31 @@ const pynectExample = createPyPackage(
       'src/pynect_example/benchmark_native.py': ['E402'],
     });
     uv.file.addOverride('tool.pynect', {
-      name: 'model-catalog',
-      app: 'pynect_example.server:app',
-      out: '_generated/model-catalog',
+      name: 'pynect-example',
+      app: 'pynect_example.service:app',
+      out: '_generated/pynect-example',
+      validation: 'zod',
     });
     new JsonFile(project, 'package.json', {
-      obj: {
-        name: project.name,
-        version: VERSION,
-        private: true,
-        type: 'module',
-        dependencies: {
-          '@chanx-js/client': 'catalog:',
-          optionkit: 'workspace:*',
-          pynect: 'workspace:*',
-        },
+      obj:  {
+      name: project.name,
+      version: VERSION,
+      private: true,
+      type: 'module',
+      dependencies: {
+        '@chanx-js/client': 'catalog:',
+     '@clack/prompts': 'catalog:',
+        optionkit: 'workspace:*',
+        pynect: 'workspace:*',
+        zod: 'catalog:',
       },
+      devDependencies: {},
+      peerDependenciesMeta: {},
+    },
     });
     new TextFile(project, 'src/pynect_example/__init__.py', {
       committed: true,
-      lines: ['"""Pynect model-catalog example application."""', ''],
+      lines: ['"""Runnable Pynect example application."""', ''],
     });
     project.gitattributes.addAttributes('/_generated/**', 'linguist-generated');
   },
@@ -1143,8 +1153,10 @@ new TextFile(root, 'docs/llm/UTILITIES.md', {
     '- `createPyPackage`: creates uv packages from native Projen project metadata.',
     '- `configurePythonTests`: adds shared pytest and Ruff task coverage to a Python package.',
     '- `pythonPackages`: discovers uv packages from the Projen subproject tree.',
+    '- `scripts/version.ts`: reads and validates the root `VERSION` source shared by every package.',
     '- `scripts/workspaces.ts`: Pacwich-backed workspace discovery and shared-version validation.',
     '- `scripts/release-lib.ts`: pure SemVer, tag, GitHub remote, and identity helpers.',
+    '- `scripts/release-git.ts`: guarded worktree preparation, snapshot, and restoration for releases.',
     '- `scripts/release.ts`: local fixed-version release transaction.',
     '- `scripts/release-check.ts`: tag-workflow and registry preflight.',
     '- Bun runs each generated `pack:release` package script across the workspace.',

@@ -1,18 +1,10 @@
 import type {
-  LockBackendScope as SchemaLockBackendScope,
+  LockBackendScope,
   LockOptionsInput,
   LockScope,
-  NormalizedLockScope,
-  ResolvedLockOptionsData,
 } from "./schemas.js";
 
-export type LockBackendScope = SchemaLockBackendScope;
-export type ResolvedLockType =
-  | "memory"
-  | "worker"
-  | "flock"
-  | "poll"
-  | "skipped";
+export type ResolvedLockType = LockBackendScope | "skipped";
 export type LockType = ResolvedLockType | "composite";
 export type LockCallbackState =
   | "predicate-before"
@@ -83,15 +75,6 @@ export type LockOptions<TContext extends object = object> = Omit<
   "onCheckFailed" | "predicate" | "scope"
 > & {
   readonly scope?: LockScope;
-} &
-  LockCallbacks<TContext>;
-
-/** Runtime-resolved lock configuration with context-aware callbacks. */
-export type ResolvedLockOptions<TContext extends object = object> = Omit<
-  ResolvedLockOptionsData,
-  "onCheckFailed" | "predicate" | "scope"
-> & {
-  readonly scope: NormalizedLockScope;
 } &
   LockCallbacks<TContext>;
 

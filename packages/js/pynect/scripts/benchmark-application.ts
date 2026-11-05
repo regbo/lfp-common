@@ -7,9 +7,7 @@ if (!pythonPath) {
   const runtime = await pyfig({
     cwd: fileURLToPath(new URL('../../../py/pynect-example/', import.meta.url)),
   });
-  await runtime.python.resolve();
-  pythonPath = runtime.python.path;
-  if (!pythonPath) throw new Error('Pyfig resolved Python without exposing its executable path.');
+  pythonPath = await runtime.python.resolve();
   process.env[pythonPathEnvironment] = pythonPath;
 }
 

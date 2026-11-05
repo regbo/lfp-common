@@ -393,12 +393,14 @@ export { LockAbortedError, LockTimeoutError, LockUnavailableError } from "./erro
 export { memoize } from "./memoize.js";
 export {
   lockAutoScopeSchema,
+  lockBackendScopes,
   lockBackendScopeSchema,
   lockOptionsSchema,
   lockScopeSchema,
   lockTimeoutSchema,
 } from "./schemas.js";
 export type {
+  LockBackendScope,
   LockTimeout,
   LockScope,
   NormalizedLockScope,
@@ -407,7 +409,6 @@ export type {
 export type {
   LockAction,
   LockBackendInfo,
-  LockBackendScope,
   LockCallbackState,
   LockCheckFailedHandler,
   LockContext,
@@ -417,8 +418,8 @@ export type {
   LockResult,
   LockResultContext,
   ResolvedLockScope,
-  ResolvedLockOptions,
   LockState,
   LockType,
   ResolvedLockType,
+  WithLock,
 } from "./types.js";

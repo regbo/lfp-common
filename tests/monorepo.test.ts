@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import { constants } from 'node:fs';
 import { access, readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { readRootVersion } from '../scripts/version.ts';
 import {
   ROOT,
   BUN_WORKSPACES,
@@ -19,6 +20,7 @@ const internalPackages = new Set<string>(BUN_WORKSPACES.map(workspace => workspa
 
 test('keeps one version, lockfile, catalog, and workspace protocol', async () => {
   const root = await readManifest(ROOT);
+  expect(root.version).toBe(readRootVersion(ROOT));
 
   for (const workspace of WORKSPACES) {
     const directory = workspacePath(workspace);

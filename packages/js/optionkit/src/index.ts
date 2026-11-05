@@ -5,6 +5,7 @@ export {
   type CliParseOptions,
   type CliProgram,
   type CliRoute,
+  type CommandContext,
   type CommandConfiguration,
   type CreateOptionKitSettings,
   type ErrorFormatterPackage,
@@ -13,6 +14,7 @@ export {
   type OptionKit,
   type OptionKitAdapter,
   type OptionKitLogger,
+  type PassThroughArgumentsConfiguration,
   type ProgramConfiguration,
+  type RenderContext,
 } from './optionkit.js';
-export { importPackageIfAvailable, resolvePackage } from './resolve.js';

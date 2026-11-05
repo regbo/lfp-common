@@ -2,6 +2,16 @@ import { chmod, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { runBun, runCommand } from './process.ts';
 import {
+  assertCleanWorkspace,
+  assertGitOperationSafe,
+  commitWorkspace,
+  dropWorkspaceSnapshot,
+  restoreWorkspaceSnapshot,
+  workspaceStatus,
+  type WorkspaceSnapshot,
+} from './release-git.ts';
+import {
+  assertReleaseBranchState,
   gitIdentityEmail,
   githubRepositoryFromRemote,
   isPublicGitHubIdentity,
@@ -10,6 +20,7 @@ import {
   registryVersionUrl,
   type ReleaseIncrement,
 } from './release-lib.ts';
+import { VERSION_FILE } from './version.ts';
 import {
   ROOT,
   BUN_WORKSPACES,
@@ -27,13 +38,14 @@ import {
 const args = new Set(process.argv.slice(2));
 const increments = (['patch', 'minor', 'major'] as const).filter(value => args.has(value));
 if (increments.length > 1) throw new Error('Choose only one increment: patch, minor, or major.');
-const knownArgs = new Set(['patch', 'minor', 'major', '--dry-run', '--initial']);
+const knownArgs = new Set(['patch', 'minor', 'major', '--dry-run', '--initial', '--push']);
 const unknownArgs = [...args].filter(value => !knownArgs.has(value));
 if (unknownArgs.length > 0) throw new Error(`Unknown release argument: ${unknownArgs.join(', ')}.`);
 
 const increment: ReleaseIncrement = increments[0] ?? 'patch';
 const dryRun = args.has('--dry-run');
 const initial = args.has('--initial');
+const push = args.has('--push');
 const remote = 'origin';
 const releaseBranch = 'main';
 const uvProjects = await uvProjectPaths();
@@ -46,7 +58,7 @@ const generatedPythonVersionFiles = (await Promise.all(PYTHON_PROJECTS.map(async
     .map(file => project.path === '.' ? file : `${project.path}/${file}`)
 ))).flat();
 const versionFiles = [
-  '.projenrc.ts',
+  VERSION_FILE,
   'package.json',
   'bun.lock',
   ...BUN_WORKSPACES.map(workspace => `${workspace.path}/package.json`),
@@ -60,12 +72,17 @@ for (const filename of versionFiles) {
   const [content, metadata] = await Promise.all([readFile(absolutePath), stat(absolutePath)]);
   snapshots.set(filename, { content, mode: metadata.mode & 0o777 });
 }
-let historyCreated = false;
+let releaseHistoryCreated = false;
 let pushed = false;
 let versionChanged = false;
+let workspaceSnapshot: WorkspaceSnapshot | undefined;
+const initialStatus = await workspaceStatus(ROOT);
 
 try {
-  await assertCleanWorkspace();
+  if (initialStatus && !push) {
+    throw new Error('Release requires a clean worktree unless --push is provided.');
+  }
+  await assertGitOperationSafe(ROOT);
   await assertReleaseIdentity();
   const branch = await git(['branch', '--show-current']);
   if (branch !== releaseBranch) {
@@ -85,15 +102,31 @@ try {
   }
 
   await git(['fetch', '--prune', remote, releaseBranch]);
-  const [localHead, upstreamHead, remoteHeads] = await Promise.all([
+  const [localHead, upstream, upstreamHead, remoteHeads] = await Promise.all([
     git(['rev-parse', 'HEAD']),
+    git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}']),
     git(['rev-parse', '@{upstream}']),
     git(['ls-remote', '--heads', remote, `refs/heads/${releaseBranch}`]),
   ]);
-  const remoteHead = remoteHeads.split(/\s+/u)[0];
-  if (!remoteHead || localHead !== upstreamHead || localHead !== remoteHead) {
-    throw new Error('Local main must exactly match its GitHub upstream before releasing.');
+  if (upstream !== `${remote}/${releaseBranch}`) {
+    throw new Error(`${releaseBranch} must track ${remote}/${releaseBranch}, not ${upstream}.`);
   }
+  const remoteHead = remoteHeads.split(/\s+/u)[0];
+  if (!remoteHead) throw new Error(`Could not resolve ${remote}/${releaseBranch}.`);
+  const mergeBase = await git(['merge-base', localHead, remoteHead]);
+  assertReleaseBranchState({
+    allowPush: push,
+    branch: releaseBranch,
+    localHead,
+    mergeBase,
+    remoteHead,
+    upstreamHead,
+  });
+
+  if (initialStatus) {
+    workspaceSnapshot = await commitWorkspace(ROOT, localHead);
+  }
+  await assertCleanWorkspace(ROOT);
 
   const remoteTags = await git(['ls-remote', '--tags', '--refs', remote]);
   const currentVersion = await sharedVersion();
@@ -101,7 +134,7 @@ try {
     increment,
     initial,
     latestRemoteVersion: latestReleaseVersion(remoteTags),
-    manifestVersion: currentVersion,
+    sourceVersion: currentVersion,
   });
   const tag = `v${plan.nextVersion}`;
   if (remoteTags.includes(`refs/tags/${tag}`)) throw new Error(`Remote tag ${tag} already exists.`);
@@ -164,11 +197,11 @@ try {
         cwd: ROOT,
         inherit: true,
       });
-      historyCreated = true;
+      releaseHistoryCreated = true;
     }
 
     await git(['tag', tag]);
-    historyCreated = true;
+    releaseHistoryCreated = true;
     await runCommand('git', [
       'push',
       '--atomic',
@@ -180,35 +213,47 @@ try {
     console.log(`Pushed ${tag}; the trusted publish workflow can now publish all packages.`);
   }
 } catch (error) {
-  if (historyCreated && !pushed) {
+  if (workspaceSnapshot && !releaseHistoryCreated && !pushed) {
+    try {
+      await restoreWorkspaceSnapshot(ROOT, workspaceSnapshot);
+      workspaceSnapshot = undefined;
+      versionChanged = false;
+    } catch (rollbackError) {
+      throw new AggregateError(
+        [error, rollbackError],
+        'Release failed and the original worktree could not be restored automatically.',
+      );
+    }
+  }
+  if (releaseHistoryCreated && !pushed) {
     console.error('Release history exists locally; inspect the commit and tag before retrying the push.');
   }
   throw error;
 } finally {
-  if (versionChanged && (dryRun || (!historyCreated && !pushed))) {
-    for (const [filename, snapshot] of snapshots) {
-      const absolutePath = path.join(ROOT, filename);
-      await chmod(absolutePath, 0o600);
+  if (versionChanged && !workspaceSnapshot && (dryRun || (!releaseHistoryCreated && !pushed))) {
+    await restoreManagedVersionFiles();
+  }
+  if (workspaceSnapshot) {
+    if (dryRun && !releaseHistoryCreated && !pushed) {
+      await restoreWorkspaceSnapshot(ROOT, workspaceSnapshot);
+      workspaceSnapshot = undefined;
+      versionChanged = false;
+    } else if (pushed || releaseHistoryCreated) {
       try {
-        await writeFile(absolutePath, snapshot.content);
-      } finally {
-        await chmod(absolutePath, snapshot.mode);
+        await dropWorkspaceSnapshot(ROOT, workspaceSnapshot);
+      } catch (error) {
+        console.warn(`Release history was preserved, but its worktree snapshot remains: ${String(error)}`);
       }
     }
   }
 }
 
-if (dryRun) await assertCleanWorkspace();
+if (dryRun && await workspaceStatus(ROOT) !== initialStatus) {
+  throw new Error('Dry run did not restore the original worktree and staging state.');
+}
 
 async function updateSharedVersion(version: string): Promise<void> {
-  const filename = path.join(ROOT, '.projenrc.ts');
-  const source = await readFile(filename, 'utf8');
-  const updated = source.replace(
-    /const VERSION = '[^']+';/u,
-    `const VERSION = '${version}';`,
-  );
-  if (updated === source) throw new Error('Could not find the shared VERSION in .projenrc.ts.');
-  await writeFile(filename, updated, 'utf8');
+  await writeFile(path.join(ROOT, VERSION_FILE), `${version}\n`, 'utf8');
 }
 
 async function assertReleaseIdentity(): Promise<void> {
@@ -221,9 +266,16 @@ async function assertReleaseIdentity(): Promise<void> {
   }
 }
 
-async function assertCleanWorkspace(): Promise<void> {
-  const status = await git(['status', '--porcelain=v1', '--untracked-files=all']);
-  if (status) throw new Error('Release requires a clean worktree.');
+async function restoreManagedVersionFiles(): Promise<void> {
+  for (const [filename, snapshot] of snapshots) {
+    const absolutePath = path.join(ROOT, filename);
+    await chmod(absolutePath, 0o600);
+    try {
+      await writeFile(absolutePath, snapshot.content);
+    } finally {
+      await chmod(absolutePath, snapshot.mode);
+    }
+  }
 }
 
 async function changedPaths(): Promise<string[]> {

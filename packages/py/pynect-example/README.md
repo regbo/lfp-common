@@ -1,27 +1,30 @@
-# Model catalog example
+# Pynect example
 
-This is the smallest complete Pynect project. It is an installable uv workspace
-member used for development and examples, but it is not published to PyPI.
-[`catalog.py`](src/pynect_example/catalog.py) owns the HTTP-neutral models and
-operations, while [`service.py`](src/pynect_example/service.py) exposes them as
-a standalone ASGI WebSocket service. Invocation-owned stdio starts that service
-directly without loading [`server.py`](src/pynect_example/server.py), which is
-only the FastAPI wrapper used for HTTP/WebSocket serving and schema export.
-Pynect generates the TypeScript client in
-`_generated/model-catalog`. The Python source shows both an immediate
-`list_models` request/response and a delayed `list_models_stream` backed by an
-async iterator. [`client.ts`](client.ts) calls both and consumes the streamed
-replies with `for await`. The owned-worker examples start Python before loading
-the generated client so those cold paths overlap. Each service process loads a
-deterministic in-memory fixture of readable model IDs.
+This workspace is a small application, not a protocol-only fixture. Python owns
+three operations on one Chanx channel:
 
-The stream does not define an application-level completion message. Pynect
-detects the `AsyncIterator[...]` return type, sends Chanx's built-in `complete`
-frame when Python reaches the end of the function, and generates the
-TypeScript async iterator that stops on that frame.
+- `get_weather` returns one simulated weather snapshot.
+- `watch_weather` yields a finite stream of weather-change events from an async
+  generator.
+- `chat` runs SmolLM2 locally in Python and keeps the connection-local
+  conversation transcript there. Each prompt and transcript crosses the Pynect
+  channel, so the generated client remains the state boundary.
 
-Run `uv sync` once from the repository root, then run these commands from
-`packages/js/pynect`.
+The weather is deterministic synthetic data, so the example needs no API key or
+network access. Replace the functions in
+[`domain.py`](src/pynect_example/domain.py) with real application logic while
+keeping the transport contract in
+[`service.py`](src/pynect_example/service.py).
+
+The service itself does not import FastAPI or any HTTP server. Owned stdio starts
+`pynect_example.service:app` directly. The separate
+[`server.py`](src/pynect_example/server.py) is the thin HTTP adapter: it adds a
+homepage, `/health`, AsyncAPI documentation, and the `/ws/demo` WebSocket route.
+Pynect generates the shared TypeScript client in `_generated/pynect-example`.
+
+The stdio worker starts Python through Pyfig's `uv run` path, so uv prepares and
+syncs the project environment before Python starts. Run the Bun workspace install
+once, then use these commands from `packages/js/pynect`.
 
 Generate or refresh the client:
 
@@ -29,41 +32,61 @@ Generate or refresh the client:
 bun run example:generate
 ```
 
-Call either operation from the example CLI. The CLI always uses invocation-owned
-stdio IPC; it does not consult `CHANX_BASE_URL` or fall back to a remote server.
-Each invocation directly starts its own Python process, captures the early PID
-record, communicates over length-framed stdio, and tears the worker down when
-the command finishes:
+## Owned stdio CLI
+
+Each CLI invocation owns one Python process, communicates through
+length-framed stdio records, and tears the process down on completion:
 
 ```sh
-bun run example:cli -- list-models
-bun run example:cli -- list-models-stream --provider openai
+bun run example:cli -- weather --location "Boston, MA"
+bun run example:cli -- watch-weather --location "Boston, MA" --updates 5
+bun run example:cli -- chat --name Bun
 ```
 
-Add `--json` to either command for machine-readable stdout. `list-models`
-returns one JSON array. `list-models-stream` writes newline-delimited JSON (one
-model per yield), so each item appears as soon as Python sends it. Python stderr
-and ordinary stdout are routed to stderr in JSON mode so CLI stdout stays safe
-to pipe or parse.
+Add `--json` for machine-readable output. `weather` emits one snapshot and
+one-shot chat emits the Python-owned transcript. `watch-weather` emits one
+NDJSON record per yield, so consumers receive events as Python produces them.
+For scripts, supply `--message` to make chat a single turn instead of an
+interactive session:
 
-Call both operations through the same invocation-owned Python process:
+```sh
+bun run example:cli -- chat --name Bun --message "What can this service do?" --json
+```
+
+Clack is a regular dependency of this example. Python uses Transformers and
+Optimum ONNX Runtime to load
+`onnx-community/SmolLM2-135M-Instruct-ONNX-MHA` with q4 weights. Hugging Face's
+runtime downloader fetches the tokenizer and model on the first chat and reuses
+its local cache afterward. A chat connection starts model loading from
+`post_authentication()` and receives typed loading, downloading, and ready
+events. The CLI uses those Python events to update one status indicator before
+showing the first prompt; generation runs off-loop.
+An interactive session keeps one worker, model, transcript, and connection open
+and exits with `/exit`, `/quit`, or Ctrl+C.
+
+Run all three patterns over one invocation-owned connection:
 
 ```sh
 bun run example:local
 ```
 
-For the remote path, start the same app over WebSocket:
+## Web server
+
+Start the same service behind FastAPI and Uvicorn:
 
 ```sh
 bun run example:serve
 ```
 
-Then call it from another terminal:
+Open <http://127.0.0.1:7777> for the landing page,
+<http://127.0.0.1:7777/health> for the health check, or
+<http://127.0.0.1:7777/asyncapi> for generated API documentation. In another
+terminal, exercise `/ws/demo` with the same generated client:
 
 ```sh
 bun run example:remote
 ```
 
-Set `CHANX_BASE_URL` to point the remote client at another server. The generated
-types and [`client.ts`](client.ts) are shared; only the Chanx client options
-change between [`local.ts`](local.ts) and [`remote.ts`](remote.ts).
+Set `CHANX_BASE_URL` to connect the remote example to another host. Only the
+client options change between [`local.ts`](local.ts) and
+[`remote.ts`](remote.ts); both use [`client.ts`](client.ts).

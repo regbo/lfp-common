@@ -1,11 +1,12 @@
-import { spawnSync } from 'node:child_process';
+import {
+  spawnSync,
+  type SpawnSyncOptionsWithStringEncoding,
+} from 'node:child_process';
 import path from 'node:path';
 
-export interface CommandOptions {
+export type CommandOptions = Pick<SpawnSyncOptionsWithStringEncoding, 'cwd' | 'env'> & {
   capture?: boolean;
-  cwd?: string;
-  env?: NodeJS.ProcessEnv;
-}
+};
 
 /** Run an argument-array command without shell parsing and fail with its useful output. */
 export function runCommand(

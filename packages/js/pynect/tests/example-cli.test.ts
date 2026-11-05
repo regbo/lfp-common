@@ -1,54 +1,58 @@
 import { describe, expect, test } from 'bun:test';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
+import type {
+  WeatherChange,
+  WeatherSnapshot,
+} from '../../../py/pynect-example/_generated/pynect-example/index.js';
 
-describe('model catalog example CLI', () => {
-  test('uses owned stdio IPC even when a remote endpoint is configured', async () => {
-    const result = await runExampleCli(['list-models', '--json']);
-    const models = JSON.parse(result.stdout) as Model[];
-
-    expect(result.code).toBe(0);
-    expect(result.stderr).not.toContain('@pynect:');
-    expectValidModels(models);
-    expect(result.stdout.trimEnd().endsWith('null')).toBe(false);
-  }, 60_000);
-
-  test('list-models-stream emits each delayed model as one JSON line', async () => {
-    const result = await runExampleCli(['list-models-stream', '--json']);
-    const models = result.stdout.trim().split(/\r?\n/u)
-      .map(line => JSON.parse(line) as Model);
+describe('Pynect example CLI', () => {
+  test('requests weather through owned stdio even when a remote endpoint is configured', async () => {
+    const result = await runExampleCli(['weather', '--location', 'Boston, MA', '--json']);
+    const weather = JSON.parse(result.stdout) as WeatherSnapshot;
 
     expect(result.code).toBe(0);
     expect(result.stderr).not.toContain('@pynect:');
-    expectValidModels(models);
-    expect(result.msAfterFirstOutput).toBeGreaterThan(2_000);
+    expect(weather.location).toBe('Boston, MA');
+    expect(weather.temperature_c).toBeNumber();
     expect(result.stdout.trimEnd().endsWith('null')).toBe(false);
   }, 60_000);
 
-  test('list-models-stream completes without an element payload when no models match', async () => {
+  test('emits each generated weather change as one JSON line', async () => {
     const result = await runExampleCli([
-      'list-models-stream',
-      '--query',
-      'this-model-does-not-exist',
+      'watch-weather',
+      '--location', 'Seattle, WA',
+      '--updates', '3',
+      '--interval', '0.075',
       '--json',
     ]);
+    const changes = result.stdout.trim().split(/\r?\n/u)
+      .map(line => JSON.parse(line) as WeatherChange);
 
     expect(result.code).toBe(0);
     expect(result.stderr).not.toContain('@pynect:');
+    expect(changes).toHaveLength(3);
+    expect(changes.map(change => change.sequence)).toEqual([1, 2, 3]);
+    expect(changes.every(change => change.weather.location === 'Seattle, WA')).toBe(true);
+    expect(result.msAfterFirstOutput).toBeGreaterThanOrEqual(100);
+    expect(result.stdout.trimEnd().endsWith('null')).toBe(false);
+  }, 60_000);
+
+  test('documents the local-model chat command without starting Python', async () => {
+    const result = await runExampleCli(['chat', '--help']);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('local SmolLM2 model');
+    expect(result.stdout).toContain('--message');
+  }, 60_000);
+
+  test('requires a single message when chat output is JSON', async () => {
+    const result = await runExampleCli(['chat', '--json']);
+
+    expect(result.code).toBe(1);
     expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('--json requires --message');
   }, 60_000);
 });
-
-interface Model {
-  context_window: number;
-  id: string;
-  provider: 'anthropic' | 'openai';
-}
-
-function expectValidModels(models: Model[]): void {
-  expect(models).toHaveLength(8);
-  expect(models.every(model => model.id.startsWith(`${model.provider}-`))).toBe(true);
-}
 
 function runExampleCli(args: readonly string[]): Promise<{
   code: number | null;

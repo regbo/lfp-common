@@ -3,6 +3,17 @@ import { access, mkdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { detectPackageManager, installPackage } from '@antfu/install-pkg';
+import type {
+  ArgumentConfig as FireargsArgumentConfiguration,
+  Command as FireargsCommand,
+  CommandConfig as FireargsCommandConfiguration,
+  CommandContext as FireargsCommandContext,
+  OptionConfig as FireargsOptionConfiguration,
+  Program as FireargsProgram,
+  ProgramConfig as FireargsProgramConfiguration,
+  RenderContext as FireargsRenderContext,
+  Route as FireargsRoute,
+} from 'fireargs';
 import { valid as validSemver } from 'semver';
 import type {
   ZodArray,
@@ -27,68 +38,37 @@ type ObjectSchema = ZodObject<ZodShape> | ZodReadonly<ZodObject<ZodShape>>;
 type SchemaInput<Schema extends ZodType> = import('zod').input<Schema>;
 type SchemaOutput<Schema extends ZodType> = import('zod').output<Schema>;
 
-export interface OptionConfiguration<Value = unknown> {
-  /** Long flag without dashes. Defaults to the kebab-case field key. */
-  name?: string;
+export type OptionConfiguration<Value = unknown> = Omit<
+  FireargsOptionConfiguration<Value>,
+  'env' | 'short'
+> & {
   /** Override the generated environment variable, or disable it for this field. */
   env?: string | false;
   /** Override the generated short flag, or disable it for this field. */
   short?: string | false;
-  conflicts?: string | string[];
-  implies?: Record<string, unknown>;
-  hidden?: boolean;
-  preset?: unknown;
-  helpGroup?: string;
-  defaultDescription?: string;
-  /** Fireargs parser for one CLI or environment string; disables automatic decoding. */
-  parse?: (value: string) => Value;
-}
+};
 
-export interface ArgumentConfiguration<Value = unknown> {
-  name?: string;
-  defaultDescription?: string;
-  parse?: (value: string) => Value;
-}
+export type ArgumentConfiguration<Value = unknown> = FireargsArgumentConfiguration<Value>;
 
 export interface PassThroughArgumentsConfiguration {
   /** Help text for the generated trailing `args` positional. */
   description?: string;
 }
 
-export interface CommandConfiguration extends Record<string, unknown> {
+export type CommandConfiguration = FireargsCommandConfiguration & {
   /** Add a typed trailing `args` array and the Fireargs pass-through switches. */
   passThroughArguments?: boolean | PassThroughArgumentsConfiguration;
-}
-export type ProgramConfiguration = Record<string, unknown>;
+};
+export type ProgramConfiguration = FireargsProgramConfiguration;
 
-export interface CliParseOptions {
-  from?: 'electron' | 'node' | 'user';
-}
-
-export interface CliRoute {
-  readonly type: 'command' | 'program';
-  helpInformation(): string;
-  parseAsync(argv?: readonly string[], options?: CliParseOptions): Promise<unknown>;
-}
-
-export interface CliCommand extends CliRoute {
-  readonly type: 'command';
-}
-
-export interface CliProgram extends CliRoute {
-  readonly type: 'program';
-}
-
-export interface CommandContext {
-  readonly command: CliCommand;
-  readonly json: boolean;
-}
-
-export interface RenderContext<Input> {
-  readonly command: CliCommand;
-  readonly input: Input;
+export type CliRoute = FireargsRoute;
+export type CliCommand = FireargsCommand;
+export type CliProgram = FireargsProgram;
+export type CliParseOptions = NonNullable<Parameters<CliCommand['parseAsync']>[1]>;
+export type CommandContext = FireargsCommandContext;
+export type RenderContext<Input> = Omit<FireargsRenderContext<Input>, 'json'> & {
   readonly json: false;
-}
+};
 
 export interface FieldBuilder<Value = never> {
   string(): ZodString;
@@ -164,22 +144,29 @@ interface RuntimeOption {
   readonly long?: string;
 }
 
-interface VersionedRuntimeRoute extends CliRoute {
+interface VersionedRuntimeRoute {
   readonly options?: readonly RuntimeOption[];
   readonly parent: unknown | null;
   version(value: string, flags?: string, description?: string): unknown;
 }
 
-interface RuntimeCliCommand extends CliCommand {
+interface RuntimeCliCommand {
   readonly options?: readonly RuntimeOption[];
   configureOutput?: () => { writeErr?: (value: string) => void };
   option?: (flags: string, description?: string) => RuntimeCliCommand;
 }
 
-interface RuntimeRoute extends CliRoute {
+interface RuntimeRoute {
   readonly commands?: readonly RuntimeRoute[];
   name?: () => string;
   aliases?: () => string[];
+}
+
+interface RuntimeParseRoute {
+  parseAsync(
+    argv?: readonly string[],
+    options?: CliParseOptions,
+  ): Promise<unknown>;
 }
 
 export type OptionKitLogger = (
@@ -1003,8 +990,9 @@ function wrapParseBoundary(
   errorFormatter: ((error: unknown) => string) | undefined,
   version: string | undefined,
 ): void {
-  const parse = route.parseAsync.bind(route);
-  route.parseAsync = async (argv, options) => {
+  const parseRoute = route as unknown as RuntimeParseRoute;
+  const parse = parseRoute.parseAsync.bind(parseRoute);
+  parseRoute.parseAsync = async (argv, options) => {
     const runtime = route as VersionedRuntimeRoute;
     if (runtime.parent === null) addVersionOption(route, version);
     const active = bindings(argv, options);
@@ -1072,7 +1060,7 @@ function selectedLeaf(
     current = selected;
     offset = selectedAt + 1;
   }
-  return current;
+  return current as unknown as CliRoute;
 }
 
 function argvOffset(options: CliParseOptions | undefined): number {

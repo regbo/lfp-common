@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { generateProject } from '../src/codegen.js';
+import { deriveSchemaTypes, generateProject } from '../src/codegen.js';
 
 const temporaryDirectories: string[] = [];
 
@@ -13,6 +13,26 @@ afterEach(() => {
 });
 
 describe('Chanx code generation', () => {
+  test('derives generated TypeScript types from Zod validators', async () => {
+    const output = mkdtempSync(path.join(os.tmpdir(), 'pynect-codegen-types-'));
+    temporaryDirectories.push(output);
+    writeFileSync(path.join(output, 'schemas.ts'), [
+      'export interface Request { action: "ping"; }',
+      'export type Status = "ready";',
+    ].join('\n'));
+    writeFileSync(path.join(output, 'schemas.zod.ts'), [
+      'export const RequestSchema = z.object({ action: z.literal("ping") });',
+      'export const StatusSchema = z.literal("ready");',
+    ].join('\n'));
+
+    await deriveSchemaTypes(output);
+
+    const schemas = readFileSync(path.join(output, 'schemas.ts'), 'utf8');
+    expect(schemas).toContain('export type Request = z.output<typeof RequestSchema>;');
+    expect(schemas).toContain('export type Status = z.output<typeof StatusSchema>;');
+    expect(schemas).not.toContain('interface Request');
+  });
+
   test('exports Python AsyncAPI and generates TypeScript into one folder', async () => {
     const output = mkdtempSync(path.join(os.tmpdir(), 'pynect-codegen-'));
     temporaryDirectories.push(output);

@@ -1,0 +1,598 @@
+{
+  "asyncapi": "3.0.0",
+  "info": {
+    "title": "Demo AsyncAPI documentation",
+    "version": "1.0.0",
+    "description": "Weather queries, event streams, and stateful chat"
+  },
+  "servers": {
+    "development": {
+      "host": "localhost",
+      "protocol": "ws"
+    }
+  },
+  "channels": {
+    "demo": {
+      "address": "/ws/demo",
+      "title": "demo",
+      "description": "Weather queries, event streams, and stateful chat",
+      "messages": {
+        "chat_request": {
+          "$ref": "#/components/messages/chat_request"
+        },
+        "chat_response": {
+          "$ref": "#/components/messages/chat_response"
+        },
+        "chat_status_event": {
+          "$ref": "#/components/messages/chat_status_event"
+        },
+        "get_weather_request": {
+          "$ref": "#/components/messages/get_weather_request"
+        },
+        "get_weather_response": {
+          "$ref": "#/components/messages/get_weather_response"
+        },
+        "watch_weather_request": {
+          "$ref": "#/components/messages/watch_weather_request"
+        },
+        "watch_weather_response": {
+          "$ref": "#/components/messages/watch_weather_response"
+        }
+      }
+    }
+  },
+  "operations": {
+    "chat": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/demo"
+      },
+      "description": "",
+      "summary": "",
+      "messages": [
+        {
+          "$ref": "#/channels/demo/messages/chat_request"
+        }
+      ],
+      "reply": {
+        "channel": {
+          "$ref": "#/channels/demo"
+        },
+        "messages": [
+          {
+            "$ref": "#/channels/demo/messages/chat_response"
+          }
+        ]
+      }
+    },
+    "get_weather": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/demo"
+      },
+      "description": "",
+      "summary": "",
+      "messages": [
+        {
+          "$ref": "#/channels/demo/messages/get_weather_request"
+        }
+      ],
+      "reply": {
+        "channel": {
+          "$ref": "#/channels/demo"
+        },
+        "messages": [
+          {
+            "$ref": "#/channels/demo/messages/get_weather_response"
+          }
+        ]
+      }
+    },
+    "watch_weather": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/demo"
+      },
+      "description": "",
+      "summary": "",
+      "messages": [
+        {
+          "$ref": "#/channels/demo/messages/watch_weather_request"
+        }
+      ],
+      "reply": {
+        "channel": {
+          "$ref": "#/channels/demo"
+        },
+        "messages": [
+          {
+            "$ref": "#/channels/demo/messages/watch_weather_response"
+          }
+        ]
+      },
+      "x-pynect-stream": true
+    },
+    "demo_emits": {
+      "action": "send",
+      "channel": {
+        "$ref": "#/channels/demo"
+      },
+      "description": "",
+      "summary": "Messages the server pushes",
+      "messages": [
+        {
+          "$ref": "#/channels/demo/messages/chat_status_event"
+        }
+      ]
+    }
+  },
+  "components": {
+    "messages": {
+      "chat_request": {
+        "payload": {
+          "$ref": "#/components/schemas/ChatRequest"
+        },
+        "correlationId": {
+          "$ref": "#/components/correlationIds/ref"
+        }
+      },
+      "chat_response": {
+        "payload": {
+          "$ref": "#/components/schemas/ChatResponse"
+        },
+        "correlationId": {
+          "$ref": "#/components/correlationIds/ref"
+        }
+      },
+      "chat_status_event": {
+        "payload": {
+          "$ref": "#/components/schemas/ChatStatusEvent"
+        }
+      },
+      "get_weather_request": {
+        "payload": {
+          "$ref": "#/components/schemas/GetWeatherRequest"
+        },
+        "correlationId": {
+          "$ref": "#/components/correlationIds/ref"
+        }
+      },
+      "get_weather_response": {
+        "payload": {
+          "$ref": "#/components/schemas/GetWeatherResponse"
+        },
+        "correlationId": {
+          "$ref": "#/components/correlationIds/ref"
+        }
+      },
+      "watch_weather_request": {
+        "payload": {
+          "$ref": "#/components/schemas/WatchWeatherRequest"
+        },
+        "correlationId": {
+          "$ref": "#/components/correlationIds/ref"
+        }
+      },
+      "watch_weather_response": {
+        "payload": {
+          "$ref": "#/components/schemas/WatchWeatherResponse"
+        },
+        "correlationId": {
+          "$ref": "#/components/correlationIds/ref"
+        }
+      }
+    },
+    "schemas": {
+      "ChatMessage": {
+        "description": "One user or assistant turn stored by Python.",
+        "properties": {
+          "role": {
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "content": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "content"
+        ],
+        "title": "ChatMessage",
+        "type": "object"
+      },
+      "ChatModelStatus": {
+        "description": "One model-loading lifecycle change emitted to the connected client.",
+        "properties": {
+          "stage": {
+            "enum": [
+              "loading",
+              "cache_hit",
+              "downloading",
+              "downloaded",
+              "ready",
+              "error"
+            ],
+            "title": "Stage",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stage",
+          "message"
+        ],
+        "title": "ChatModelStatus",
+        "type": "object"
+      },
+      "ChatPrompt": {
+        "description": "One user turn submitted to the Python model runtime.",
+        "properties": {
+          "content": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "ChatPrompt",
+        "type": "object"
+      },
+      "ChatRequest": {
+        "properties": {
+          "action": {
+            "const": "chat",
+            "default": "chat",
+            "title": "Action",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/ChatPrompt"
+          }
+        },
+        "required": [
+          "payload"
+        ],
+        "title": "ChatRequest",
+        "type": "object"
+      },
+      "ChatResponse": {
+        "properties": {
+          "action": {
+            "const": "chat_transcript",
+            "default": "chat_transcript",
+            "title": "Action",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/ChatTranscript"
+          }
+        },
+        "required": [
+          "payload"
+        ],
+        "title": "ChatResponse",
+        "type": "object"
+      },
+      "ChatStatusEvent": {
+        "properties": {
+          "action": {
+            "const": "chat_status",
+            "default": "chat_status",
+            "title": "Action",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/ChatModelStatus"
+          }
+        },
+        "required": [
+          "payload"
+        ],
+        "title": "ChatStatusEvent",
+        "type": "object"
+      },
+      "ChatTranscript": {
+        "description": "Connection-local conversation state returned to TypeScript.",
+        "properties": {
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/ChatMessage"
+            },
+            "title": "Messages",
+            "type": "array"
+          },
+          "turn": {
+            "title": "Turn",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "messages",
+          "turn"
+        ],
+        "title": "ChatTranscript",
+        "type": "object"
+      },
+      "GetWeatherRequest": {
+        "properties": {
+          "action": {
+            "const": "get_weather",
+            "default": "get_weather",
+            "title": "Action",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/WeatherQuery"
+          }
+        },
+        "required": [
+          "payload"
+        ],
+        "title": "GetWeatherRequest",
+        "type": "object"
+      },
+      "GetWeatherResponse": {
+        "properties": {
+          "action": {
+            "const": "weather",
+            "default": "weather",
+            "title": "Action",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/WeatherSnapshot"
+          }
+        },
+        "required": [
+          "payload"
+        ],
+        "title": "GetWeatherResponse",
+        "type": "object"
+      },
+      "ProblemDetails": {
+        "description": "An RFC 9457 problem details object, the payload of an error frame. See https://python.chanx.dev/en/latest/protocol.html#protocol-errors",
+        "properties": {
+          "type": {
+            "description": "A URI reference that identifies the problem type.",
+            "format": "uri-reference",
+            "type": "string"
+          },
+          "title": {
+            "description": "A short, human-readable summary of the problem type.",
+            "type": "string"
+          },
+          "status": {
+            "description": "The HTTP status code generated by the origin server for this occurrence of the problem.",
+            "maximum": 599,
+            "minimum": 100,
+            "type": "integer"
+          },
+          "detail": {
+            "description": "A human-readable explanation specific to this occurrence of the problem.",
+            "type": "string"
+          },
+          "instance": {
+            "description": "A URI reference that identifies the specific occurrence of the problem. It may or may not yield further information if dereferenced.",
+            "format": "uri-reference",
+            "type": "string"
+          },
+          "errors": {
+            "description": "The validation failures, when type is validation-failed.",
+            "items": {
+              "$ref": "#/components/schemas/ValidationFailure"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "detail"
+        ],
+        "title": "ProblemDetails",
+        "type": "object"
+      },
+      "ValidationFailure": {
+        "description": "One validation failure, shaped like RFC 9457's validation example.",
+        "properties": {
+          "keyword": {
+            "description": "The JSON Schema keyword that failed, or custom.",
+            "type": "string"
+          },
+          "pointer": {
+            "description": "A JSON Pointer to the failing value in the frame; for required, the object lacking the member.",
+            "type": "string"
+          },
+          "detail": {
+            "description": "A human-readable message.",
+            "type": "string"
+          },
+          "property": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "description": "For required only: the missing member."
+          }
+        },
+        "required": [
+          "keyword",
+          "pointer",
+          "detail"
+        ],
+        "title": "ValidationFailure",
+        "type": "object"
+      },
+      "WatchWeatherRequest": {
+        "properties": {
+          "action": {
+            "const": "watch_weather",
+            "default": "watch_weather",
+            "title": "Action",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/WeatherWatch"
+          }
+        },
+        "required": [
+          "payload"
+        ],
+        "title": "WatchWeatherRequest",
+        "type": "object"
+      },
+      "WatchWeatherResponse": {
+        "properties": {
+          "action": {
+            "const": "weather_changed",
+            "default": "weather_changed",
+            "title": "Action",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/WeatherChange"
+          }
+        },
+        "required": [
+          "payload"
+        ],
+        "title": "WatchWeatherResponse",
+        "type": "object"
+      },
+      "WeatherChange": {
+        "description": "One item emitted by the weather-change generator.",
+        "properties": {
+          "sequence": {
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "weather": {
+            "$ref": "#/components/schemas/WeatherSnapshot"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequence",
+          "weather",
+          "summary"
+        ],
+        "title": "WeatherChange",
+        "type": "object"
+      },
+      "WeatherQuery": {
+        "description": "Select the location for a weather snapshot.",
+        "properties": {
+          "location": {
+            "default": "New York, NY",
+            "description": "City or region to observe.",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Location",
+            "type": "string"
+          }
+        },
+        "title": "WeatherQuery",
+        "type": "object"
+      },
+      "WeatherSnapshot": {
+        "description": "One simulated weather observation.",
+        "properties": {
+          "location": {
+            "title": "Location",
+            "type": "string"
+          },
+          "temperature_c": {
+            "title": "Temperature C",
+            "type": "number"
+          },
+          "condition": {
+            "enum": [
+              "clear",
+              "cloudy",
+              "rain",
+              "windy"
+            ],
+            "title": "Condition",
+            "type": "string"
+          },
+          "humidity_percent": {
+            "title": "Humidity Percent",
+            "type": "integer"
+          },
+          "observed_at": {
+            "format": "date-time",
+            "title": "Observed At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "location",
+          "temperature_c",
+          "condition",
+          "humidity_percent",
+          "observed_at"
+        ],
+        "title": "WeatherSnapshot",
+        "type": "object"
+      },
+      "WeatherWatch": {
+        "description": "Configure a finite stream of changing weather observations.",
+        "properties": {
+          "location": {
+            "default": "New York, NY",
+            "description": "City or region to observe.",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Location",
+            "type": "string"
+          },
+          "updates": {
+            "default": 5,
+            "description": "Number of changes to emit.",
+            "maximum": 20,
+            "minimum": 1,
+            "title": "Updates",
+            "type": "integer"
+          },
+          "interval": {
+            "default": 0.25,
+            "description": "Delay between changes in seconds.",
+            "maximum": 5,
+            "minimum": 0,
+            "title": "Interval",
+            "type": "number"
+          }
+        },
+        "title": "WeatherWatch",
+        "type": "object"
+      }
+    },
+    "correlationIds": {
+      "ref": {
+        "description": "A reply carries the `ref` of the request it answers.",
+        "location": "$message.payload#/ref"
+      }
+    }
+  }
+}

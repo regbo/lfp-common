@@ -8,8 +8,8 @@ import { forwardedProcessSignals } from '../src/process-signals.js';
 import { startWorker } from '../src/worker.js';
 import { startExampleWorker } from '../../../py/pynect-example/stdio-worker.js';
 import {
-  connectModelCatalog,
-  listModels,
+  connectDemo,
+  getWeather,
 } from '../../../py/pynect-example/client.js';
 
 describe('owned stdio worker', () => {
@@ -57,10 +57,15 @@ describe('owned stdio worker', () => {
     try {
       expect(path.basename(release)).toContain(String(worker.pid));
       expect(existsSync(release)).toBe(false);
+      let applicationReady = false;
+      void worker.ready.then(() => { applicationReady = true; });
+      await Bun.sleep(0);
+      expect(applicationReady).toBe(false);
       await writeFile(release, 'continue');
-      const connection = connectModelCatalog(worker.clientOptions);
+      await worker.ready;
+      const connection = connectDemo(worker.clientOptions);
       try {
-        expect((await listModels(connection, { provider: 'anthropic' })).length).toBeGreaterThan(0);
+        expect((await getWeather(connection, { location: 'Boston, MA' })).location).toBe('Boston, MA');
       } finally {
         connection.close();
       }
@@ -112,16 +117,18 @@ describe('owned stdio worker', () => {
 
     const worker = await startExampleWorker({ stdout, stderr });
     expect(worker.pid).toBeNumber();
+    await worker.ready;
     expect(isProcessAlive(worker.pid)).toBe(true);
     expect(output).not.toContain('@pynect:');
     for (const signal of forwardedProcessSignals) {
       expect(process.listenerCount(signal)).toBe((initialSignalListeners.get(signal) ?? 0) + 1);
     }
 
-    const connection = connectModelCatalog(worker.clientOptions);
+    const connection = connectDemo(worker.clientOptions);
     try {
-      const models = await listModels(connection, { provider: 'openai' });
-      expect(models.every(model => model.provider === 'openai')).toBe(true);
+      const weather = await getWeather(connection, { location: 'Seattle, WA' });
+      expect(weather.location).toBe('Seattle, WA');
+      expect(weather.temperature_c).toBeNumber();
     } finally {
       connection.close();
     }

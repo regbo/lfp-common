@@ -6,12 +6,6 @@ import {
 } from '@chanx-js/client';
 import { requestStream } from '../src/client.js';
 
-interface FakeConnection {
-  readonly connection: ChannelConnection<ChanxMessage, ChanxMessage, any>;
-  readonly closeCalls: () => number;
-  readonly fail: () => void;
-}
-
 describe('request streams', () => {
   test('releases listeners and its connection when iteration ends early', async () => {
     const fake = createFakeConnection();
@@ -39,7 +33,7 @@ describe('request streams', () => {
   });
 });
 
-function createFakeConnection(): FakeConnection {
+function createFakeConnection() {
   let closeCalls = 0;
   let errorHandler: ((frame: any) => void) | undefined;
   const connection = {
