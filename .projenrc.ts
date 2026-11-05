@@ -1166,9 +1166,7 @@ const pypiProjectSpecs = pythonPackages()
   }));
 const pypiProjects = pypiProjectSpecs.map(project => ({
   ...project,
-  environment: pypiProjectSpecs.length === 1
-    ? 'pypi'
-    : `pypi-${project.distribution}`,
+  environment: `pypi-${project.distribution}`,
 }));
 const workflowReleaseRef = '${{ inputs.release_tag || github.ref }}';
 const workflowReleaseTag = '${{ inputs.release_tag || github.ref_name }}';

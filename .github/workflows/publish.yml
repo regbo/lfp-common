@@ -135,7 +135,7 @@ jobs:
           - distribution: pynect
             project_directory: packages/py/pynect
             artifact: pynect
-            environment: pypi
+            environment: pypi-pynect
   release:
     name: Create GitHub release
     needs:
