@@ -2,7 +2,7 @@
 
 [project]
 name = "pynect-example"
-version = "0.8.13"
+version = "0.8.14"
 description = "Python-owned Chanx model catalog consumed by the Pynect TypeScript example"
 readme = "README.md"
 requires-python = ">=3.11"
