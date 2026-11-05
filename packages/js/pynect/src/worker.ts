@@ -45,8 +45,12 @@ const STDIO_LAUNCHER = [
   'main()',
 ].join(';');
 
-export const workerOptionsSchema = projectOptionsSchema.unwrap().extend({
-  python: pynectPythonSchema.prefault({}),
+export const workerOptionsSchema = projectOptionsSchema.unwrap().pick({
+  app: true,
+  python: true,
+  root: true,
+}).extend({
+  python: pynectPythonSchema.optional(),
   startupTimeoutMs: z.number().int().positive().default(30_000)
     .describe('Python hello timeout.'),
   shutdownTimeoutMs: z.number().int().positive().default(5_000)
@@ -124,12 +128,13 @@ export class Worker implements AsyncDisposable {
 }
 
 /** Start one worker from Pyfig defaults, configured options, or an exact Python path. */
-export async function startWorker(input: StartWorkerOptions): Promise<Worker> {
+export async function startWorker(input: StartWorkerOptions = {}): Promise<Worker> {
   const parsed = workerOptionsSchema.parse(input);
   const project = resolveProject(parsed);
+  const python = pynectPythonSchema.parse(project.python ?? {});
   const prefix = createStdioPrefix();
-  const debug = typeof parsed.python === 'string' ? false : parsed.python.debug;
-  const child = await spawnWorker(parsed.python, project.root, {
+  const debug = typeof python === 'string' ? false : python.debug;
+  const child = await spawnWorker(python, project.root, {
     PYNECT_APP: project.app,
     PYNECT_LOG_LEVEL: debug ? 'DEBUG' : 'WARNING',
     PYNECT_STDIO_PREFIX: prefix,

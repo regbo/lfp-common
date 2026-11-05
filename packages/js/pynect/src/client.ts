@@ -46,8 +46,10 @@ export type PynectClient = Omit<ChanxClient, 'connect'> & {
   ): PynectConnection<Descriptor>;
 };
 
+export type PynectClientOptions = ClientOptions;
+
 /** Wrap Chanx so streamable request actions return ref-correlated async iterators. */
-export function createPynectClient(options: ClientOptions = {}): PynectClient {
+export function createPynectClient(options: PynectClientOptions = {}): PynectClient {
   const client = createChanxClient(options);
   return {
     ...client,

@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { resolveProject } from '../src/config.js';
+import type { PynectClientOptions, PynectPyfigOptions } from '../src/index.js';
 import { workerOptionsSchema } from '../src/worker.js';
 
 const temporaryDirectories: string[] = [];
@@ -14,6 +15,7 @@ test('exposes only supported generation, client, configuration, and worker APIs'
     'createPynectClient',
     'generateProject',
     'projectOptionsSchema',
+    'pynectPyfigOptionsSchema',
     'pynectPythonSchema',
     'resolveProject',
     'startWorker',
@@ -28,13 +30,34 @@ afterEach(() => {
 });
 
 describe('project configuration', () => {
-  test('uses Pyfig defaults when worker Python is omitted', () => {
+  test('defers omitted Python to project configuration and Pyfig defaults', () => {
     const options = workerOptionsSchema.parse({});
 
+    expect(options.python).toBeUndefined();
+    expect({ uv: '>=0.10,<1' } satisfies PynectPyfigOptions).toEqual({ uv: '>=0.10,<1' });
+    expect({ baseUrl: 'ws://localhost' } satisfies PynectClientOptions).toEqual({
+      baseUrl: 'ws://localhost',
+    });
+  });
+
+  test('accepts native Pyfig runtime options without code-generation fields', () => {
+    const options = workerOptionsSchema.parse({
+      name: 'ignored-at-runtime',
+      out: 'ignored-at-runtime',
+      python: {
+        debug: true,
+        python: '3.12',
+        uv: '>=0.10,<1',
+      },
+    });
+
     expect(options.python).toEqual({
-      debug: false,
+      debug: true,
+      python: '3.12',
       uv: '>=0.10,<1',
     });
+    expect(options).not.toHaveProperty('name');
+    expect(options).not.toHaveProperty('out');
   });
 
   test('derives the generated folder and project identity from pyproject.toml', () => {
@@ -51,7 +74,7 @@ python = { python = ">=3.12", uv = ">=0.10,<1", debug = true }
 validation = "zod"
 `.trimStart());
 
-    const project = resolveProject({ root });
+    const project = resolveProject(workerOptionsSchema.parse({ root }));
 
     expect(project.app).toBe('catalog.server:app');
     expect(project.slug).toBe('model-catalog');

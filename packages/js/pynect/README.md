@@ -123,6 +123,10 @@ actions as `Promise<Response>` and iterator actions as
 request needs only its action and payload. Concurrent streams use Chanx request
 refs for correlation and share one physical socket.
 
+Generated indexes re-export both `createPynectClient` and its
+`PynectClientOptions` type, so browser and worker wrappers share the same public
+option shape without importing Chanx directly.
+
 ## Generate TypeScript
 
 ```sh
@@ -212,8 +216,17 @@ to finish importing without delaying that early PID result.
 For a long-lived command, wait for the worker:
 
 ```ts
-const worker = await startWorker({ python, root: '../python' });
+const worker = await startWorker(); // Current directory is the Python project.
 await worker.wait();
+```
+
+Override Pyfig only when the project needs a specific runtime request:
+
+```ts
+const worker = await startWorker({
+  root: '../python',
+  python: { python: '3.12', uv: '>=0.10,<1' },
+});
 ```
 
 Pynect forwards `SIGINT`, `SIGTERM`, `SIGHUP`, and the platform shutdown signal

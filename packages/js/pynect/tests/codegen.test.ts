@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import os from 'node:os';
 import path from 'node:path';
 import { deriveSchemaTypes, generateProject } from '../src/codegen.js';
+import { emitStreamSupport } from '../src/codegen-stream.js';
 
 const temporaryDirectories: string[] = [];
 
@@ -13,6 +14,24 @@ afterEach(() => {
 });
 
 describe('Chanx code generation', () => {
+  test('upgrades the generated client export with its companion options type', async () => {
+    const output = mkdtempSync(path.join(os.tmpdir(), 'pynect-codegen-client-'));
+    temporaryDirectories.push(output);
+    writeFileSync(
+      path.join(output, 'index.ts'),
+      "export { createPynectClient } from 'pynect';\n",
+    );
+
+    await emitStreamSupport(
+      { operations: {} } as Parameters<typeof emitStreamSupport>[0],
+      output,
+    );
+
+    expect(readFileSync(path.join(output, 'index.ts'), 'utf8')).toBe(
+      "export { createPynectClient, type PynectClientOptions } from 'pynect';\n",
+    );
+  });
+
   test('derives generated TypeScript types from Zod validators', async () => {
     const output = mkdtempSync(path.join(os.tmpdir(), 'pynect-codegen-types-'));
     temporaryDirectories.push(output);
@@ -55,7 +74,9 @@ describe('Chanx code generation', () => {
     expect(channels).toContain("'watch'");
     expect(channels).toContain("'sync_watch'");
     const index = readFileSync(path.join(output, 'index.ts'), 'utf8');
-    expect(index).toContain("export { createPynectClient } from 'pynect';");
+    expect(index).toContain(
+      "export { createPynectClient, type PynectClientOptions } from 'pynect';",
+    );
     expect(index).not.toMatch(/\bcreateClient\b/u);
     expect(index).not.toContain("./streams.js");
 

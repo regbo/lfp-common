@@ -21,11 +21,13 @@ export async function emitStreamSupport(
   await rm(path.join(outDir, 'streams.ts'), { force: true });
 
   const indexPath = path.join(outDir, 'index.ts');
-  const index = await readFile(indexPath, 'utf8');
-  const clientExport = "export { createPynectClient } from 'pynect';";
-  if (!index.includes(clientExport)) {
-    await writeFile(indexPath, `${index.trimEnd()}\n${clientExport}\n`, 'utf8');
-  }
+  const currentIndex = await readFile(indexPath, 'utf8');
+  let index = currentIndex;
+  const legacyClientExport = "export { createPynectClient } from 'pynect';";
+  const clientExport = "export { createPynectClient, type PynectClientOptions } from 'pynect';";
+  if (index.includes(legacyClientExport)) index = index.replace(legacyClientExport, clientExport);
+  else if (!index.includes(clientExport)) index = `${index.trimEnd()}\n${clientExport}\n`;
+  if (index !== currentIndex) await writeFile(indexPath, index, 'utf8');
 }
 
 function streamSpecs(document: AsyncAPIDocument) {

@@ -1,17 +1,17 @@
-import type { ClientOptions } from '@chanx-js/client';
 import {
   createPynectClient,
   demo,
   type ChatModelStatus,
   type ChatPrompt,
   type ChatTranscript,
+  type PynectClientOptions,
   type WeatherChange,
   type WeatherQuery,
   type WeatherSnapshot,
   type WeatherWatch,
 } from './_generated/pynect-example/index.js';
 
-export function connectDemo(options: ClientOptions) {
+export function connectDemo(options: PynectClientOptions) {
   return createPynectClient(options).connect(demo);
 }
 

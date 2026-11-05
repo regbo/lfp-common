@@ -12,10 +12,12 @@ const importTargetSchema = z.string()
     'app must use the form "module:object".',
   );
 
-const pynectPyfigOptionsSchema = pyfigOptionsSchema.unwrap()
+export const pynectPyfigOptionsSchema = pyfigOptionsSchema.unwrap()
   .omit({ cwd: true })
   .readonly()
   .describe('Pyfig options; Pynect supplies the Python project directory as cwd.');
+
+export type PynectPyfigOptions = z.input<typeof pynectPyfigOptionsSchema>;
 
 export const pynectPythonSchema = z.union([
   z.string().trim().min(1).describe('Exact Python executable path.'),
