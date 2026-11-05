@@ -22,7 +22,7 @@ version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
   "chanx[fast_channels]>=2.13.0,<3",
-  "pynect-worker>=0.8,<1",
+  "pynect>=0.8,<1",
 ]
 
 [tool.pynect]
@@ -33,7 +33,7 @@ app = "server:app"
 Starlette ASGI application containing the Chanx routes. It defaults to
 `server:app`.
 
-The [`pynect-worker-example`](../../py/pynect-worker-example) workspace contains
+The [`pynect-example`](../../py/pynect-example) workspace contains
 a complete model-catalog project with generated TypeScript plus owned-worker and
 remote WebSocket clients.
 
@@ -47,7 +47,7 @@ from chanx.core.decorators import channel, ws_handler
 from chanx.messages.base import BaseMessage
 from fastapi import FastAPI
 from pydantic import BaseModel
-from pynect_worker import AsyncJsonWebsocketConsumer
+from pynect import AsyncJsonWebsocketConsumer
 
 
 class GreetPayload(BaseModel):

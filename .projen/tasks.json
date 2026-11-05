@@ -111,7 +111,7 @@
             "uv",
             "build",
             "--package",
-            "pynect-worker",
+            "pynect",
             "--out-dir",
             "dist/packages/python",
             "--no-sources"
@@ -202,12 +202,12 @@
             "run",
             "--locked",
             "--package",
-            "pynect-worker",
+            "pynect",
             "python",
             "-m",
             "pytest"
           ],
-          "cwd": "packages/py/pynect-worker",
+          "cwd": "packages/py/pynect",
           "env": {
             "VIRTUAL_ENV": "../../../.venv"
           }
@@ -263,13 +263,13 @@
             "run",
             "--locked",
             "--package",
-            "pynect-worker",
+            "pynect",
             "ruff",
             "check",
             "src",
             "tests"
           ],
-          "cwd": "packages/py/pynect-worker",
+          "cwd": "packages/py/pynect",
           "env": {
             "VIRTUAL_ENV": "../../../.venv"
           }
@@ -280,14 +280,14 @@
             "run",
             "--locked",
             "--package",
-            "pynect-worker",
+            "pynect",
             "ruff",
             "format",
             "--check",
             "src",
             "tests"
           ],
-          "cwd": "packages/py/pynect-worker",
+          "cwd": "packages/py/pynect",
           "env": {
             "VIRTUAL_ENV": "../../../.venv"
           }
@@ -298,12 +298,12 @@
             "run",
             "--locked",
             "--package",
-            "pynect-worker-example",
+            "pynect-example",
             "ruff",
             "check",
             "src"
           ],
-          "cwd": "packages/py/pynect-worker-example",
+          "cwd": "packages/py/pynect-example",
           "env": {
             "VIRTUAL_ENV": "../../../.venv"
           }
@@ -314,13 +314,13 @@
             "run",
             "--locked",
             "--package",
-            "pynect-worker-example",
+            "pynect-example",
             "ruff",
             "format",
             "--check",
             "src"
           ],
-          "cwd": "packages/py/pynect-worker-example",
+          "cwd": "packages/py/pynect-example",
           "env": {
             "VIRTUAL_ENV": "../../../.venv"
           }

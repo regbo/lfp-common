@@ -155,7 +155,11 @@ export class StdioOutputParser {
         return;
       }
       const digits = this.#buffer.subarray(lengthStart, separator);
-      if (digits.length === 0 || [...digits].some(byte => byte < 0x30 || byte > 0x39)) {
+      if (
+        digits.length === 0
+        || digits.length > 10
+        || [...digits].some(byte => byte < 0x30 || byte > 0x39)
+      ) {
         this.#protocolError(new Error('Python emitted an invalid Pynect record length.'));
         return;
       }

@@ -16,7 +16,7 @@ describe('Chanx code generation', () => {
   test('exports Python AsyncAPI and generates TypeScript into one folder', async () => {
     const output = mkdtempSync(path.join(os.tmpdir(), 'pynect-codegen-'));
     temporaryDirectories.push(output);
-    const root = path.resolve(import.meta.dir, '../../../py/pynect-worker');
+    const root = path.resolve(import.meta.dir, '../../../py/pynect');
 
     const result = await generateProject({
       root,

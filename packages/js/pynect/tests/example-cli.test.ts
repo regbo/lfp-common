@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 
 describe('model catalog example CLI', () => {
-  test('list-models emits one JSON array without a null result', async () => {
+  test('uses owned stdio IPC even when a remote endpoint is configured', async () => {
     const result = await runExampleCli(['list-models', '--json']);
     const models = JSON.parse(result.stdout) as Model[];
 
@@ -62,12 +62,17 @@ function runExampleCli(args: readonly string[]): Promise<{
       [
         path.resolve(
           import.meta.dir,
-          '..', '..', '..', 'py', 'pynect-worker-example', 'cli.ts',
+          '..', '..', '..', 'py', 'pynect-example', 'cli.ts',
         ),
         ...args,
       ],
       {
         cwd: path.resolve(import.meta.dir, '..'),
+        env: {
+          ...process.env,
+          // A remote client would fail immediately; the CLI must ignore this.
+          CHANX_BASE_URL: 'ws://127.0.0.1:1',
+        },
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,
       },

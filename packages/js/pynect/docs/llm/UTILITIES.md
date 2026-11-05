@@ -17,9 +17,10 @@
   child or its isolated POSIX process group.
 - `src/utils/python-package.ts`: locates the bundled wheel or editable Python
   adapter during development.
-- `../../py/pynect-worker-example/`: runnable Python-owned model catalog with
+- `../../py/pynect-example/`: runnable Python-owned model catalog with
   one generated Chanx client shared by owned-worker and remote WebSocket
-  entrypoints.
+  entrypoints; its CLI calls the public `startWorker()` API and always uses
+  invocation-owned stdio IPC.
 
 The Python schema and stdio runtime live independently in
-`packages/py/pynect-worker`; the npm build bundles its wheel into `dist/py`.
+`packages/py/pynect`; the npm build bundles its wheel into `dist/py`.

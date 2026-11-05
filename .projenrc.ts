@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { IConstruct, IMixin } from 'constructs';
@@ -77,6 +78,12 @@ function projectName(directory: string, override?: string): string {
   return name;
 }
 
+function packageDescription(directory: string, description?: string): string {
+  const value = description?.trim();
+  if (!value) throw new Error(`Package description for ${directory} cannot be empty.`);
+  return value;
+}
+
 function projectRelativePath(project: Project): string {
   const relative = path.relative(ROOT_DIRECTORY, project.outdir);
   return relative === '' ? '.' : relative.split(path.sep).join(path.posix.sep);
@@ -147,6 +154,39 @@ const CATALOG = {
   'which': '^6.0.1',
   'zod': '^4.6.7',
 } as const;
+
+const SHARED_TYPESCRIPT_COMPILER_OPTIONS = {
+  target: 'ES2022',
+  module: 'NodeNext',
+  moduleResolution: javascript.TypeScriptModuleResolution.NODE_NEXT,
+  lib: ['ES2022'],
+  strict: true,
+  alwaysStrict: true,
+  noImplicitReturns: true,
+  noFallthroughCasesInSwitch: true,
+  noUncheckedIndexedAccess: true,
+  forceConsistentCasingInFileNames: true,
+  esModuleInterop: true,
+  experimentalDecorators: false,
+  noEmitOnError: true,
+  noUnusedLocals: false,
+  noUnusedParameters: false,
+  resolveJsonModule: true,
+  skipLibCheck: true,
+  stripInternal: false,
+  verbatimModuleSyntax: true,
+  types: ['bun', 'node'],
+} satisfies javascript.TypeScriptCompilerOptions;
+
+const INHERITED_TYPESCRIPT_COMPILER_OPTIONS = Object.keys(
+  SHARED_TYPESCRIPT_COMPILER_OPTIONS,
+).filter(option => option !== 'types').concat(
+  // These are implied by the shared `strict` setting but Projen emits them.
+  'noImplicitAny',
+  'noImplicitThis',
+  'strictNullChecks',
+  'strictPropertyInitialization',
+);
 
 const root = new javascript.NodeProject({
   ...JS_PROJECT_DEFAULTS,
@@ -262,20 +302,7 @@ root.tasks.removeTask(rootUv.publishTestTask.name);
 const baseTsconfig = new javascript.TypescriptConfig(root, {
   fileName: 'tsconfig.base.json',
   include: [],
-  compilerOptions: {
-    target: 'ES2022',
-    module: 'NodeNext',
-    moduleResolution: javascript.TypeScriptModuleResolution.NODE_NEXT,
-    lib: ['ES2022'],
-    strict: true,
-    noImplicitReturns: true,
-    noFallthroughCasesInSwitch: true,
-    noUncheckedIndexedAccess: true,
-    forceConsistentCasingInFileNames: true,
-    esModuleInterop: true,
-    skipLibCheck: true,
-    types: ['bun', 'node'],
-  },
+  compilerOptions: SHARED_TYPESCRIPT_COMPILER_OPTIONS,
 });
 
 const projenrc = new typescript.ProjenrcTs(root, {
@@ -359,6 +386,98 @@ class PackageMetadata extends Component {
   }
 }
 
+type PackageRegistry = 'npm' | 'PyPI';
+
+/** Package metadata used by repository-wide generated documentation. */
+class WorkspacePackageInfo extends Component {
+  readonly description: string;
+  readonly registry?: PackageRegistry;
+
+  constructor(
+    project: Project,
+    options: {
+      readonly description: string;
+      readonly registry?: PackageRegistry;
+    },
+  ) {
+    super(project);
+    this.description = options.description;
+    this.registry = options.registry;
+  }
+}
+
+type Command = readonly [executable: string, ...arguments_: string[]];
+
+/** Derive package verification from its synthesized TypeScript configs. */
+class PackageVerification extends Component {
+  static readonly #instances = new WeakMap<
+    typescript.TypeScriptProject,
+    PackageVerification
+  >();
+
+  readonly #nodeProject: typescript.TypeScriptProject;
+  readonly #setupCommands: Command[] = [];
+  readonly #typeScriptProjects = new Set<string>();
+
+  constructor(project: typescript.TypeScriptProject) {
+    super(project);
+    if (PackageVerification.#instances.has(project)) {
+      throw new Error(`${project.name} already has package verification.`);
+    }
+    PackageVerification.#instances.set(project, this);
+    this.#nodeProject = project;
+  }
+
+  static of(project: typescript.TypeScriptProject): PackageVerification {
+    const verification = this.#instances.get(project);
+    if (!verification) throw new Error(`${project.name} has no package verification.`);
+    return verification;
+  }
+
+  addSetupCommand(...command: Command): void {
+    this.#setupCommands.push(command);
+  }
+
+  addTypeScriptProject(projectFile: string): void {
+    this.#typeScriptProjects.add(projectFile);
+  }
+
+  override preSynthesize(): void {
+    const typecheck = this.#nodeProject.tasks.tryFind('typecheck')
+      ?? this.#nodeProject.addTask('typecheck', {
+        description: `Type-check ${this.#nodeProject.name}.`,
+      });
+    typecheck.reset();
+    for (const command of this.#setupCommands) typecheck.execArgs([...command]);
+
+    const localProjects = this.#nodeProject.components
+      .filter((component): component is javascript.TypescriptConfig => (
+        component instanceof javascript.TypescriptConfig
+      ))
+      .map(config => config.fileName)
+      .sort((left, right) => {
+        if (left === 'tsconfig.json') return -1;
+        if (right === 'tsconfig.json') return 1;
+        return left.localeCompare(right);
+      });
+    for (const projectFile of new Set([
+      ...localProjects,
+      ...this.#typeScriptProjects,
+    ])) {
+      typecheck.execArgs(['tsc', '--noEmit', '-p', projectFile]);
+    }
+
+    const verify = this.#nodeProject.tasks.tryFind('verify')
+      ?? this.#nodeProject.addTask('verify', {
+        description: `Build, type-check, and test ${this.#nodeProject.name}.`,
+      });
+    verify.reset();
+    verify.spawn(this.#nodeProject.compileTask);
+    verify.spawn(typecheck);
+    verify.spawn(this.#nodeProject.testTask);
+  }
+}
+
 /** Create one uv_build package with the repository's shared Python defaults. */
 function createPyPackage(
   outdir: string,
@@ -366,6 +485,7 @@ function createPyPackage(
   ...modifiers: readonly ((uv: python.Uv) => void)[]
 ): python.Uv {
   const name = projectName(outdir, metadata.name);
+  const description = packageDescription(outdir, metadata.description);
   const dependencies = metadata.dependencies ?? [];
   const project = new Project({
     name,
@@ -424,6 +544,10 @@ function createPyPackage(
     ],
   });
   for (const modifier of modifiers) modifier(uv);
+  new WorkspacePackageInfo(project, {
+    description,
+    registry: project.tasks.tryFind('publish') ? 'PyPI' : undefined,
+  });
   return uv;
 }
 
@@ -444,6 +568,7 @@ function createJsPackage(
     ...projectOptions
   } = options;
   const name = projectName(outdir, nameOverride);
+  const description = packageDescription(outdir, projectOptions.description);
   const srcdir = projectOptions.srcdir ?? 'src';
   const libdir = projectOptions.libdir ?? 'dist';
   const testdir = projectOptions.testdir ?? 'tests';
@@ -504,6 +629,25 @@ function createJsPackage(
       },
     },
   });
+  new PackageVerification(project);
+  if (!project.tsconfig) throw new Error(`${name} build tsconfig must be enabled.`);
+  const packageCompilerOptions = new Set(Object.keys(
+    projectOptions.tsconfig?.compilerOptions ?? {},
+  ));
+  if (commonJsModule) {
+    packageCompilerOptions.add('moduleResolution');
+    packageCompilerOptions.add('verbatimModuleSyntax');
+  }
+  for (const option of INHERITED_TYPESCRIPT_COMPILER_OPTIONS) {
+    if (!packageCompilerOptions.has(option)) {
+      project.tsconfig.file.addDeletionOverride(`compilerOptions.${option}`);
+    }
+  }
+  const hasPackageTypes = projectOptions.tsconfig?.compilerOptions?.types !== undefined
+    || (projectOptions.devDeps ?? []).some(dependency => dependency.startsWith('@types/'));
+  if (!hasPackageTypes) {
+    project.tsconfig.file.addDeletionOverride('compilerOptions.types');
+  }
 
   project.package.addVersion(VERSION);
   const mainPath = packagePath(projectOptions.entrypoint ?? `${libdir}/index.js`);
@@ -518,10 +662,14 @@ function createJsPackage(
       : undefined,
     srcdir,
   });
+  const packageFiles = [`${libdir}/`, 'README.md'];
+  if (existsSync(path.join(ROOT_DIRECTORY, outdir, 'SECURITY.md'))) {
+    packageFiles.push('SECURITY.md');
+  }
   project.addFields({
     type: 'module',
     sideEffects: false,
-    files: [`${libdir}/`, 'README.md'],
+    files: packageFiles,
     engines: {
       node: '^22.11.0 || >=24.10.0 <=26.x',
       bun: '>=1.2.0',
@@ -554,12 +702,8 @@ function createJsPackage(
   }
   project.testTask.reset();
   project.testTask.execArgs(['bun', 'test']);
-  configureTypecheck(project, [
-    ['tsc', '--noEmit', '-p', 'tsconfig.json'],
-    ['tsc', '--noEmit', '-p', 'scripts/tsconfig.json'],
-    ['tsc', '--noEmit', '-p', 'tests/tsconfig.json'],
-  ]);
   for (const modifier of modifiers) modifier(project);
+  new WorkspacePackageInfo(project, { description, registry: 'npm' });
 
   return project;
 }
@@ -576,6 +720,42 @@ function packageMetadataExport(libdir: string, requirePath?: string) {
     import: modulePath,
     ...(requirePath ? { require: requirePath } : { default: modulePath }),
   };
+}
+
+function workspacePackageTable(project: Project): string[] {
+  const packages = project.subprojects.flatMap(subproject => {
+    const info = subproject.components.find(
+      (component): component is WorkspacePackageInfo => component instanceof WorkspacePackageInfo,
+    );
+    return info ? [{
+      description: info.description,
+      name: subproject.name,
+      path: projectRelativePath(subproject),
+      registry: info.registry,
+    }] : [];
+  });
+  const nameCounts = new Map<string, number>();
+  for (const workspace of packages) {
+    nameCounts.set(workspace.name, (nameCounts.get(workspace.name) ?? 0) + 1);
+  }
+  packages.sort((left, right) => {
+    const registryOrder = (value?: PackageRegistry) => value === 'npm' ? 0 : 1;
+    return registryOrder(left.registry) - registryOrder(right.registry)
+      || left.path.localeCompare(right.path);
+  });
+
+  return [
+    '| Package | Purpose |',
+    '| --- | --- |',
+    ...packages.map(workspace => {
+      const registry = nameCounts.get(workspace.name)! > 1 && workspace.registry
+        ? ` (${workspace.registry})`
+        : '';
+      const description = workspace.description.replaceAll('|', '\\|');
+      const purpose = /[.!?]$/u.test(description) ? description : `${description}.`;
+      return `| [\`${workspace.name}\`](${workspace.path})${registry} | ${purpose} |`;
+    }),
+  ];
 }
 
 const loqkit = createJsPackage('packages/js/loqkit', {
@@ -615,10 +795,6 @@ const loqkit = createJsPackage('packages/js/loqkit', {
   project.compileTask.reset();
   project.compileTask.execArgs(['tsc', '-p', 'tsconfig.json']);
   project.compileTask.execArgs(['bun', 'scripts/build-cjs.ts']);
-  configureTypecheck(project, [
-    ['tsc', '--noEmit', '-p', 'tsconfig.json'],
-    ['tsc', '--noEmit', '-p', 'scripts/tsconfig.json'],
-  ]);
 });
 
 const optionkit = createJsPackage('packages/js/optionkit', {
@@ -648,15 +824,12 @@ const optionkit = createJsPackage('packages/js/optionkit', {
   });
   project.compileTask.reset();
   project.compileTask.execArgs(['bun', 'scripts/build.ts']);
-  project.testTask.reset();
-  project.testTask.execArgs(['bun', 'scripts/generate-catalog.ts']);
-  project.testTask.execArgs(['bun', 'test']);
-  configureTypecheck(project, [
-    ['bun', 'scripts/generate-catalog.ts'],
-    ['tsc', '--noEmit', '-p', 'tsconfig.json'],
-    ['tsc', '--noEmit', '-p', 'scripts/tsconfig.json'],
-    ['tsc', '--noEmit', '-p', 'tests/tsconfig.json'],
-  ]);
+  project.testTask.prependSteps({
+    execArgs: ['bun', 'scripts/generate-catalog.ts'],
+  });
+  PackageVerification.of(project).addSetupCommand(
+    'bun', 'scripts/generate-catalog.ts',
+  );
   project.addTask('test:packed', {
     description: 'Smoke-test the packed package in an isolated consumer.',
     execArgs: ['bun', 'scripts/test-packed.ts'],
@@ -687,14 +860,13 @@ const pyfig = createJsPackage('packages/js/pyfig', {
         import: './dist/cli.js',
       },
   });
-  project.addFields({ files: ['dist/', 'README.md', 'SECURITY.md'] });
   project.compileTask.reset();
   project.compileTask.execArgs(['bun', 'scripts/build.ts']);
   project.addScripts({ pyfig: 'bun ./src/cli.ts' });
 });
 
-const pynectWorker = createPyPackage(
-  'packages/py/pynect-worker',
+const pynectPython = createPyPackage(
+  'packages/py/pynect',
   {
     description: 'Chanx schema export and owned stdio adapter for Pynect',
     dependencies: ['chanx[fast_channels]>=2.13.0,<3'],
@@ -703,37 +875,19 @@ const pynectWorker = createPyPackage(
       'Environment :: Console',
     ],
     scripts: {
-      'pynect-schema': 'pynect_worker.schema:main',
+      'pynect-schema': 'pynect.schema:main',
     },
   },
   uv => {
     const project = uv.project;
-    uv.file.addOverride('tool.pytest.ini_options', { testpaths: ['tests'] });
-    uv.file.addOverride('tool.ruff.exclude', ['src/pynect_worker/_generated']);
-    uv.file.addOverride('tool.ruff.src', ['src', 'tests']);
-    project.testTask.reset();
-    project.testTask.execArgs([
-      'uv', 'run', '--locked', '--package', project.name, 'python', '-m', 'pytest',
-    ]);
-    project.tasks.tryFind('check')?.reset();
-    project.tasks.tryFind('check')?.execArgs([
-      'uv', 'run', '--locked', '--package', project.name, 'ruff', 'check', 'src', 'tests',
-    ]);
-    project.tasks.tryFind('format')?.reset();
-    project.tasks.tryFind('format')?.execArgs([
-      'uv', 'run', '--locked', '--package', project.name, 'ruff', 'format', 'src', 'tests',
-    ]);
-    project.tasks.tryFind('format:check')?.reset();
-    project.tasks.tryFind('format:check')?.execArgs([
-      'uv', 'run', '--locked', '--package', project.name,
-      'ruff', 'format', '--check', 'src', 'tests',
-    ]);
-    new TextFile(project, 'src/pynect_worker/_generated/__init__.py', {
+    configurePythonTests(uv);
+    uv.file.addOverride('tool.ruff.exclude', ['src/pynect/_generated']);
+    new TextFile(project, 'src/pynect/_generated/__init__.py', {
       committed: true,
       readonly: true,
       lines: ['"""Generated package metadata."""'],
     });
-    new TextFile(project, 'src/pynect_worker/_generated/metadata.py', {
+    new TextFile(project, 'src/pynect/_generated/metadata.py', {
       committed: true,
       readonly: true,
       lines: [
@@ -743,20 +897,19 @@ const pynectWorker = createPyPackage(
       ],
     });
     project.gitattributes.addAttributes(
-      '/src/pynect_worker/_generated/**',
+      '/src/pynect/_generated/**',
       'linguist-generated',
     );
   },
 );
 
-const pynectWorkerExample = createPyPackage(
-  'packages/py/pynect-worker-example',
+const pynectExample = createPyPackage(
+  'packages/py/pynect-example',
   {
     description: 'Python-owned Chanx model catalog consumed by the Pynect TypeScript example',
     dependencies: [
       'chanx[fast_channels]>=2.13.0,<3',
-      'coolname>=5,<6',
-      pynectWorker.project.name,
+      pynectPython.project.name,
       'uvicorn[standard]>=0.40,<1',
     ],
   },
@@ -766,11 +919,11 @@ const pynectWorkerExample = createPyPackage(
     project.tasks.removeTask('publish:test');
     uv.file.addOverride('tool.ruff.lint.per-file-ignores', {
       // The marker intentionally runs before imports so startup timing excludes them.
-      'src/pynect_worker_example/benchmark_native.py': ['E402'],
+      'src/pynect_example/benchmark_native.py': ['E402'],
     });
     uv.file.addOverride('tool.pynect', {
       name: 'model-catalog',
-      app: 'pynect_worker_example.server:app',
+      app: 'pynect_example.server:app',
       out: '_generated/model-catalog',
     });
     new JsonFile(project, 'package.json', {
@@ -786,7 +939,7 @@ const pynectWorkerExample = createPyPackage(
         },
       },
     });
-    new TextFile(project, 'src/pynect_worker_example/__init__.py', {
+    new TextFile(project, 'src/pynect_example/__init__.py', {
       committed: true,
       lines: ['"""Pynect model-catalog example application."""', ''],
     });
@@ -798,7 +951,6 @@ const pynect = createJsPackage('packages/js/pynect', {
   description: 'Generate Chanx clients from Python and run them through an owned stdio worker.',
   tsconfig: {
     compilerOptions: {
-      module: 'NodeNext',
       lib: ['ES2022', 'ESNext.Disposable'],
     },
   },
@@ -826,51 +978,45 @@ const pynect = createJsPackage('packages/js/pynect', {
     'websocket',
   ],
 });
-const pynectWorkerExampleFromJs = path.posix.relative(
+const pynectExampleFromJs = path.posix.relative(
   projectRelativePath(pynect),
-  projectRelativePath(pynectWorkerExample.project),
+  projectRelativePath(pynectExample.project),
 );
-pynect.addFields({ files: ['dist/', 'README.md', 'SECURITY.md'] });
 pynect.compileTask.reset();
 pynect.compileTask.execArgs([
-  'bun', 'src/cli.ts', 'generate', '--root', pynectWorkerExampleFromJs,
+  'bun', 'src/cli.ts', 'generate', '--root', pynectExampleFromJs,
 ]);
 pynect.compileTask.execArgs(['bun', 'scripts/build.ts']);
-pynect.testTask.reset();
-pynect.testTask.execArgs(['bun', 'test']);
-pynect.testTask.execArgs(['bun', `${pynectWorkerExampleFromJs}/local.ts`]);
-configureTypecheck(pynect, [
-  ['tsc', '--noEmit', '-p', 'tsconfig.json'],
-  ['tsc', '--noEmit', '-p', 'scripts/tsconfig.json'],
-  ['tsc', '--noEmit', '-p', 'tests/tsconfig.json'],
-  ['tsc', '--noEmit', '-p', `${pynectWorkerExampleFromJs}/tsconfig.json`],
-]);
+pynect.testTask.execArgs(['bun', `${pynectExampleFromJs}/local.ts`]);
 if (!pynect.tsconfigDev) throw new Error('Pynect development tsconfig must be enabled.');
 pynect.tsconfigDev.file.addOverride(
   'compilerOptions.rootDir',
   path.posix.relative(`${projectRelativePath(pynect)}/tests`, '.'),
 );
-new javascript.TypescriptConfig(pynectWorkerExample.project, {
+new javascript.TypescriptConfig(pynectExample.project, {
   fileName: 'tsconfig.json',
   extends: javascript.TypescriptConfigExtends.fromTypescriptConfigs([pynect.tsconfig!]),
   compilerOptions: {
     allowImportingTsExtensions: true,
     noEmit: true,
-    rootDir: path.posix.relative(projectRelativePath(pynectWorkerExample.project), '.'),
+    rootDir: path.posix.relative(projectRelativePath(pynectExample.project), '.'),
   },
   include: ['**/*.ts'],
   exclude: ['node_modules'],
 });
+PackageVerification.of(pynect).addTypeScriptProject(
+  `${pynectExampleFromJs}/tsconfig.json`,
+);
 pynect.addScripts({
   'benchmark:application': 'bun scripts/benchmark-application.ts',
   'benchmark:stdio': 'bun scripts/benchmark-stdio.ts',
-  'example:cli': `bun ${pynectWorkerExampleFromJs}/cli.ts`,
-  'example:generate': `bun src/cli.ts generate --root ${pynectWorkerExampleFromJs}`,
-  'example:local': `bun ${pynectWorkerExampleFromJs}/local.ts`,
-  'example:remote': `bun ${pynectWorkerExampleFromJs}/remote.ts`,
+  'example:cli': `bun ${pynectExampleFromJs}/cli.ts`,
+  'example:generate': `bun src/cli.ts generate --root ${pynectExampleFromJs}`,
+  'example:local': `bun ${pynectExampleFromJs}/local.ts`,
+  'example:remote': `bun ${pynectExampleFromJs}/remote.ts`,
   'example:serve': [
-    'uv run --package', pynectWorkerExample.project.name,
-    'uvicorn pynect_worker_example.server:app --host 127.0.0.1 --port 7777',
+    'uv run --package', pynectExample.project.name,
+    'uvicorn pynect_example.server:app --host 127.0.0.1 --port 7777',
   ].join(' '),
 });
 
@@ -975,14 +1121,7 @@ new TextFile(root, 'README.md', {
     '',
     'The shared Bun and uv monorepo for LFP Connect libraries.',
     '',
-    '| Package | Purpose |',
-    '| --- | --- |',
-    '| [`loqkit`](packages/js/loqkit) | Typed memoization and layered locks. |',
-    '| [`optionkit`](packages/js/optionkit) | Zod-backed CLI configuration. |',
-    '| [`pyfig`](packages/js/pyfig) | uv bootstrap and Python execution. |',
-    '| [`pynect`](packages/js/pynect) | Python-owned Chanx APIs with generated TypeScript and an owned stdio worker. |',
-    '| [`pynect-worker`](packages/py/pynect-worker) | Python schema export, iterator handlers, and stdio runtime. |',
-    '| [`pynect-worker-example`](packages/py/pynect-worker-example) | Non-published model-catalog workspace member. |',
+    ...workspacePackageTable(root),
     '',
     'All packages use the version declared in `.projenrc.ts`, external versions come from its Bun catalog, and sibling packages use `workspace:*`.',
     'Every workspace publishes its generated `PACKAGE_NAME` and `PACKAGE_VERSION` constants from the `./metadata` subpath.',
@@ -998,7 +1137,11 @@ new TextFile(root, 'docs/llm/UTILITIES.md', {
     '- `scripts/process.ts`: shell-free child-process execution shared by release tooling.',
     '- `ReadonlyGeneratedFiles`: Projen mixin that makes every synthesized file read-only across the project tree.',
     '- `PackageMetadata`: emits tracked, read-only `_generated/metadata.ts` modules and merges public `./metadata` package exports.',
+    '- `WorkspacePackageInfo` and `workspacePackageTable`: derive root package documentation from the Projen subproject tree.',
+    '- `PackageVerification`: discovers every package-owned TypeScript config and generates its `typecheck` and `verify` tasks.',
+    '- `createJsPackage`: creates a publishable Bun/TypeScript package with shared compiler policy, metadata, scripts, and verification.',
     '- `createPyPackage`: creates uv packages from native Projen project metadata.',
+    '- `configurePythonTests`: adds shared pytest and Ruff task coverage to a Python package.',
     '- `pythonPackages`: discovers uv packages from the Projen subproject tree.',
     '- `scripts/workspaces.ts`: Pacwich-backed workspace discovery and shared-version validation.',
     '- `scripts/release-lib.ts`: pure SemVer, tag, GitHub remote, and identity helpers.',
@@ -1274,23 +1417,30 @@ function configureScriptTypes(
   });
 }
 
-function configureTypecheck(
-  project: typescript.TypeScriptProject,
-  commands: readonly (readonly string[])[],
+function configurePythonTests(
+  uv: python.Uv,
 ): void {
-  const task = project.tasks.tryFind('typecheck') ?? project.addTask('typecheck', {
-    description: `Type-check ${project.name}.`,
-  });
-  task.reset();
-  for (const command of commands) task.execArgs([...command]);
+  const project = uv.project;
+  const sources = ['src', 'tests'];
+  uv.file.addOverride('tool.pytest.ini_options', { testpaths: ['tests'] });
+  uv.file.addOverride('tool.ruff.src', sources);
+  project.testTask.reset();
+  project.testTask.execArgs([
+    'uv', 'run', '--locked', '--package', project.name, 'python', '-m', 'pytest',
+  ]);
 
-  const packageVerify = project.tasks.tryFind('verify') ?? project.addTask('verify', {
-    description: `Build, type-check, and test ${project.name}.`,
-  });
-  packageVerify.reset();
-  packageVerify.spawn(project.compileTask);
-  packageVerify.spawn(task);
-  packageVerify.spawn(project.testTask);
+  for (const [taskName, command] of [
+    ['check', ['ruff', 'check']],
+    ['format', ['ruff', 'format']],
+    ['format:check', ['ruff', 'format', '--check']],
+  ] as const) {
+    const task = project.tasks.tryFind(taskName);
+    if (!task) throw new Error(`${project.name} must have a ${taskName} task.`);
+    task.reset();
+    task.execArgs([
+      'uv', 'run', '--locked', '--package', project.name, ...command, ...sources,
+    ]);
+  }
 }
 
 root.with(new ReadonlyGeneratedFiles());

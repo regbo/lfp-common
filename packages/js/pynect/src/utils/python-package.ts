@@ -11,7 +11,7 @@ export function resolvePythonPackage(moduleDirectory: string): PythonPackageLoca
   const wheelDirectory = path.resolve(moduleDirectory, 'py');
   if (existsSync(wheelDirectory)) {
     const wheel = readdirSync(wheelDirectory)
-      .filter(name => /^pynect_worker-.*\.whl$/u.test(name))
+      .filter(name => /^pynect-.*\.whl$/u.test(name))
       .sort()
       .at(-1);
     if (wheel) {
@@ -22,9 +22,9 @@ export function resolvePythonPackage(moduleDirectory: string): PythonPackageLoca
     }
   }
 
-  const sourceProject = path.resolve(moduleDirectory, '..', '..', '..', 'py', 'pynect-worker');
+  const sourceProject = path.resolve(moduleDirectory, '..', '..', '..', 'py', 'pynect');
   if (existsSync(path.join(sourceProject, 'pyproject.toml'))) {
     return Object.freeze({ editable: true, requirement: sourceProject });
   }
-  throw new Error('Could not locate the bundled pynect-worker wheel.');
+  throw new Error('Could not locate the bundled Pynect wheel.');
 }

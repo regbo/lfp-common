@@ -97,5 +97,5 @@ test('keeps every Projen-generated file read-only', async () => {
 
 test('uses one uv workspace lockfile for every Python project', async () => {
   expect(await uvProjectPaths()).toEqual(['.']);
-  expect(PYTHON_DISTRIBUTIONS.map(project => project.name)).toEqual(['pynect-worker']);
+  expect(PYTHON_DISTRIBUTIONS.map(project => project.name)).toEqual(['pynect']);
 });

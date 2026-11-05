@@ -132,9 +132,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - distribution: pynect-worker
-            project_directory: packages/py/pynect-worker
-            artifact: pynect-worker
+          - distribution: pynect
+            project_directory: packages/py/pynect
+            artifact: pynect
             environment: pypi
   release:
     name: Create GitHub release

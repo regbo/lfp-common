@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { StdioOutputParser } from '../src/stdio-protocol.js';
 
-const exampleRoot = fileURLToPath(new URL('../../../py/pynect-worker-example/', import.meta.url));
+const exampleRoot = fileURLToPath(new URL('../../../py/pynect-example/', import.meta.url));
 const pythonPath = fileURLToPath(new URL(
   process.platform === 'win32'
     ? '../../../../.venv/Scripts/python.exe'
@@ -15,7 +15,7 @@ const pythonPath = fileURLToPath(new URL(
   import.meta.url,
 ));
 const workerPath = fileURLToPath(new URL(
-  '../../../py/pynect-worker-example/src/pynect_worker_example/benchmark_stdio.py',
+  '../../../py/pynect-example/src/pynect_example/benchmark_stdio.py',
   import.meta.url,
 ));
 const launcherPath = fileURLToPath(new URL('./benchmark-stdio.ts', import.meta.url));

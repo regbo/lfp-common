@@ -147,9 +147,9 @@ describe("withLock", () => {
               "flock",
               "poll",
             ]);
-            expect(["worker", "skipped"]).toContain(lock.backends[1]?.type);
-            expect(["flock", "skipped"]).toContain(lock.backends[2]?.type);
-            expect(["poll", "skipped"]).toContain(lock.backends[3]?.type);
+            expect(["worker", "skipped"]).toContain(lock.backends[1]!.type);
+            expect(["flock", "skipped"]).toContain(lock.backends[2]!.type);
+            expect(["poll", "skipped"]).toContain(lock.backends[3]!.type);
 
             active += 1;
             peak = Math.max(peak, active);
@@ -195,7 +195,7 @@ describe("withLock", () => {
       state: "executed",
     });
     expect("acquired" in result.context).toBe(false);
-    expect(result.context).toBe(actionContext);
+    expect(actionContext).toBe(result.context);
     expect(checks).toBe(2);
   });
 

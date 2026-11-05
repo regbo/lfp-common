@@ -105,8 +105,8 @@
         "typescript": "catalog:",
       },
     },
-    "packages/py/pynect-worker-example": {
-      "name": "pynect-worker-example",
+    "packages/py/pynect-example": {
+      "name": "pynect-example",
       "version": "0.8.11",
       "dependencies": {
         "@chanx-js/client": "catalog:",
@@ -260,7 +260,7 @@
 
     "pynect": ["pynect@workspace:packages/js/pynect"],
 
-    "pynect-worker-example": ["pynect-worker-example@workspace:packages/py/pynect-worker-example"],
+    "pynect-example": ["pynect-example@workspace:packages/py/pynect-example"],
 
     "read-package-up": ["read-package-up@12.0.0", "", { "dependencies": { "find-up-simple": "^1.0.1", "read-pkg": "^10.0.0", "type-fest": "^5.2.0" } }, "sha512-Q5hMVBYur/eQNWDdbF4/Wqqr9Bjvtrw2kjGxxBbKLbx8bVCL8gcArjTy8zDUuLGQicftpMuU0riQNcAsbtOVsw=="],
 

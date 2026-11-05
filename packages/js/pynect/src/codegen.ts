@@ -34,7 +34,7 @@ export async function generateProject(
 async function exportSchema(project: PynectProject): Promise<void> {
   const { child } = await spawnWorker(
     project,
-    ['-c', 'from pynect_worker.schema import main; main()'],
+    ['-c', 'from pynect.schema import main; main()'],
     {
     env: {
       PYNECT_APP: project.app,

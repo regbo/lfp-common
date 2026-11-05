@@ -3,7 +3,7 @@ import path from 'node:path';
 
 const root = path.resolve(import.meta.dir, '..');
 const distribution = path.join(root, 'dist');
-const pythonProject = path.resolve(root, '../../py/pynect-worker');
+const pythonProject = path.resolve(root, '../../py/pynect');
 if (path.dirname(distribution) !== root || path.basename(distribution) !== 'dist') {
   throw new Error(`Refusing to clean an unexpected build directory: ${distribution}`);
 }

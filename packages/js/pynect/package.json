@@ -25,11 +25,11 @@
     "publish:release": "npm publish ../../../dist/packages/pynect-0.8.11.tgz --access public --tag latest --provenance",
     "benchmark:application": "bun scripts/benchmark-application.ts",
     "benchmark:stdio": "bun scripts/benchmark-stdio.ts",
-    "example:cli": "bun ../../py/pynect-worker-example/cli.ts",
-    "example:generate": "bun src/cli.ts generate --root ../../py/pynect-worker-example",
-    "example:local": "bun ../../py/pynect-worker-example/local.ts",
-    "example:remote": "bun ../../py/pynect-worker-example/remote.ts",
-    "example:serve": "uv run --package pynect-worker-example uvicorn pynect_worker_example.server:app --host 127.0.0.1 --port 7777"
+    "example:cli": "bun ../../py/pynect-example/cli.ts",
+    "example:generate": "bun src/cli.ts generate --root ../../py/pynect-example",
+    "example:local": "bun ../../py/pynect-example/local.ts",
+    "example:remote": "bun ../../py/pynect-example/remote.ts",
+    "example:serve": "uv run --package pynect-example uvicorn pynect_example.server:app --host 127.0.0.1 --port 7777"
   },
   "author": {
     "name": "regbo",

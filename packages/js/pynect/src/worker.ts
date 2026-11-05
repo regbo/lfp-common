@@ -29,7 +29,7 @@ const STDIO_LAUNCHER = [
   "_payload=json.dumps(_hello,separators=(',',':')).encode()",
   "sys.stdout.buffer.write(_prefix+str(len(_payload)).encode()+b':'+_payload)",
   'sys.stdout.buffer.flush()',
-  'from pynect_worker.worker.stdio import main',
+  'from pynect.worker.stdio import main',
   'main()',
 ].join(';');
 
@@ -117,7 +117,7 @@ export class Worker implements AsyncDisposable {
 export async function startWorker(input: StartWorkerOptions): Promise<Worker> {
   const parsed = workerOptionsSchema.parse(input);
   const python = path.resolve(parsed.python);
-  if (!existsSync(python) || !statSync(python).isFile()) {
+  if (!statSync(python, { throwIfNoEntry: false })?.isFile()) {
     throw new Error(`Python executable does not exist: ${python}`);
   }
   const project = resolveProject(parsed);
@@ -128,7 +128,7 @@ export async function startWorker(input: StartWorkerOptions): Promise<Worker> {
     env: {
       ...process.env,
       PYNECT_APP: project.app,
-      PYNECT_LOG_LEVEL: project.debug ? 'DEBUG' : 'INFO',
+      PYNECT_LOG_LEVEL: project.debug ? 'DEBUG' : 'WARNING',
       PYNECT_STDIO_PREFIX: prefix,
       PYTHONUNBUFFERED: '1',
     },

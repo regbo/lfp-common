@@ -4,8 +4,8 @@ import { PassThrough } from 'node:stream';
 import {
   connectModelCatalog,
   listModelsStream,
-} from '../../../py/pynect-worker-example/client.js';
-import { startExampleWorker } from '../../../py/pynect-worker-example/stdio-worker.js';
+} from '../../../py/pynect-example/client.js';
+import { startExampleWorker } from '../../../py/pynect-example/stdio-worker.js';
 
 describe('generated streams', () => {
   test('correlates concurrent streams over one physical socket', async () => {

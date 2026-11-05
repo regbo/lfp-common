@@ -1,16 +1,102 @@
 import { describe, expect, test } from 'bun:test';
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { rm, writeFile } from 'node:fs/promises';
 import { PassThrough } from 'node:stream';
 import path from 'node:path';
 import { forwardedProcessSignals } from '../src/process-signals.js';
 import { startWorker } from '../src/worker.js';
-import { startExampleWorker } from '../../../py/pynect-worker-example/stdio-worker.js';
+import { startExampleWorker } from '../../../py/pynect-example/stdio-worker.js';
 import {
   connectModelCatalog,
   listModels,
-} from '../../../py/pynect-worker-example/client.js';
+} from '../../../py/pynect-example/client.js';
 
 describe('owned stdio worker', () => {
+  test('rejects startup when the child exits before hello', async () => {
+    const repositoryRoot = path.resolve(import.meta.dir, '../../../..');
+    let error: unknown;
+    try {
+      await startWorker({
+        // Bun is executable but cannot run the Python launcher passed through `-c`.
+        python: process.execPath,
+        root: path.resolve(import.meta.dir, '../../../py/pynect'),
+        app: 'tests.fixtures.catalog:app',
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        startupTimeoutMs: 5_000,
+      });
+    } catch (cause) {
+      error = cause;
+    }
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toMatch(/stdout ended unexpectedly|exited with code 1/u);
+    expect((error as Error).message).toContain('Python stderr:');
+    expect((error as Error).message).toMatch(/(?:File|Script) not found/u);
+  }, 60_000);
+
+  test('reports its PID before the application import completes', async () => {
+    const stderr = new PassThrough();
+    let errorOutput = '';
+    stderr.setEncoding('utf8');
+    stderr.on('data', chunk => { errorOutput += chunk; });
+    const repositoryRoot = path.resolve(import.meta.dir, '../../../..');
+    const worker = await startWorker({
+      python: path.join(
+        repositoryRoot,
+        '.venv',
+        process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python',
+      ),
+      root: path.resolve(import.meta.dir, '../../../py/pynect'),
+      app: 'tests.fixtures.delayed_import:app',
+      stdout: new PassThrough(),
+      stderr,
+    });
+    const release = await waitForImportBarrier(() => errorOutput);
+    try {
+      expect(path.basename(release)).toContain(String(worker.pid));
+      expect(existsSync(release)).toBe(false);
+      await writeFile(release, 'continue');
+      const connection = connectModelCatalog(worker.clientOptions);
+      try {
+        expect((await listModels(connection, { provider: 'anthropic' })).length).toBeGreaterThan(0);
+      } finally {
+        connection.close();
+      }
+    } finally {
+      await rm(release, { force: true });
+      await worker.close();
+    }
+  }, 60_000);
+
+  test('fails an open virtual socket when the Python application exits', async () => {
+    const repositoryRoot = path.resolve(import.meta.dir, '../../../..');
+    const worker = await startWorker({
+      python: path.join(
+        repositoryRoot,
+        '.venv',
+        process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python',
+      ),
+      root: path.resolve(import.meta.dir, '../../../py/pynect'),
+      app: 'tests.fixtures.failing_app:app',
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+    });
+    try {
+      const socketFactory = worker.clientOptions.socketFactory;
+      if (!socketFactory) throw new Error('stdio client options did not provide a socket factory.');
+      const socket = socketFactory('ws://pynect-stdio/ws/failure');
+      const failed = Promise.withResolvers<unknown>();
+      socket.onerror = failed.resolve;
+
+      expect(await failed.promise).toBeInstanceOf(Error);
+      expect(await worker.wait()).not.toBe(0);
+    } finally {
+      await worker.close();
+    }
+  }, 60_000);
+
   test('runs a real generated client and cleans up its process listeners', async () => {
     const initialSignalListeners = new Map(
       forwardedProcessSignals.map(signal => [signal, process.listenerCount(signal)]),
@@ -18,8 +104,11 @@ describe('owned stdio worker', () => {
     const stdout = new PassThrough();
     const stderr = new PassThrough();
     let output = '';
+    let errorOutput = '';
     stdout.setEncoding('utf8');
     stdout.on('data', chunk => { output += chunk; });
+    stderr.setEncoding('utf8');
+    stderr.on('data', chunk => { errorOutput += chunk; });
 
     const worker = await startExampleWorker({ stdout, stderr });
     expect(worker.pid).toBeNumber();
@@ -41,6 +130,8 @@ describe('owned stdio worker', () => {
     await Promise.all([worker.close(), worker.close()]);
     expect(await exited).toBe(0);
     expect(isProcessAlive(worker.pid)).toBe(false);
+    expect(output).not.toContain('Disconnecting websocket');
+    expect(errorOutput).not.toContain('Disconnecting websocket');
     for (const signal of forwardedProcessSignals) {
       expect(process.listenerCount(signal)).toBe(initialSignalListeners.get(signal) ?? 0);
     }
@@ -61,7 +152,7 @@ describe('owned stdio worker', () => {
         '.venv',
         process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python',
       ),
-      root: path.resolve(import.meta.dir, '../../../py/pynect-worker'),
+      root: path.resolve(import.meta.dir, '../../../py/pynect'),
       app: 'tests.fixtures.stdio_output:app',
       stdout,
       stderr,
@@ -83,7 +174,7 @@ describe('owned stdio worker', () => {
       '.venv',
       process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python',
     );
-    const workerRoot = path.resolve(import.meta.dir, '../../../py/pynect-worker');
+    const workerRoot = path.resolve(import.meta.dir, '../../../py/pynect');
     const marker = '#OWNED_STDIO_WORKER#';
     const owner = spawn(process.execPath, ['--eval', `
       import { startWorker } from './src/worker.ts';
@@ -134,6 +225,16 @@ function readMarkedPid(stream: NodeJS.ReadableStream | null, marker: string): Pr
       reject(error);
     });
   });
+}
+
+async function waitForImportBarrier(readOutput: () => string): Promise<string> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const match = /^PYNECT_IMPORT_BARRIER=(.+)$/mu.exec(readOutput());
+    if (match?.[1]) return match[1].trim();
+    await Bun.sleep(10);
+  }
+  throw new Error(`Python did not report its import barrier. Stderr: ${readOutput()}`);
 }
 
 async function waitForProcessExit(pid: number, timeoutMs: number): Promise<void> {
