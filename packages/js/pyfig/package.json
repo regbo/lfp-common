@@ -22,7 +22,7 @@
     "watch": "projen watch",
     "projen": "projen",
     "pack:release": "bun pm pack --ignore-scripts --destination ../../../dist/packages --quiet",
-    "publish:release": "npm publish ../../../dist/packages/pyfig-0.8.15.tgz --access public --tag latest --provenance",
+    "publish:release": "npm publish ../../../dist/packages/pyfig-0.8.16.tgz --access public --tag latest --provenance",
     "pyfig": "bun ./src/cli.ts"
   },
   "author": {
@@ -62,7 +62,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "0.8.15",
+  "version": "0.8.16",
   "bugs": {
     "url": "https://github.com/regbo/lfp-common/issues"
   },

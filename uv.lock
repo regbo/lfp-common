@@ -566,7 +566,7 @@ wheels = [
 
 [[package]]
 name = "lfp-common"
-version = "0.8.15"
+version = "0.8.16"
 source = { virtual = "." }
 
 [package.dev-dependencies]
@@ -1432,7 +1432,7 @@ wheels = [
 
 [[package]]
 name = "pynect"
-version = "0.8.15"
+version = "0.8.16"
 source = { editable = "packages/py/pynect" }
 dependencies = [
     { name = "chanx", extra = ["fast-channels"] },
@@ -1443,7 +1443,7 @@ requires-dist = [{ name = "chanx", extras = ["fast-channels"], specifier = ">=2.
 
 [[package]]
 name = "pynect-example"
-version = "0.8.15"
+version = "0.8.16"
 source = { editable = "packages/py/pynect-example" }
 dependencies = [
     { name = "chanx", extra = ["fast-channels"] },
