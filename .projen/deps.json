@@ -36,6 +36,11 @@
       "type": "build"
     },
     {
+      "name": "smol-toml",
+      "version": "catalog:",
+      "type": "build"
+    },
+    {
       "name": "typescript",
       "version": "catalog:",
       "type": "build"

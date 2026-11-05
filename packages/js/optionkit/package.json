@@ -23,7 +23,8 @@
     "publish:release": "npm publish ../../../dist/packages/optionkit-0.8.11.tgz --access public --tag latest --provenance"
   },
   "author": {
-    "name": "optionkit contributors",
+    "name": "regbo",
+    "url": "https://github.com/regbo",
     "organization": false
   },
   "devDependencies": {
@@ -54,21 +55,23 @@
   "engines": {
     "node": ">=18"
   },
-  "main": "./dist/index.js",
+  "main": "dist/index.js",
   "license": "MIT",
   "homepage": "https://github.com/regbo/lfp-common/tree/main/packages/js/optionkit#readme",
   "publishConfig": {
-    "access": "public",
-    "provenance": true,
-    "registry": "https://registry.npmjs.org"
+    "access": "public"
   },
   "version": "0.8.11",
   "bugs": {
     "url": "https://github.com/regbo/lfp-common/issues"
   },
-  "types": "./dist/index.d.ts",
-  "sideEffects": false,
+  "types": "dist/index.d.ts",
   "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist/",
+    "README.md"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -81,11 +84,6 @@
       "default": "./dist/_generated/metadata.js"
     }
   },
-  "files": [
-    "dist/",
-    "LICENSE",
-    "README.md"
-  ],
   "peerDependenciesMeta": {
     "fireargs": {
       "optional": true

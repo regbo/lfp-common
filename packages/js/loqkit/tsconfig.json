@@ -35,9 +35,9 @@
     ],
     "declarationMap": true,
     "sourceMap": true,
-    "exactOptionalPropertyTypes": true,
     "moduleResolution": "nodenext",
-    "verbatimModuleSyntax": true
+    "verbatimModuleSyntax": true,
+    "exactOptionalPropertyTypes": true
   },
   "include": [
     "src/**/*.ts",

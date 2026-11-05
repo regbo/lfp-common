@@ -13,7 +13,7 @@ afterEach(() => {
 });
 
 describe('project configuration', () => {
-  test('derives the generated folder and IPC identity from pyproject.toml', () => {
+  test('derives the generated folder and project identity from pyproject.toml', () => {
     const root = mkdtempSync(path.join(os.tmpdir(), 'pynect-config-'));
     temporaryDirectories.push(root);
     writeFileSync(path.join(root, 'pyproject.toml'), `
@@ -32,7 +32,6 @@ validation = "zod"
     expect(project.slug).toBe('model-catalog');
     expect(project.outDir).toBe(path.join(root, '_generated', 'model-catalog'));
     expect(project.schemaPath).toBe(path.join(project.outDir, 'asyncapi.json'));
-    expect(project.ipcEnvironmentVariable).toBe('MODEL_CATALOG_IPC_PATH');
     expect(project.validation).toBe('zod');
   });
 

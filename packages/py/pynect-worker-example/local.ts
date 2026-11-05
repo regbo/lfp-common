@@ -1,8 +1,8 @@
 import { connectModelCatalog, listModels, listModelsStream } from './client.js';
-import { startExampleIpcServer } from './ipc-server.js';
+import { startExampleWorker } from './stdio-worker.js';
 
-await using server = await startExampleIpcServer();
-const connection = connectModelCatalog(server.clientOptions);
+await using worker = await startExampleWorker();
+const connection = connectModelCatalog(worker.clientOptions);
 try {
   console.log('Immediate list_models response');
   console.table(await listModels(connection));

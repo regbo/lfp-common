@@ -8,7 +8,7 @@ describe('model catalog example CLI', () => {
     const models = JSON.parse(result.stdout) as Model[];
 
     expect(result.code).toBe(0);
-    expect(result.stderr).not.toContain('IPC server listening at');
+    expect(result.stderr).not.toContain('@pynect:');
     expectValidModels(models);
     expect(result.stdout.trimEnd().endsWith('null')).toBe(false);
   }, 60_000);
@@ -19,7 +19,7 @@ describe('model catalog example CLI', () => {
       .map(line => JSON.parse(line) as Model);
 
     expect(result.code).toBe(0);
-    expect(result.stderr).not.toContain('IPC server listening at');
+    expect(result.stderr).not.toContain('@pynect:');
     expectValidModels(models);
     expect(result.msAfterFirstOutput).toBeGreaterThan(2_000);
     expect(result.stdout.trimEnd().endsWith('null')).toBe(false);
@@ -34,7 +34,7 @@ describe('model catalog example CLI', () => {
     ]);
 
     expect(result.code).toBe(0);
-    expect(result.stderr).not.toContain('IPC server listening at');
+    expect(result.stderr).not.toContain('@pynect:');
     expect(result.stdout).toBe('');
   }, 60_000);
 });
@@ -59,7 +59,13 @@ function runExampleCli(args: readonly string[]): Promise<{
   return new Promise((resolve, reject) => {
     const child = spawn(
       process.execPath,
-      [path.resolve(import.meta.dir, '..', 'example', 'cli.ts'), ...args],
+      [
+        path.resolve(
+          import.meta.dir,
+          '..', '..', '..', 'py', 'pynect-worker-example', 'cli.ts',
+        ),
+        ...args,
+      ],
       {
         cwd: path.resolve(import.meta.dir, '..'),
         stdio: ['ignore', 'pipe', 'pipe'],

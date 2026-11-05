@@ -1,17 +1,38 @@
 import path from 'node:path';
 import { createFileSystemProject, type Workspace } from 'pacwich';
+import { parse } from 'smol-toml';
 
 export const ROOT = path.resolve(import.meta.dir, '..');
-const PYTHON_PROJECT_PATHS = ['packages/py/pynect-worker'] as const;
-export const PYTHON_DISTRIBUTIONS = PYTHON_PROJECT_PATHS.map(projectPath => ({
-  name: path.posix.basename(projectPath),
-  path: projectPath,
+const pythonPackagePaths = [...new Bun.Glob('packages/py/*/pyproject.toml').scanSync({
+  cwd: ROOT,
+  onlyFiles: true,
+})].map(file => path.dirname(file).replaceAll('\\', '/')).sort();
+export const PYTHON_PROJECTS = await Promise.all(['.', ...pythonPackagePaths].map(async projectPath => {
+  const pyproject = parse(await Bun.file(path.join(ROOT, projectPath, 'pyproject.toml')).text()) as {
+    readonly project?: { readonly name?: unknown };
+  };
+  if (typeof pyproject.project?.name !== 'string') {
+    throw new Error(`${projectPath}/pyproject.toml has no project name.`);
+  }
+  const tasksFile = Bun.file(path.join(ROOT, projectPath, '.projen', 'tasks.json'));
+  const tasks = await tasksFile.exists()
+    ? await tasksFile.json() as { readonly tasks?: Readonly<Record<string, unknown>> }
+    : undefined;
+  return {
+    name: pyproject.project.name,
+    path: projectPath,
+    publish: tasks?.tasks?.publish !== undefined,
+  };
 }));
-export const WORKSPACES = createFileSystemProject({
+export const PYTHON_DISTRIBUTIONS = PYTHON_PROJECTS.filter(project => project.publish);
+export const BUN_WORKSPACES = createFileSystemProject({
   rootDirectory: ROOT,
   packageManager: 'bun',
   disableExecutableConfigs: true,
 }).workspaces;
+export const WORKSPACES = BUN_WORKSPACES.filter(workspace =>
+  workspace.path.replaceAll('\\', '/').startsWith('packages/js/')
+);
 
 export function workspacePath(workspace: Workspace): string {
   return path.join(ROOT, workspace.path);
@@ -45,30 +66,16 @@ export async function generatedPackageVersionPaths(directory: string): Promise<r
 }
 
 export async function uvProjectPaths(): Promise<readonly string[]> {
-  const projects: string[] = [];
-  for (const pattern of ['packages/js/*/**/pyproject.toml', 'packages/py/*/pyproject.toml']) {
-    const projectFiles = new Bun.Glob(pattern);
-    for await (const projectFile of projectFiles.scan({
-      cwd: ROOT,
-      followSymlinks: false,
-      onlyFiles: true,
-    })) {
-      const project = path.dirname(projectFile);
-      const segments = project.split(/[\\/]/u);
-      if (segments.includes('node_modules') || segments.includes('.venv')) continue;
-      if (await Bun.file(path.join(ROOT, project, 'uv.lock')).exists()) {
-        projects.push(project.split(path.sep).join('/'));
-      }
-    }
-  }
-  return [...new Set(projects)].sort();
+  const hasWorkspace = await Bun.file(path.join(ROOT, 'pyproject.toml')).exists();
+  const hasLock = await Bun.file(path.join(ROOT, 'uv.lock')).exists();
+  return hasWorkspace && hasLock ? ['.'] : [];
 }
 
 export async function sharedVersion(): Promise<string> {
   const version = (await readManifest(ROOT)).version;
   if (typeof version !== 'string') throw new Error('Root package.json has no version.');
 
-  const mismatches = (await Promise.all(WORKSPACES.map(async workspace => ({
+  const mismatches = (await Promise.all(BUN_WORKSPACES.map(async workspace => ({
     name: workspace.name,
     version: (await readManifest(workspacePath(workspace))).version,
   })))).filter(workspace => workspace.version !== version);
@@ -79,14 +86,14 @@ export async function sharedVersion(): Promise<string> {
     );
   }
 
-  const pythonMismatches = (await Promise.all(PYTHON_DISTRIBUTIONS.map(async project => ({
+  const pythonMismatches = (await Promise.all(PYTHON_PROJECTS.map(async project => ({
     ...project,
     version: ((await Bun.file(path.join(ROOT, project.path, 'pyproject.toml')).text())
       .match(/^version\s*=\s*"([^"]+)"/mu)?.[1]),
   })))).filter(project => project.version !== version);
   if (pythonMismatches.length > 0) {
     throw new Error(
-      `Python distribution versions must equal root ${version}: ` +
+      `Python project versions must equal root ${version}: ` +
       pythonMismatches.map(project => `${project.name}@${project.version ?? '<missing>'}`).join(', '),
     );
   }

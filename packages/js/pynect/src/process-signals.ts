@@ -20,80 +20,32 @@ interface ProcessSignalForwarderOptions {
   readonly processGroup?: boolean;
 }
 
-/**
- * Sends lifecycle signals to uv and its Python child without duplicating a
- * Windows console event that the operating system already broadcasts.
- */
+/** Signal the one directly owned worker, or its isolated POSIX process group. */
 export class ProcessSignalForwarder {
-  readonly uvPid: number;
-  #kill: KillProcess;
-  #pending = new Set<NodeJS.Signals>();
-  #platform: NodeJS.Platform;
-  #processGroup: boolean;
-  #pythonPid: number | undefined;
+  readonly pid: number;
+  readonly #kill: KillProcess;
+  readonly #platform: NodeJS.Platform;
+  readonly #processGroup: boolean;
 
-  constructor(uvPid: number, options: ProcessSignalForwarderOptions = {}) {
-    this.uvPid = uvPid;
+  constructor(pid: number, options: ProcessSignalForwarderOptions = {}) {
+    this.pid = pid;
     this.#kill = options.kill ?? process.kill.bind(process);
     this.#platform = options.platform ?? process.platform;
     this.#processGroup = options.processGroup ?? this.#platform !== 'win32';
   }
 
-  get pythonPid(): number | undefined {
-    return this.#pythonPid;
-  }
-
-  /** Record the real Python PID and replay signals received during startup. */
-  setPythonPid(pid: number): void {
-    this.#pythonPid = pid;
-    for (const signal of this.#pending) {
-      this.#send(pid, this.#replaySignal(signal));
-    }
-    this.#pending.clear();
-  }
-
-  /**
-   * Forward a signal through the worker tree. `nativeConsoleEvent` means the
-   * event came from this process's signal listener rather than `.close()`.
-   */
+  /** Forward a shutdown signal unless Windows already broadcast the console event. */
   forward(signal: NodeJS.Signals, nativeConsoleEvent = false): void {
-    if (this.#isWindowsConsoleEvent(signal, nativeConsoleEvent)) {
-      // Like uv, let Windows deliver Ctrl+C/Break directly to existing
-      // console children. Retain it only for Python that appears afterwards.
-      if (this.#pythonPid === undefined) this.#pending.add(signal);
-      return;
-    }
-
-    const sentToUv = this.#send(this.#uvTarget(), signal);
-    if (this.#platform === 'win32') {
-      if (this.#pythonPid === undefined) this.#pending.add(signal);
-      else this.#send(this.#pythonPid, signal);
-      return;
-    }
-
-    // A detached POSIX uv worker leads a process group containing Python.
-    // Fall back to the known Python PID if the group has already disappeared.
-    if (!sentToUv && this.#pythonPid !== undefined) this.#send(this.#pythonPid, signal);
-    if (this.#pythonPid === undefined) this.#pending.add(signal);
+    if (
+      this.#platform === 'win32'
+      && nativeConsoleEvent
+      && (signal === 'SIGINT' || signal === 'SIGBREAK')
+    ) return;
+    this.#send(this.#target(), signal);
   }
 
   forceKill(): void {
-    const sentToUv = this.#send(this.#uvTarget(), 'SIGKILL');
-    if (this.#pythonPid !== undefined && (this.#platform === 'win32' || !sentToUv)) {
-      this.#send(this.#pythonPid, 'SIGKILL');
-    }
-  }
-
-  #isWindowsConsoleEvent(signal: NodeJS.Signals, nativeConsoleEvent: boolean): boolean {
-    return this.#platform === 'win32'
-      && nativeConsoleEvent
-      && (signal === 'SIGINT' || signal === 'SIGBREAK');
-  }
-
-  #replaySignal(signal: NodeJS.Signals): NodeJS.Signals {
-    // Node cannot reliably generate CTRL_BREAK_EVENT for one process. SIGINT
-    // is the closest termination fallback when Python missed the broadcast.
-    return this.#platform === 'win32' && signal === 'SIGBREAK' ? 'SIGINT' : signal;
+    this.#send(this.#target(), 'SIGKILL');
   }
 
   #send(pid: number, signal: NodeJS.Signals): boolean {
@@ -104,12 +56,12 @@ export class ProcessSignalForwarder {
     }
   }
 
-  #uvTarget(): number {
-    return this.#processGroup && this.#platform !== 'win32' ? -this.uvPid : this.uvPid;
+  #target(): number {
+    return this.#processGroup && this.#platform !== 'win32' ? -this.pid : this.pid;
   }
 }
 
-/** Owns a uv process tree and participates in process-level signal handling. */
+/** Own one child process and participate in process-level signal handling. */
 export class OwnedProcessTree {
   readonly child: ChildProcess;
   readonly exited: Promise<number | null>;
@@ -117,27 +69,13 @@ export class OwnedProcessTree {
   #closing: Promise<void> | undefined;
   #removeSignalTarget: (() => void) | undefined;
 
-  constructor(
-    child: ChildProcess,
-    pythonPid?: number | Promise<number>,
-    options: ProcessSignalForwarderOptions = {},
-  ) {
-    if (child.pid === undefined) throw new Error('uv worker PID is unavailable.');
+  constructor(child: ChildProcess, options: ProcessSignalForwarderOptions = {}) {
+    if (child.pid === undefined) throw new Error('Owned worker PID is unavailable.');
     this.child = child;
     this.signals = new ProcessSignalForwarder(child.pid, options);
     this.exited = new Promise(resolve => child.once('close', code => resolve(code)));
     this.#removeSignalTarget = signalCoordinator.add(this);
     child.once('close', () => this.#removeSignalTarget?.());
-
-    if (typeof pythonPid === 'number') this.signals.setPythonPid(pythonPid);
-    else if (pythonPid) void pythonPid.then(
-      pid => this.signals.setPythonPid(pid),
-      () => undefined,
-    );
-  }
-
-  get pythonPid(): number | undefined {
-    return this.signals.pythonPid;
   }
 
   close(): Promise<void> {
@@ -153,10 +91,7 @@ export class OwnedProcessTree {
     return this.#closing;
   }
 
-  async #performShutdown(
-    signal: NodeJS.Signals,
-    nativeConsoleEvent: boolean,
-  ): Promise<void> {
+  async #performShutdown(signal: NodeJS.Signals, nativeConsoleEvent: boolean): Promise<void> {
     if (hasExited(this.child)) return;
     this.signals.forward(signal, nativeConsoleEvent);
     await Promise.race([this.exited, delay(SHUTDOWN_GRACE_MS)]);
@@ -199,9 +134,7 @@ class ProcessSignalCoordinator {
     this.#uninstall();
     void Promise.allSettled(targets.map(target => target.shutdownFromSignal(signal)))
       .then(() => {
-        if (!hasExternalHandler && process.listenerCount(signal) === 0) {
-          terminateCurrentProcess(signal);
-        }
+        if (!hasExternalHandler && process.listenerCount(signal) === 0) terminateCurrentProcess(signal);
       });
   }
 }
@@ -218,8 +151,7 @@ function terminateCurrentProcess(signal: NodeJS.Signals): void {
   try {
     process.kill(process.pid, signal);
   } catch {
-    // Once the owned children are gone, exitCode preserves a useful fallback
-    // on runtimes that cannot re-raise a particular emulated Windows signal.
+    // exitCode preserves a useful fallback when the runtime cannot re-raise a signal.
   }
 }
 

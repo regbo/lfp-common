@@ -4,11 +4,6 @@ import { createOptionKit } from 'optionkit';
 import { generateProject } from './codegen.js';
 import { projectOptionsSchema } from './config.js';
 import { PACKAGE_VERSION } from './_generated/metadata.js';
-import {
-  resolveSharedIpcPath,
-  serverOptionsSchema,
-  startIpcServer,
-} from './server.js';
 
 /** Run the Pynect command-line interface. */
 export async function main(argv: string[] = process.argv): Promise<void> {
@@ -23,24 +18,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       const result = await generateProject(options);
       return `Generated ${result.channels} channel(s) in ${result.outDir}`;
     });
-  const serve = f.command({
-    description: 'Run the configured Python app over local IPC.',
-  })
-    .input(serverOptionsSchema)
-    .output(z.string())
-    .render(output => output)
-    .handler(async options => {
-      const server = await startIpcServer({
-        ...options,
-        ipcPath: resolveSharedIpcPath(options),
-      });
-      await server.wait();
-      return '';
-    });
   const program = f.program({
     name: 'pynect',
-    description: 'Generate and run Python-owned Chanx projects.',
-  }).router({ generate, serve });
+    description: 'Generate clients for Python-owned Chanx projects.',
+  }).router({ generate });
 
   await program.parseAsync(argv);
 }

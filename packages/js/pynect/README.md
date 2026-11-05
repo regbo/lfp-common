@@ -1,8 +1,8 @@
 # Pynect
 
 Pynect keeps a Chanx API in Python, generates its TypeScript client, and lets the
-same generated channels connect remotely over WebSocket or locally over a Unix
-socket/Windows named pipe.
+same generated channels connect remotely over WebSocket or locally through an
+owned Python subprocess's stdin and stdout.
 
 It deliberately does not proxy arbitrary Python objects. Chanx owns messages,
 validation, routing, streaming, and client types.
@@ -33,8 +33,9 @@ app = "server:app"
 Starlette ASGI application containing the Chanx routes. It defaults to
 `server:app`.
 
-The [`example`](example) directory contains a complete model-catalog project
-with generated TypeScript plus local IPC and remote WebSocket clients.
+The [`pynect-worker-example`](../../py/pynect-worker-example) workspace contains
+a complete model-catalog project with generated TypeScript plus owned-worker and
+remote WebSocket clients.
 
 ## Write the API in Python
 
@@ -166,55 +167,46 @@ const response = await connection.request({
 });
 ```
 
-## Local IPC
+## Owned local worker
 
-For a local process, start the same ASGI app through Pynect and pass its client
-options to Chanx:
+For local calls, start the same ASGI app with a resolved Python executable and
+pass the worker's client options to Chanx:
 
 ```ts
-import { startIpcServer } from 'pynect';
+import { startWorker } from 'pynect';
 import { createPynectClient, greeter } from './_generated/model-catalog/index.js';
 
-await using server = await startIpcServer({ root: '../python' });
-const client = createPynectClient(server.clientOptions);
+await using worker = await startWorker({
+  python: 'C:\\path\\to\\python.exe',
+  root: '../python',
+});
+const client = createPynectClient(worker.clientOptions);
 const connection = client.connect(greeter);
 ```
 
-`startIpcServer()` always starts a worker owned by the current process. The
-launcher captures the real Python PID, and the worker watches its parent PID,
-so it exits if the parent disappears. Use `await using` for scoped cleanup or
-call `await server.close()` explicitly. Both are safe to call more than once.
-Unless a path is configured explicitly, each owned server uses an endpoint
-containing the parent PID and a random suffix, so multiple invocations can run
-without colliding.
+`startWorker()` always starts one Python process owned by the current Bun/Node
+process. It does not discover Python, listen on an endpoint, expose a reusable
+daemon, or allow another process to connect. Resolve the executable before
+calling it. Use `await using` for scoped cleanup or call `await worker.close()`
+explicitly; concurrent close calls share the same shutdown operation.
+
+stdin carries random-marker, byte-length-delimited protocol records. stdout
+multiplexes the same records with byte-exact ordinary Python output, and stderr
+is forwarded immediately. Chanx frames remain opaque strings inside the
+transport. The first record reports the real Python PID before Pynect or the
+configured app is imported.
 
 For a long-lived command, wait for the worker:
 
 ```ts
-const server = await startIpcServer({ root: '../python' });
-await server.wait();
+const worker = await startWorker({ python, root: '../python' });
+await worker.wait();
 ```
 
 Pynect forwards `SIGINT`, `SIGTERM`, `SIGHUP`, and the platform shutdown signal
-(`SIGQUIT` on macOS/Linux or `SIGBREAK` on Windows) through the owned worker
-tree. On macOS/Linux, uv and Python run in an isolated process group so the
-whole group receives the signal. On Windows, Pynect follows uv's behavior and
-lets the console deliver Ctrl+C or Ctrl+Break directly, avoiding an abrupt
-emulated signal; if Python starts after that event, the captured PID receives a
-retained shutdown signal. A custom parent signal handler remains authoritative.
-`ensureIpcServer()` remains available only when deliberately reusing an
-existing endpoint is desired. It uses the stable project endpoint so other
-processes can discover it.
-
-Run a long-lived local server from the command line with:
-
-```sh
-bunx pynect serve
-```
-
-The shared endpoint used by `ensureIpcServer()` and `pynect serve` is
-`<temp>/model-catalog.sock` on macOS/Linux and `\\.\pipe\model-catalog` on
-Windows. Override any generated endpoint with `MODEL_CATALOG_IPC_PATH` or the
-`ipcPath` JavaScript option.
+(`SIGQUIT` on macOS/Linux or `SIGBREAK` on Windows) to the owned process. On
+macOS/Linux, the worker starts in an isolated process group. On Windows, the
+console delivers Ctrl+C or Ctrl+Break directly. A custom parent signal handler
+remains authoritative.
 
 MIT licensed.

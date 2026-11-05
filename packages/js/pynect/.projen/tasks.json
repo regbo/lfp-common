@@ -35,7 +35,7 @@
             "src/cli.ts",
             "generate",
             "--root",
-            "example"
+            "../../py/pynect-worker-example"
           ]
         },
         {
@@ -99,7 +99,7 @@
         {
           "execArgs": [
             "bun",
-            "example/local.ts"
+            "../../py/pynect-worker-example/local.ts"
           ]
         }
       ]
@@ -137,7 +137,7 @@
             "tsc",
             "--noEmit",
             "-p",
-            "example/tsconfig.json"
+            "../../py/pynect-worker-example/tsconfig.json"
           ]
         }
       ]

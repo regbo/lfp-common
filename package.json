@@ -22,7 +22,8 @@
     "projen": "projen"
   },
   "author": {
-    "name": "LFP Connect contributors",
+    "name": "regbo",
+    "url": "https://github.com/regbo",
     "organization": false
   },
   "devDependencies": {
@@ -33,6 +34,7 @@
     "pacwich": "catalog:",
     "projen": "catalog:",
     "semver": "catalog:",
+    "smol-toml": "catalog:",
     "typescript": "catalog:"
   },
   "license": "MIT",
@@ -49,7 +51,8 @@
   "packageManager": "bun@1.4.4",
   "workspaces": {
     "packages": [
-      "packages/js/*"
+      "packages/js/*",
+      "packages/py/*"
     ],
     "catalog": {
       "@antfu/install-pkg": "^2.1.0",

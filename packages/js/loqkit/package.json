@@ -22,7 +22,8 @@
     "publish:release": "npm publish ../../../dist/packages/loqkit-0.8.11.tgz --access public --tag latest --provenance"
   },
   "author": {
-    "name": "Reggie Brooks",
+    "name": "regbo",
+    "url": "https://github.com/regbo",
     "organization": false
   },
   "devDependencies": {
@@ -53,21 +54,24 @@
   "engines": {
     "node": ">=20"
   },
-  "main": "./release/cjs/index.js",
+  "main": "release/cjs/index.js",
   "license": "MIT",
   "homepage": "https://github.com/regbo/lfp-common/tree/main/packages/js/loqkit#readme",
   "publishConfig": {
-    "access": "public",
-    "provenance": true,
-    "registry": "https://registry.npmjs.org"
+    "access": "public"
   },
   "version": "0.8.11",
   "bugs": {
     "url": "https://github.com/regbo/lfp-common/issues"
   },
-  "types": "./release/index.d.ts",
-  "sideEffects": false,
+  "types": "release/cjs/index.d.ts",
   "type": "module",
+  "sideEffects": false,
+  "files": [
+    "release/",
+    "src/",
+    "README.md"
+  ],
   "exports": {
     ".": {
       "types": "./release/index.d.ts",
@@ -80,12 +84,6 @@
       "require": "./release/cjs/_generated/metadata.js"
     }
   },
-  "files": [
-    "release",
-    "src",
-    "README.md",
-    "LICENSE"
-  ],
   "optionalDependencies": {
     "fs-ext": "catalog:"
   },

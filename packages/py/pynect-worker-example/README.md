@@ -1,6 +1,8 @@
 # Model catalog example
 
-This is the smallest complete Pynect project. [`server.py`](server.py) owns the
+This is the smallest complete Pynect project. It is an installable uv workspace
+member used for development and examples, but it is not published to PyPI.
+[`server.py`](src/pynect_worker_example/server.py) owns the
 Pydantic messages, Chanx route, validation, and implementation. Pynect exports
 that app's AsyncAPI document and generates the TypeScript client in
 `_generated/model-catalog`. The Python source shows both an immediate
@@ -14,7 +16,8 @@ detects the `AsyncIterator[...]` return type, sends Chanx's built-in `complete`
 frame when Python reaches the end of the function, and generates the
 TypeScript async iterator that stops on that frame.
 
-Run these commands from `packages/js/pynect`.
+Run `uv sync` once from the repository root, then run these commands from
+`packages/js/pynect`.
 
 Generate or refresh the client:
 
@@ -22,10 +25,9 @@ Generate or refresh the client:
 bun run example:generate
 ```
 
-Call either operation from the example CLI. Each invocation starts its own
-Python IPC server on a parent-PID-specific endpoint, captures the Python PID
-handshake, and tears the server down when the command finishes. The worker also
-watches the parent PID so it exits if the parent process is terminated:
+Call either operation from the example CLI. Each invocation directly starts
+its own Python process, captures the early PID record, communicates over
+length-framed stdio, and tears the worker down when the command finishes:
 
 ```sh
 bun run example:cli -- list-models
@@ -34,11 +36,11 @@ bun run example:cli -- list-models-stream --provider openai
 
 Add `--json` to either command for machine-readable stdout. `list-models`
 returns one JSON array. `list-models-stream` writes newline-delimited JSON (one
-model per yield), so each item appears as soon as Python sends it. IPC startup
-logs are routed to stderr in JSON mode so stdout stays safe to pipe or parse.
+model per yield), so each item appears as soon as Python sends it. Python stderr
+and ordinary stdout are routed to stderr in JSON mode so CLI stdout stays safe
+to pipe or parse.
 
-Call both operations locally over the same invocation-scoped Unix socket or
-Windows named pipe:
+Call both operations through the same invocation-owned Python process:
 
 ```sh
 bun run example:local

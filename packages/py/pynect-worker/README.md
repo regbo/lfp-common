@@ -2,7 +2,7 @@
 
 `pynect-worker` is Pynect's Python package. It exports Chanx AsyncAPI schemas,
 adds an iterator-aware server consumer, and runs Python-owned Chanx applications
-over Pynect's local IPC transport.
+inside Pynect's one-owner stdio worker.
 
 ## Install
 
@@ -52,5 +52,14 @@ def watch_sync(self, message: WatchRequest) -> Iterator[WatchResponse]:
 Pynect closes server iterators deterministically after normal completion,
 early return, iteration failure, send failure, or handler cancellation. Normal
 completion emits `complete`; failures remain Chanx handler errors.
+
+## Owned stdio transport
+
+The JavaScript `startWorker()` launcher owns the Python process and sends
+byte-length-delimited events over stdin. Python multiplexes response events with
+ordinary stdout and forwards stderr separately. The random per-process marker
+lets Pynect preserve binary application output without requiring it to end with
+a newline. There is no socket endpoint, shared mode, endpoint
+discovery, stale-endpoint cleanup, or parent-PID polling.
 
 MIT licensed.

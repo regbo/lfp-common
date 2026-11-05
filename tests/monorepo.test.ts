@@ -4,7 +4,9 @@ import { access, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
   ROOT,
+  BUN_WORKSPACES,
   PYTHON_DISTRIBUTIONS,
+  PYTHON_PROJECTS,
   WORKSPACES,
   generatedMetadataPath,
   generatedPackageVersionPaths,
@@ -13,7 +15,7 @@ import {
   workspacePath,
 } from '../scripts/workspaces.ts';
 
-const internalPackages = new Set<string>(WORKSPACES.map(workspace => workspace.name));
+const internalPackages = new Set<string>(BUN_WORKSPACES.map(workspace => workspace.name));
 
 test('keeps one version, lockfile, catalog, and workspace protocol', async () => {
   const root = await readManifest(ROOT);
@@ -53,20 +55,35 @@ test('keeps one version, lockfile, catalog, and workspace protocol', async () =>
     await expect(access(path.join(directory, 'bun.lock'))).rejects.toThrow();
   }
 
+  for (const workspace of BUN_WORKSPACES.filter(candidate => !WORKSPACES.includes(candidate))) {
+    const directory = workspacePath(workspace);
+    const manifest = await readManifest(directory);
+    expect(manifest.name).toBe(path.basename(directory));
+    expect(manifest.version).toBe(root.version);
+    expect(manifest.private).toBe(true);
+    for (const [name, specifier] of Object.entries(manifest.dependencies ?? {})) {
+      expect(specifier).toBe(internalPackages.has(name) ? 'workspace:*' : 'catalog:');
+    }
+  }
+
   await access(path.join(ROOT, 'bun.lock'));
 
-  for (const project of PYTHON_DISTRIBUTIONS) {
+  for (const project of PYTHON_PROJECTS) {
     const pyproject = await readFile(path.join(ROOT, project.path, 'pyproject.toml'), 'utf8');
-    expect(project.name).toBe(path.posix.basename(project.path));
+    expect(project.name).toBe(path.basename(path.resolve(ROOT, project.path)));
     expect(pyproject).toContain(`name = ${JSON.stringify(project.name)}`);
+    expect(pyproject).toContain(`version = ${JSON.stringify(root.version)}`);
+    if (project.path !== '.') {
+      await expect(access(path.join(ROOT, project.path, 'uv.lock'))).rejects.toThrow();
+    }
   }
 });
 
 test('keeps every Projen-generated file read-only', async () => {
   const projectDirectories = [
     ROOT,
-    ...WORKSPACES.map(workspace => workspacePath(workspace)),
-    ...PYTHON_DISTRIBUTIONS.map(project => path.join(ROOT, project.path)),
+    ...BUN_WORKSPACES.map(workspace => workspacePath(workspace)),
+    ...PYTHON_PROJECTS.map(project => path.join(ROOT, project.path)),
   ];
 
   for (const directory of projectDirectories) {
@@ -78,9 +95,7 @@ test('keeps every Projen-generated file read-only', async () => {
   }
 });
 
-test('discovers uv projects whose lockfiles must follow release versions', async () => {
-  expect(await uvProjectPaths()).toEqual([
-    'packages/js/pynect/example',
-    'packages/py/pynect-worker',
-  ]);
+test('uses one uv workspace lockfile for every Python project', async () => {
+  expect(await uvProjectPaths()).toEqual(['.']);
+  expect(PYTHON_DISTRIBUTIONS.map(project => project.name)).toEqual(['pynect-worker']);
 });

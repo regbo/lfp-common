@@ -6,8 +6,10 @@
   operations for schema export, and retains the deprecated decorator adapter.
 - `src/pynect_worker/schema.py`: exports Chanx AsyncAPI without starting an HTTP
   listener and marks iterator operations with `x-pynect-stream`.
-- `src/pynect_worker/ipc.py`: adapts newline-delimited local streams to ASGI
-  WebSocket connections.
+- `src/pynect_worker/worker/protocol.py`: validates marker-and-length records
+  and serializes complete writes through one lock.
+- `src/pynect_worker/worker/stdio.py`: adapts the owning process's stdin and
+  stdout to one ASGI WebSocket connection and deterministic shutdown.
 - `src/pynect_worker/_app.py`: imports a configured `module:object` application.
 
 Keep application messages, handlers, validation, and routes in the consumer's

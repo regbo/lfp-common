@@ -25,7 +25,7 @@ export const projectOptionsSchema = z.object({
   root: z.string().trim().min(1).default('.').describe('Python project directory.'),
   app: importTargetSchema.optional().describe('ASGI app as module:object.'),
   out: z.string().trim().min(1).optional().describe('Generated output directory.'),
-  name: z.string().trim().min(1).optional().describe('Project and IPC name override.'),
+  name: z.string().trim().min(1).optional().describe('Generated project name override.'),
   python: z.string().trim().min(1).optional().describe('Python request passed to Pyfig.'),
   uv: z.string().trim().min(1).optional().describe('uv executable or version constraint.'),
   debug: z.boolean().optional().describe('Write Pyfig and Python worker diagnostics to stderr.'),
@@ -37,7 +37,6 @@ export interface PynectProject {
   readonly app: string;
   readonly debug: boolean;
   readonly format: boolean;
-  readonly ipcEnvironmentVariable: string;
   readonly name: string;
   readonly outDir: string;
   readonly pyprojectPath: string;
@@ -68,7 +67,6 @@ export function resolveProject(input: ProjectOptions = {}): PynectProject {
     app: options.app ?? configured.app,
     debug: options.debug ?? configured.debug,
     format: configured.format,
-    ipcEnvironmentVariable: `${slug.replaceAll('-', '_').toUpperCase()}_IPC_PATH`,
     name,
     outDir,
     pyprojectPath,

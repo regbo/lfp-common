@@ -8,8 +8,6 @@
 /.projen/files.json linguist-generated
 /.projen/tasks.json linguist-generated
 /bun.lockb linguist-generated
-/example/_generated/** linguist-generated
-/example/tsconfig.json linguist-generated linguist-language=JSON-with-Comments
 /LICENSE linguist-generated
 /package.json linguist-generated
 /scripts/tsconfig.json linguist-generated linguist-language=JSON-with-Comments

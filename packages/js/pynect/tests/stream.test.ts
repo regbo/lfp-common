@@ -1,18 +1,21 @@
 import { describe, expect, test } from 'bun:test';
 import type { ClientOptions } from '@chanx-js/client';
 import { PassThrough } from 'node:stream';
-import { connectModelCatalog, listModelsStream } from '../example/client.js';
-import { startExampleIpcServer } from '../example/ipc-server.js';
+import {
+  connectModelCatalog,
+  listModelsStream,
+} from '../../../py/pynect-worker-example/client.js';
+import { startExampleWorker } from '../../../py/pynect-worker-example/stdio-worker.js';
 
 describe('generated streams', () => {
   test('correlates concurrent streams over one physical socket', async () => {
-    await using server = await startExampleIpcServer({ stdout: new PassThrough() });
-    const socketFactory = server.clientOptions.socketFactory;
-    if (!socketFactory) throw new Error('IPC client options did not provide a socket factory.');
+    await using worker = await startExampleWorker({ stdout: new PassThrough() });
+    const socketFactory = worker.clientOptions.socketFactory;
+    if (!socketFactory) throw new Error('stdio client options did not provide a socket factory.');
 
     let sockets = 0;
     const options: ClientOptions = {
-      ...server.clientOptions,
+      ...worker.clientOptions,
       socketFactory: (url, protocols, socketOptions) => {
         sockets += 1;
         return socketFactory(url, protocols, socketOptions);

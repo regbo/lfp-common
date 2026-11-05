@@ -36,4 +36,3 @@ jspm_packages/
 /dist/
 !/src/_generated/metadata.ts
 !/scripts/tsconfig.json
-!/example/tsconfig.json

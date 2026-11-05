@@ -134,8 +134,8 @@ jobs:
         include:
           - distribution: pynect-worker
             project_directory: packages/py/pynect-worker
-            environment: pypi
             artifact: pynect-worker
+            environment: pypi
   release:
     name: Create GitHub release
     needs:

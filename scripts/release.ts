@@ -12,7 +12,9 @@ import {
 } from './release-lib.ts';
 import {
   ROOT,
+  BUN_WORKSPACES,
   PYTHON_DISTRIBUTIONS,
+  PYTHON_PROJECTS,
   WORKSPACES,
   generatedPackageVersionPaths,
   pypiVersionUrl,
@@ -39,18 +41,18 @@ const generatedVersionFiles = (await Promise.all(WORKSPACES.map(async workspace 
   (await generatedPackageVersionPaths(workspacePath(workspace)))
     .map(file => `${workspace.path}/${file}`)
 ))).flat();
-const generatedPythonVersionFiles = (await Promise.all(PYTHON_DISTRIBUTIONS.map(async project =>
+const generatedPythonVersionFiles = (await Promise.all(PYTHON_PROJECTS.map(async project =>
   (await generatedPackageVersionPaths(path.join(ROOT, project.path)))
-    .map(file => `${project.path}/${file}`)
+    .map(file => project.path === '.' ? file : `${project.path}/${file}`)
 ))).flat();
 const versionFiles = [
   '.projenrc.ts',
   'package.json',
   'bun.lock',
-  ...WORKSPACES.map(workspace => `${workspace.path}/package.json`),
+  ...BUN_WORKSPACES.map(workspace => `${workspace.path}/package.json`),
   ...generatedVersionFiles,
   ...generatedPythonVersionFiles,
-  ...uvProjects.map(project => `${project}/uv.lock`),
+  ...uvProjects.map(project => project === '.' ? 'uv.lock' : `${project}/uv.lock`),
 ] as const;
 const snapshots = new Map<string, { readonly content: Buffer; readonly mode: number }>();
 for (const filename of versionFiles) {

@@ -1,7 +1,8 @@
 {
   "manifestVersion": 3,
   "env": {
-    "PATH": "$(bun --eval \"console.log(process.env.PATH)\")"
+    "PATH": "$(echo .venv/bin:$PATH)",
+    "VIRTUAL_ENV": ".venv"
   },
   "tasks": {
     "build": {
@@ -59,19 +60,36 @@
     },
     "install": {
       "name": "install",
-      "description": "Install project dependencies and update lockfile (non-frozen)",
+      "description": "Install dependencies and update lockfile",
       "steps": [
         {
           "exec": "bun install"
+        },
+        {
+          "execArgs": [
+            "uv",
+            "sync",
+            "--all-packages",
+            "--all-groups"
+          ]
         }
       ]
     },
     "install:ci": {
       "name": "install:ci",
-      "description": "Install project dependencies using frozen lockfile",
+      "description": "Install dependencies with frozen lockfile",
       "steps": [
         {
           "exec": "bun install --frozen-lockfile"
+        },
+        {
+          "execArgs": [
+            "uv",
+            "sync",
+            "--all-packages",
+            "--all-groups",
+            "--locked"
+          ]
         }
       ]
     },
@@ -86,6 +104,17 @@
             "--filter",
             "./packages/js/*",
             "pack:release"
+          ]
+        },
+        {
+          "execArgs": [
+            "uv",
+            "build",
+            "--package",
+            "pynect-worker",
+            "--out-dir",
+            "dist/packages/python",
+            "--no-sources"
           ]
         }
       ]
@@ -171,13 +200,14 @@
           "execArgs": [
             "uv",
             "run",
-            "--directory",
-            "packages/py/pynect-worker",
             "--locked",
+            "--package",
+            "pynect-worker",
             "python",
             "-m",
             "pytest"
-          ]
+          ],
+          "cwd": "packages/py/pynect-worker"
         }
       ]
     },
@@ -207,6 +237,8 @@
         },
         {
           "execArgs": [
+            "bun",
+            "x",
             "tsc",
             "--noEmit",
             "-p",
@@ -226,28 +258,57 @@
           "execArgs": [
             "uv",
             "run",
-            "--directory",
-            "packages/py/pynect-worker",
             "--locked",
+            "--package",
+            "pynect-worker",
             "ruff",
             "check",
             "src",
             "tests"
-          ]
+          ],
+          "cwd": "packages/py/pynect-worker"
         },
         {
           "execArgs": [
             "uv",
             "run",
-            "--directory",
-            "packages/py/pynect-worker",
             "--locked",
+            "--package",
+            "pynect-worker",
             "ruff",
             "format",
             "--check",
             "src",
             "tests"
-          ]
+          ],
+          "cwd": "packages/py/pynect-worker"
+        },
+        {
+          "execArgs": [
+            "uv",
+            "run",
+            "--locked",
+            "--package",
+            "pynect-worker-example",
+            "ruff",
+            "check",
+            "src"
+          ],
+          "cwd": "packages/py/pynect-worker-example"
+        },
+        {
+          "execArgs": [
+            "uv",
+            "run",
+            "--locked",
+            "--package",
+            "pynect-worker-example",
+            "ruff",
+            "format",
+            "--check",
+            "src"
+          ],
+          "cwd": "packages/py/pynect-worker-example"
         }
       ]
     },

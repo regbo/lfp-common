@@ -11,7 +11,6 @@ from coolname import generate_slug
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
-
 from pynect_worker import AsyncJsonWebsocketConsumer
 
 Provider = Literal["anthropic", "openai"]
