@@ -22,7 +22,7 @@
     "watch": "projen watch",
     "projen": "projen",
     "pack:release": "bun pm pack --ignore-scripts --destination ../../../dist/packages --quiet",
-    "publish:release": "npm publish ../../../dist/packages/pynect-0.8.14.tgz --access public --tag latest --provenance",
+    "publish:release": "npm publish ../../../dist/packages/pynect-0.8.15.tgz --access public --tag latest --provenance",
     "benchmark:application": "bun scripts/benchmark-application.ts",
     "benchmark:stdio": "bun scripts/benchmark-stdio.ts",
     "example:cli": "bun ../../py/pynect-example/cli.ts",
@@ -73,7 +73,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "0.8.14",
+  "version": "0.8.15",
   "bugs": {
     "url": "https://github.com/regbo/lfp-common/issues"
   },

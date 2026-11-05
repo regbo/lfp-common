@@ -2,7 +2,7 @@
 
 [project]
 name = "pynect"
-version = "0.8.14"
+version = "0.8.15"
 description = "Chanx schema export and owned stdio adapter for Pynect"
 readme = "README.md"
 requires-python = ">=3.11"

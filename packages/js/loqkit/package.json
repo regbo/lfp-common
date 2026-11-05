@@ -19,7 +19,7 @@
     "watch": "projen watch",
     "projen": "projen",
     "pack:release": "bun pm pack --ignore-scripts --destination ../../../dist/packages --quiet",
-    "publish:release": "npm publish ../../../dist/packages/loqkit-0.8.14.tgz --access public --tag latest --provenance"
+    "publish:release": "npm publish ../../../dist/packages/loqkit-0.8.15.tgz --access public --tag latest --provenance"
   },
   "author": {
     "name": "regbo",
@@ -60,7 +60,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "0.8.14",
+  "version": "0.8.15",
   "bugs": {
     "url": "https://github.com/regbo/lfp-common/issues"
   },
