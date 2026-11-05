@@ -2,7 +2,7 @@
 
 [project]
 name = "pynect-example"
-version = "0.8.16"
+version = "0.8.17"
 description = "Runnable Pynect weather, event-stream, chat, and web-server examples"
 readme = "README.md"
 requires-python = ">=3.11"

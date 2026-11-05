@@ -18,7 +18,7 @@
     },
     "packages/js/loqkit": {
       "name": "loqkit",
-      "version": "0.8.16",
+      "version": "0.8.17",
       "dependencies": {
         "async-mutex": "catalog:",
         "ohash": "catalog:",
@@ -39,7 +39,7 @@
     },
     "packages/js/optionkit": {
       "name": "optionkit",
-      "version": "0.8.16",
+      "version": "0.8.17",
       "dependencies": {
         "@antfu/install-pkg": "catalog:",
         "semver": "catalog:",
@@ -64,7 +64,7 @@
     },
     "packages/js/pyfig": {
       "name": "pyfig",
-      "version": "0.8.16",
+      "version": "0.8.17",
       "bin": {
         "pyfig": "./dist/cli.js",
       },
@@ -87,7 +87,7 @@
     },
     "packages/js/pynect": {
       "name": "pynect",
-      "version": "0.8.16",
+      "version": "0.8.17",
       "bin": {
         "pynect": "dist/cli.js",
       },
@@ -107,7 +107,7 @@
     },
     "packages/py/pynect-example": {
       "name": "pynect-example",
-      "version": "0.8.16",
+      "version": "0.8.17",
       "dependencies": {
         "@chanx-js/client": "catalog:",
         "@clack/prompts": "catalog:",
