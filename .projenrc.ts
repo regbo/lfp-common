@@ -247,6 +247,7 @@ const rootUv = new python.Uv(root, {
     workspace: { members: ['packages/py/*'] },
   },
 });
+rootUv.file.addOverride('dependency-groups.dev', ['pytest>=9,<10', 'ruff>=0.17,<1']);
 rootUv.installTask.reset();
 rootUv.installTask.addSteps(...nodeInstallSteps);
 rootUv.installTask.execArgs(['uv', 'sync', '--all-packages', '--all-groups']);
@@ -388,6 +389,7 @@ function createPyPackage(
       },
     },
   });
+  uv.file.addDeletionOverride('dependency-groups');
   const workspaceSources = Object.fromEntries(dependencies.flatMap((dependency) => {
     const workspaceName = /^[A-Za-z0-9][A-Za-z0-9._-]*$/u.exec(dependency)?.[0];
     return workspaceName ? [[workspaceName, { workspace: true }]] : [];
@@ -395,7 +397,6 @@ function createPyPackage(
   if (Object.keys(workspaceSources).length > 0) {
     uv.file.addOverride('tool.uv.sources', workspaceSources);
   }
-  uv.file.addOverride('dependency-groups.dev', ['ruff>=0.17,<1']);
   uv.file.addOverride('tool.ruff', {
     'line-length': 120,
     'target-version': 'py311',
@@ -707,7 +708,6 @@ const pynectWorker = createPyPackage(
   },
   uv => {
     const project = uv.project;
-    uv.file.addOverride('dependency-groups.dev', ['pytest>=9,<10', 'ruff>=0.17,<1']);
     uv.file.addOverride('tool.pytest.ini_options', { testpaths: ['tests'] });
     uv.file.addOverride('tool.ruff.exclude', ['src/pynect_worker/_generated']);
     uv.file.addOverride('tool.ruff.src', ['src', 'tests']);
@@ -897,7 +897,12 @@ root.testTask.execArgs([
 root.testTask.execArgs(['bun', 'run', '--filter', WORKSPACE_FILTER, 'test']);
 for (const { project } of pythonPackages()) {
   for (const step of project.testTask.steps) {
-    root.testTask.addSteps({ ...step, cwd: projectRelativePath(project) });
+    const cwd = projectRelativePath(project);
+    root.testTask.addSteps({
+      ...step,
+      cwd,
+      env: { ...step.env, VIRTUAL_ENV: path.posix.relative(cwd, '.venv') },
+    });
   }
 }
 
@@ -908,9 +913,14 @@ workspaceTypecheck.execArgs([...PACWICH, 'verify', '--strict']);
 workspaceTypecheck.execArgs(['bun', 'x', 'tsc', '--noEmit', '-p', 'tsconfig.json']);
 workspaceTypecheck.execArgs(['bun', 'run', '--filter', WORKSPACE_FILTER, 'typecheck']);
 for (const { project } of pythonPackages()) {
+  const cwd = projectRelativePath(project);
   for (const taskName of ['check', 'format:check']) {
     for (const step of project.tasks.tryFind(taskName)?.steps ?? []) {
-      workspaceTypecheck.addSteps({ ...step, cwd: projectRelativePath(project) });
+      workspaceTypecheck.addSteps({
+        ...step,
+        cwd,
+        env: { ...step.env, VIRTUAL_ENV: path.posix.relative(cwd, '.venv') },
+      });
     }
   }
 }

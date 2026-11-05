@@ -30,9 +30,6 @@ dependencies = [
   Repository = "https://github.com/regbo/lfp-common.git"
   Issues = "https://github.com/regbo/lfp-common/issues"
 
-[dependency-groups]
-dev = [ "ruff>=0.17,<1" ]
-
 [build-system]
 requires = [ "uv_build>=0.10.7,<0.11" ]
 build-backend = "uv_build"

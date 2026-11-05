@@ -257,10 +257,19 @@ name = "lfp-common"
 version = "0.8.11"
 source = { virtual = "." }
 
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
 [package.metadata]
 
 [package.metadata.requires-dev]
-dev = []
+dev = [
+    { name = "pytest", specifier = ">=9,<10" },
+    { name = "ruff", specifier = ">=0.17,<1" },
+]
 
 [[package]]
 name = "opentelemetry-api"
@@ -470,20 +479,8 @@ dependencies = [
     { name = "chanx", extra = ["fast-channels"] },
 ]
 
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "ruff" },
-]
-
 [package.metadata]
 requires-dist = [{ name = "chanx", extras = ["fast-channels"], specifier = ">=2.13.0,<3" }]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=9,<10" },
-    { name = "ruff", specifier = ">=0.17,<1" },
-]
 
 [[package]]
 name = "pynect-worker-example"
@@ -496,11 +493,6 @@ dependencies = [
     { name = "uvicorn", extra = ["standard"] },
 ]
 
-[package.dev-dependencies]
-dev = [
-    { name = "ruff" },
-]
-
 [package.metadata]
 requires-dist = [
     { name = "chanx", extras = ["fast-channels"], specifier = ">=2.13.0,<3" },
@@ -508,9 +500,6 @@ requires-dist = [
     { name = "pynect-worker", editable = "packages/py/pynect-worker" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.40,<1" },
 ]
-
-[package.metadata.requires-dev]
-dev = [{ name = "ruff", specifier = ">=0.17,<1" }]
 
 [[package]]
 name = "pytest"

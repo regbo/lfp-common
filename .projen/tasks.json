@@ -207,7 +207,10 @@
             "-m",
             "pytest"
           ],
-          "cwd": "packages/py/pynect-worker"
+          "cwd": "packages/py/pynect-worker",
+          "env": {
+            "VIRTUAL_ENV": "../../../.venv"
+          }
         }
       ]
     },
@@ -266,7 +269,10 @@
             "src",
             "tests"
           ],
-          "cwd": "packages/py/pynect-worker"
+          "cwd": "packages/py/pynect-worker",
+          "env": {
+            "VIRTUAL_ENV": "../../../.venv"
+          }
         },
         {
           "execArgs": [
@@ -281,7 +287,10 @@
             "src",
             "tests"
           ],
-          "cwd": "packages/py/pynect-worker"
+          "cwd": "packages/py/pynect-worker",
+          "env": {
+            "VIRTUAL_ENV": "../../../.venv"
+          }
         },
         {
           "execArgs": [
@@ -294,7 +303,10 @@
             "check",
             "src"
           ],
-          "cwd": "packages/py/pynect-worker-example"
+          "cwd": "packages/py/pynect-worker-example",
+          "env": {
+            "VIRTUAL_ENV": "../../../.venv"
+          }
         },
         {
           "execArgs": [
@@ -308,7 +320,10 @@
             "--check",
             "src"
           ],
-          "cwd": "packages/py/pynect-worker-example"
+          "cwd": "packages/py/pynect-worker-example",
+          "env": {
+            "VIRTUAL_ENV": "../../../.venv"
+          }
         }
       ]
     },

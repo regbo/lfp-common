@@ -30,9 +30,6 @@ dependencies = [ "chanx[fast_channels]>=2.13.0,<3" ]
   [project.scripts]
   pynect-schema = "pynect_worker.schema:main"
 
-[dependency-groups]
-dev = [ "pytest>=9,<10", "ruff>=0.17,<1" ]
-
 [build-system]
 requires = [ "uv_build>=0.10.7,<0.11" ]
 build-backend = "uv_build"

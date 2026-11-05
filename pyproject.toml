@@ -11,7 +11,7 @@ dependencies = [ ]
   name = "regbo"
 
 [dependency-groups]
-dev = [ ]
+dev = [ "pytest>=9,<10", "ruff>=0.17,<1" ]
 
 [tool.uv]
 package = false
