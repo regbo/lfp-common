@@ -13,6 +13,11 @@
 - Use the root uv workspace for Python. Run Python commands through `uv run --locked --package <package>` when practical, and keep shared development dependencies centralized in the root `pyproject.toml`.
 - Run `bun run projen` after changing project configuration. Do not replace generated task definitions with package-local drift.
 
+## DRY review
+
+- Before adding or duplicating a helper, type, adapter, or normalization path, query the repository index with `find_similar` and use `implementation_lookup` for known symbols. Prefer an existing shared utility when it owns the same responsibility.
+- Before completing substantive code changes, compare newly introduced functions and types with the repository index. Treat semantic similarity as evidence to inspect, not proof of a violation; keep separate implementations when their responsibilities or runtime boundaries genuinely differ.
+
 ## Pynect boundaries
 
 - Python is the source of truth for Pynect schemas and handlers; TypeScript clients and types are generated from that contract. Regenerate consumers when the Python contract changes rather than patching generated output.

@@ -258,6 +258,7 @@ rootVsCode.settings.addSettings({
 });
 rootVsCode.settings.addSetting('ruff.configurationPreference', 'filesystemFirst');
 for (const pattern of [
+  '.codebase-index/index/',
   '.venv/',
   '**/__pycache__/',
   '*.pyc',

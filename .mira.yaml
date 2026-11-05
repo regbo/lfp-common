@@ -1,0 +1,87 @@
+llm:
+  provider: openai
+  api_style: responses
+  base_url: http://127.0.0.1:4000/v1
+  api_key_env: ""
+  model: chatgpt/gpt-5.6-sol
+  indexing_model: chatgpt/gpt-5.6-luna
+  review_model: chatgpt/gpt-5.6-terra
+  security_model: chatgpt/gpt-5.6-terra
+  review_reasoning_effort: high
+  temperature: 0.2
+  max_tokens: 8192
+  max_context_tokens: 120000
+  max_retries: 3
+  request_timeout: 300
+  retry_min_wait: 2
+  retry_max_wait: 30
+
+filter:
+  confidence_threshold: 0.65
+  category_confidence_thresholds:
+    security: 0.8
+  max_comments: 8
+  min_severity: suggestion
+  exclude_patterns:
+    - "*.lock"
+    - "*.lockb"
+    - package-lock.json
+    - yarn.lock
+    - pnpm-lock.yaml
+    - Pipfile.lock
+    - poetry.lock
+    - go.sum
+    - "*.min.js"
+    - "*.min.css"
+    - "*.map"
+    - "*.svg"
+    - "*.png"
+    - "*.jpg"
+    - "*.jpeg"
+    - "*.gif"
+    - "*.ico"
+    - "*.woff"
+    - "*.woff2"
+    - "*.ttf"
+    - "*.eot"
+    - "*.pdf"
+    - "*.zip"
+    - "*.tar.gz"
+    - "**/dist/**"
+    - "**/generated/**"
+    - "**/_generated/**"
+  exclude_deleted: true
+  max_files: 75
+
+review:
+  context_lines: 5
+  max_diff_size: 200000
+  max_file_size: 50000
+  max_chunks_per_review: 8
+  include_summary: true
+  focus_only_on_problems: false
+  walkthrough: true
+  walkthrough_sequence_diagram: false
+  pr_summary: disable
+  code_context: true
+  context_token_budget: 12000
+  max_concurrent_chunks: 2
+  ensemble_runs: 1
+  self_critique: true
+  security_pass: true
+  security_agentic: true
+  osv_scan: true
+  secrets_scan: true
+  agentic_tools: true
+  blast_radius: true
+  dependency_overlap: true
+  review_on_synchronize: false
+  overlap:
+    enabled: true
+    max_candidates: 20
+    confidence_floor: 0.65
+    title_similarity_threshold: 0.4
+
+index:
+  llm_concurrency: 2
+  max_file_size: 200000

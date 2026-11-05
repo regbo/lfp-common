@@ -31,6 +31,7 @@ jspm_packages/
 !/.github/workflows/build.yml
 !/.vscode/extensions.json
 !/.vscode/settings.json
+.codebase-index/index/
 .venv/
 **/__pycache__/
 *.pyc

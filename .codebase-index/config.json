@@ -1,0 +1,57 @@
+{
+  "embeddingProvider": "custom",
+  "scope": "project",
+  "customProvider": {
+    "baseUrl": "http://127.0.0.1:4000/v1",
+    "model": "deepinfra/BAAI/bge-m3",
+    "dimensions": 1024,
+    "maxTokens": 8192,
+    "timeoutMs": 120000,
+    "concurrency": 3,
+    "requestIntervalMs": 0
+  },
+  "exclude": [
+    "**/node_modules/**",
+    "**/.git/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/build-*/**",
+    "**/build_*/**",
+    "**/*-build/**",
+    "**/*_build/**",
+    "**/*-build-*/**",
+    "**/*-build_*/**",
+    "**/*_build-*/**",
+    "**/*_build_*/**",
+    "**/*.min.js",
+    "**/*.bundle.js",
+    "**/vendor/**",
+    "**/__pycache__/**",
+    "**/target/**",
+    "**/coverage/**",
+    "**/.next/**",
+    "**/.nuxt/**",
+    "**/.opencode/**",
+    "**/generated/**",
+    "**/_generated/**",
+    "**/.*",
+    "**/.*/**"
+  ],
+  "indexing": {
+    "autoIndex": true,
+    "watchFiles": true,
+    "requireProjectMarker": true,
+    "semanticOnly": false
+  },
+  "search": {
+    "maxResults": 20,
+    "minScore": 0.1,
+    "fusionStrategy": "rrf",
+    "rerankTopN": 20,
+    "communityBoost": 0
+  },
+  "knowledgeBases": [],
+  "mcp": {
+    "stallTimeoutMs": 300000
+  }
+}
