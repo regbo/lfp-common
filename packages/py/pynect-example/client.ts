@@ -29,7 +29,7 @@ export async function* listModelsStream(
   filters: ModelFilters = {},
 ): AsyncGenerator<Model> {
   await connection.ready({ timeout: 5_000 });
-  const result = await connection.request({
+  const result = connection.request({
     action: 'list_models_stream',
     payload: filters,
   });

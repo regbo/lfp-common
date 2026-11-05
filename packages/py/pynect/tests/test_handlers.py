@@ -2,14 +2,12 @@ import asyncio
 from collections.abc import AsyncIterator, Iterator
 from typing import Literal
 
-import pytest
 from chanx.core.decorators import ws_handler
 from chanx.messages.base import BaseMessage
 from chanx.messages.outgoing import CompleteMessage, ErrorMessage
 from pydantic import BaseModel
 
 from pynect import AsyncJsonWebsocketConsumer
-from pynect import ws_handler as pynect_ws_handler
 
 
 class Payload(BaseModel):
@@ -137,16 +135,3 @@ def test_iteration_error_closes_iterator_and_sends_chanx_error() -> None:
     assert [message.action for message in consumer.sent] == ["item", "error"]
     assert isinstance(consumer.sent[-1], ErrorMessage)
     assert consumer.finalized == ["failing_stream"]
-
-
-def test_legacy_decorator_remains_compatible() -> None:
-    with pytest.warns(DeprecationWarning, match="pynect.ws_handler is deprecated"):
-
-        @pynect_ws_handler
-        async def legacy(consumer: Consumer, message: Request) -> AsyncIterator[Response]:
-            yield Response(payload=message.payload)
-
-    consumer = Consumer()
-    asyncio.run(legacy(consumer, Request(payload=Payload(value="legacy"))))
-
-    assert [message.action for message in consumer.sent] == ["item", "complete"]

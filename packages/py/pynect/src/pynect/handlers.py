@@ -1,34 +1,16 @@
-"""Iterator adaptation shared by Pynect consumers and legacy decorators."""
+"""Iterator adaptation for Pynect consumers."""
 
 import inspect
-import warnings
 from collections.abc import AsyncGenerator, AsyncIterator, Generator, Iterator
 from functools import wraps
 from types import UnionType
 from typing import Any, Union, get_args, get_origin, get_type_hints
 
-from chanx.core.decorators import ws_handler as chanx_ws_handler
 from chanx.messages.base import BaseMessage
 from chanx.messages.outgoing import CompleteMessage
 
 _STREAM_ORIGINS = {AsyncGenerator, AsyncIterator, Generator, Iterator}
 _STREAM_OPERATIONS: set[tuple[str, str]] = set()
-
-
-def ws_handler(func: Any = None, **options: Any) -> Any:
-    """Decorate a Chanx handler with the pre-0.9 Pynect streaming adapter."""
-
-    warnings.warn(
-        "pynect.ws_handler is deprecated; import ws_handler from chanx.core.decorators "
-        "and subclass pynect.AsyncJsonWebsocketConsumer instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-
-    def decorate(handler: Any) -> Any:
-        return _adapt_handler(chanx_ws_handler(handler, **options))
-
-    return decorate if func is None else decorate(func)
 
 
 def _adapt_handler(handler: Any) -> Any:

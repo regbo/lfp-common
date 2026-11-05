@@ -34,9 +34,6 @@ class CatalogConsumer(AsyncJsonWebsocketConsumer):
         yield WatchResponse(payload=message.payload)
 ```
 
-`pynect.ws_handler` remains available for compatibility but is
-deprecated.
-
 The Pynect consumer also accepts synchronous handlers and synchronous
 `Iterator[Response]` streams. Async handlers continue to use Chanx unchanged.
 Chanx's annotations currently type handlers as async-only, so place a portable
